@@ -12,6 +12,11 @@ function getToken() {
   } catch { return '' }
 }
 
+function handleAuthError() {
+  localStorage.removeItem('raganything_auth')
+  window.dispatchEvent(new CustomEvent('raganything:auth-expired'))
+}
+
 function authHeaders(extra = {}) {
   const token = getToken()
   const h = { ...extra }
@@ -30,6 +35,7 @@ async function request(url, options = {}) {
     ...options,
     headers: authHeaders({ 'Content-Type': 'application/json', ...(options.headers || {}) }),
   })
+  if (res.status === 401) { handleAuthError(); throw new Error('登录已过期，请重新登录') }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || `HTTP ${res.status}`)
@@ -43,6 +49,7 @@ async function fetchJson(url, options = {}) {
     ...options,
     headers: authHeaders({ 'Content-Type': 'application/json', ...(options.headers || {}) }),
   })
+  if (res.status === 401) { handleAuthError(); throw new Error('登录已过期，请重新登录') }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || `HTTP ${res.status}`)
@@ -51,6 +58,16 @@ async function fetchJson(url, options = {}) {
 }
 
 export const api = {
+  // Generic HTTP methods
+  get: (url, config = {}) => {
+    const params = config.params
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return fetchJson(`${url}${qs}`)
+  },
+  post: (url, data) => fetchJson(url, { method: 'POST', body: JSON.stringify(data) }),
+  put: (url, data) => fetchJson(url, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (url) => fetchJson(url, { method: 'DELETE' }),
+
   // KB Management
   listKBs: () => fetchJson('/kb/list'),
   createKB: (name, label) => fetchJson(`/kb/create?kb_name=${name}&label=${encodeURIComponent(label)}`, { method: 'POST' }),
@@ -98,21 +115,21 @@ export const api = {
   retryDocument: (id) => request(`/knowledge/documents/${id}/retry`, { method: 'POST' }),
 
   // Query
-  query: (query, mode = 'hybrid', vlm = false) => request('/query', {
-    method: 'POST', body: JSON.stringify({ query, mode, vlm_enhanced: vlm }),
+  query: (query, mode = 'hybrid', vlm = false, agentMode = null) => request('/query', {
+    method: 'POST', body: JSON.stringify({ query, mode, vlm_enhanced: vlm, ...(agentMode ? { agent_mode: agentMode } : {}) }),
   }),
   getQueryHistory: (limit = 20) => request(`/query/history?limit=${limit}`),
   clearQueryHistory: () => request('/query/history', { method: 'DELETE' }),
 
-  // Settings
-  getSettings: () => request('/settings'),
-  updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Settings (admin only — uses fetchJson to avoid ?kb= param)
+  getSettings: () => fetchJson('/settings'),
+  updateSettings: (data) => fetchJson('/settings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Monitor
-  getStatus: () => request('/monitor/status'),
-  getLLMStats: () => request('/monitor/stats'),
-  getLogs: (limit = 50) => request(`/monitor/logs?limit=${limit}`),
-  health: () => request('/health'),
+  getStatus: () => fetchJson('/monitor/status'),
+  getLLMStats: () => fetchJson('/monitor/stats'),
+  getLogs: (limit = 50) => fetchJson(`/monitor/logs?limit=${limit}`),
+  health: () => fetchJson('/health'),
 
   // Agents
   listAgents: () => fetchJson('/agents'),

@@ -29,8 +29,66 @@ import asyncio
 from lightrag.utils import compute_mdhash_id
 
 
+# Module-level registry of pending background tasks.
+# Subprocess entry points (process_worker.py) await these before exiting
+# so that async multimodal processing is not killed mid-flight.
+_pending_background_tasks: "set[asyncio.Task]" = set()
+
+
+def register_background_task(task: "asyncio.Task") -> None:
+    """Register a background task so subprocesses can await it before exit."""
+    _pending_background_tasks.add(task)
+    task.add_done_callback(lambda t: _pending_background_tasks.discard(t))
+
+
+def get_pending_background_tasks() -> "set[asyncio.Task]":
+    """Return a snapshot of currently pending background tasks."""
+    return set(_pending_background_tasks)
+
+
 class ProcessorMixin:
     """ProcessorMixin class containing document processing functionality for RAGAnything"""
+
+    # Batch debounce: coalesce multiple index rebuilds within 500ms
+    _bm25_rebuild_timer: Any = None
+    _bm25_pending_chunks: List[Dict[str, Any]] = []
+
+    def _schedule_bm25_index_update(self, new_chunks: List[Dict[str, Any]] = None):
+        """Schedule a BM25 index rebuild with 500ms debounce.
+
+        Multiple rapid insertions are coalesced into a single rebuild.
+        """
+        import asyncio as _asyncio
+
+        hybrid_engine = getattr(self, "hybrid_search_engine", None)
+        if hybrid_engine is None:
+            return
+
+        # Accumulate pending chunks
+        if new_chunks:
+            self._bm25_pending_chunks.extend(new_chunks)
+
+        # Cancel existing timer (debounce)
+        if self._bm25_rebuild_timer is not None:
+            self._bm25_rebuild_timer.cancel()
+
+        # Schedule a single rebuild after 500ms
+        async def _do_rebuild():
+            await _asyncio.sleep(0.5)
+            engine = getattr(self, "hybrid_search_engine", None)
+            if engine is None:
+                return
+            pending = list(self._bm25_pending_chunks)
+            self._bm25_pending_chunks = []
+            if pending:
+                await engine.update_bm25_index(pending)
+            self._bm25_rebuild_timer = None
+
+        try:
+            loop = _asyncio.get_running_loop()
+            self._bm25_rebuild_timer = loop.create_task(_do_rebuild())
+        except RuntimeError:
+            pass  # No event loop available, skip
 
     def _get_file_reference(self, file_path: str) -> str:
         """
@@ -527,6 +585,15 @@ class ProcessorMixin:
                     output_dir=output_dir,
                     **kwargs,
                 )
+            elif ext in [".mp4", ".avi", ".mov", ".mkv", ".webm"]:
+                # Video files: create a simple content list for multimodal processing
+                self.logger.info(
+                    f"Detected video file: {file_path}, routing to video processor..."
+                )
+                content_list = [{
+                    "type": "video",
+                    "video_path": str(file_path),
+                }]
             else:
                 # For other or unknown formats, use generic parser
                 self.logger.info(
@@ -715,14 +782,57 @@ class ProcessorMixin:
 
         except Exception as e:
             self.logger.error(f"Error in multimodal processing: {e}")
-            # Fallback to individual processing if batch processing fails
-            self.logger.warning("Falling back to individual multimodal processing")
-            await self._process_multimodal_content_individual(
-                multimodal_items, file_path, doc_id
-            )
+            # Step 1: Retry in smaller batches (4 per batch) before individual fallback
+            try:
+                self.logger.warning("Retrying multimodal processing in small batches (4/batch)")
+                batch_size = 4
+                for batch_start in range(0, len(multimodal_items), batch_size):
+                    batch_items = multimodal_items[batch_start:batch_start + batch_size]
+                    await self._process_multimodal_content_batch_type_aware(
+                        batch_items, file_path, doc_id
+                    )
+            except Exception as e2:
+                self.logger.error(f"Batch retry also failed: {e2}")
+                self.logger.warning("Falling back to individual multimodal processing")
+                await self._process_multimodal_content_individual(
+                    multimodal_items, file_path, doc_id
+                )
 
             # Mark multimodal content as processed even after fallback
             await self._mark_multimodal_processing_complete(doc_id)
+
+    async def _process_multimodal_content_background(
+        self,
+        multimodal_items: List[Dict[str, Any]],
+        file_ref: str,
+        doc_id: str,
+    ):
+        """Background task: process multimodal content without blocking document insertion.
+
+        Runs VLM/LLM calls asynchronously, marks completion when done.
+        Failures are logged but don't affect the document's 'processed' status.
+        """
+        try:
+            self.logger.info(
+                f"Background multimodal processing started: {len(multimodal_items)} items for doc {doc_id}"
+            )
+            await self._process_multimodal_content(
+                multimodal_items, file_ref, doc_id
+            )
+            self.logger.info(
+                f"Background multimodal processing completed for doc {doc_id}"
+            )
+        except Exception as exc:
+            self.logger.error(
+                f"Background multimodal processing failed for doc {doc_id}: {exc}"
+            )
+        finally:
+            try:
+                await self._mark_multimodal_processing_complete(doc_id)
+            except Exception as exc:
+                self.logger.error(
+                    f"Failed to mark multimodal complete for doc {doc_id}: {exc}"
+                )
 
     async def _process_multimodal_content_individual(
         self, multimodal_items: List[Dict[str, Any]], file_path: str, doc_id: str
@@ -906,8 +1016,14 @@ class ProcessorMixin:
         except Exception:
             existing_chunks_count = 0
 
-        # Use LightRAG's concurrency control
-        semaphore = asyncio.Semaphore(getattr(self.lightrag, "max_parallel_insert", 2))
+        # Concurrency control for VLM/LLM description generation.
+        # Uses MULTIMODAL_MAX_CONCURRENT env var (default 8), capped by
+        # LightRAG's llm_model_max_async so we don't overwhelm the HTTP pool.
+        _mm_concurrency = int(os.getenv("MULTIMODAL_MAX_CONCURRENT", "8"))
+        _llm_max_async = getattr(self.lightrag, "llm_model_max_async", None)
+        if _llm_max_async is not None and _llm_max_async > 0:
+            _mm_concurrency = max(1, min(_mm_concurrency, _llm_max_async))
+        semaphore = asyncio.Semaphore(_mm_concurrency)
 
         # Progress tracking variables
         total_items = len(multimodal_items)
@@ -1077,11 +1193,32 @@ class ProcessorMixin:
                 content_type, original_item, description
             )
 
-            # Generate chunk_id
-            chunk_id = compute_mdhash_id(formatted_chunk_content, prefix="chunk-")
-
             # Calculate tokens
             tokens = len(self.lightrag.tokenizer.encode(formatted_chunk_content))
+
+            # Truncate content exceeding the embedding model's input limit.
+            # NOTE: LightRAG uses o200k_base (gpt-4o-mini) tokenizer which
+            # counts ~2× fewer tokens for Chinese text than the actual qwen
+            # embedding API.  Using a character-based limit avoids this mismatch.
+            # 8000 chars keeps qwen well under its 8192-token ceiling even for
+            # all-Chinese content (~1 char/token worst case).
+            _MAX_CHUNK_CHARS = 8000
+            if len(formatted_chunk_content) > _MAX_CHUNK_CHARS:
+                formatted_chunk_content = (
+                    formatted_chunk_content[:_MAX_CHUNK_CHARS]
+                    + "\n\n[内容已截断，超出嵌入模型长度限制]"
+                )
+                tokens = len(
+                    self.lightrag.tokenizer.encode(formatted_chunk_content)
+                )
+                self.logger.warning(
+                    f"Truncated multimodal chunk: "
+                    f"{len(formatted_chunk_content)} chars, {tokens} tokens "
+                    f"(content_type={content_type})"
+                )
+
+            # Generate chunk_id from the (possibly truncated) content
+            chunk_id = compute_mdhash_id(formatted_chunk_content, prefix="chunk-")
 
             # Use full path or basename based on config
             file_ref = self._get_file_reference(file_path)
@@ -1178,6 +1315,21 @@ class ProcessorMixin:
                     enhanced_caption=description,
                 )
 
+            elif content_type == "video":
+                video_path = original_item.get("video_path", "")
+                duration = original_item.get("duration", 0)
+                frame_count = original_item.get("frame_count", "unknown")
+
+                return PROMPTS["video_chunk"].format(
+                    video_path=video_path,
+                    duration=str(duration),
+                    frame_count=str(frame_count),
+                    transcript_summary=description[:200] + "..."
+                    if len(description) > 200
+                    else description,
+                    enhanced_caption=description,
+                )
+
             else:  # generic or unknown types
                 content = str(original_item.get("content", original_item))
 
@@ -1197,15 +1349,44 @@ class ProcessorMixin:
     async def _store_chunks_to_lightrag_storage_type_aware(
         self, chunks: Dict[str, Any]
     ):
-        """Store chunks to storage"""
+        """Store chunks to storage with concurrent, resilient embedding.
+
+        Each chunk is embedded individually so a single over-limit chunk
+        doesn't block the rest.  Upserts run concurrently (batch of 10) to
+        keep latency low while staying well within API rate limits.
+        """
         try:
-            # Store in text_chunks storage (required for extract_entities)
+            # Store in text_chunks storage (no embedding, safe to batch)
             await self.lightrag.text_chunks.upsert(chunks)
 
-            # Store in chunks vector database for retrieval
-            await self.lightrag.chunks_vdb.upsert(chunks)
+            # Concurrent upsert with bounded parallelism
+            failed_ids: list[str] = []
+            _upsert_sem = asyncio.Semaphore(10)
 
-            self.logger.debug(f"Stored {len(chunks)} multimodal chunks to storage")
+            async def _upsert_one(cid: str, cdata: dict) -> None:
+                async with _upsert_sem:
+                    try:
+                        await self.lightrag.chunks_vdb.upsert({cid: cdata})
+                    except Exception as chunk_err:
+                        failed_ids.append(cid)
+                        self.logger.warning(
+                            f"Chunk {cid[:20]}... embedding failed "
+                            f"(skipped): {chunk_err}"
+                        )
+
+            await asyncio.gather(
+                *(_upsert_one(cid, cdata) for cid, cdata in chunks.items())
+            )
+
+            if failed_ids:
+                self.logger.warning(
+                    f"{len(failed_ids)}/{len(chunks)} chunks skipped due to "
+                    f"embedding errors"
+                )
+            else:
+                self.logger.debug(
+                    f"Stored {len(chunks)} multimodal chunks to storage"
+                )
 
         except Exception as e:
             self.logger.error(f"Error storing chunks to storage: {e}")
@@ -2218,6 +2399,11 @@ class ProcessorMixin:
                 split_by_character_only=split_by_character_only,
                 ids=doc_id,
             )
+            # Persist LightRAG storages to disk (text_chunks, entities, etc.)
+            try:
+                await self.lightrag._insert_done()
+            except Exception:
+                pass
             await self._upsert_doc_status(
                 doc_id,
                 file_ref,
@@ -2236,18 +2422,45 @@ class ProcessorMixin:
             # file_ref was resolved before insertion so doc_status can be initialized early
             pass
 
-        # Step 3: Process multimodal content (using specialized processors)
+        # Step 3: Process multimodal content in background (non-blocking)
+        # VLM/LLM calls for image captions & table analysis can take minutes;
+        # run them as a background task so text chunks are searchable immediately.
         if multimodal_items:
-            await self._process_multimodal_content(multimodal_items, file_ref, doc_id)
+            import asyncio as _asyncio
+            try:
+                loop = _asyncio.get_running_loop()
+                bg_task = loop.create_task(
+                    self._process_multimodal_content_background(
+                        multimodal_items, file_ref, doc_id
+                    )
+                )
+                register_background_task(bg_task)
+                self.logger.info(
+                    f"Scheduled {len(multimodal_items)} multimodal items for background processing"
+                )
+                # Mark document as processed immediately — text is ready for search
+                await self._upsert_doc_status(
+                    doc_id, file_ref,
+                    status=DocStatus.PROCESSED,
+                    error_msg="",
+                )
+            except RuntimeError:
+                # No event loop available — fall back to sync
+                await self._process_multimodal_content(
+                    multimodal_items, file_ref, doc_id
+                )
+                await self._mark_multimodal_processing_complete(doc_id)
         else:
-            # If no multimodal content, mark multimodal processing as complete
-            # This ensures the document status properly reflects completion of all processing
             await self._mark_multimodal_processing_complete(doc_id)
             self.logger.debug(
                 f"No multimodal content found in document {doc_id}, marked multimodal processing as complete"
             )
 
         self.logger.info(f"Content list insertion complete for: {file_path}")
+
+        # Trigger BM25 index update for RRF hybrid search
+        self._schedule_bm25_index_update()
+
         if callback_manager is not None:
             duration = time.time() - doc_start_time
             callback_manager.dispatch(

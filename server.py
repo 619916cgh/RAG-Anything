@@ -44,7 +44,9 @@ import httpx
 
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc, logger as lightrag_logger
+from lightrag import QueryParam as LightRAGQueryParam
 from raganything import RAGAnything, RAGAnythingConfig
+from raganything.workflow_executor import execute_workflow, RUNS_DIR, ExecutionContext
 from raganything.chunking import (
     recursive_chunking,
     sentence_chunking,
@@ -264,9 +266,9 @@ async def verify_kb_access(kb: str = QueryParam("default"), current_user: dict =
                 user_kb = name
                 break
         if user_kb:
-            # 静默切换到用户的 KB
-            return user_kb
-        # 用户还没有 KB，自动创建
+            # 不自动强制切换——让用户在前端手动选择知识库
+            return kb
+        # 用户还没有 KB，自动创建并初始化存储
         personal_kb = current_user["username"]
         meta[personal_kb] = {
             "name": f"{current_user['username']}的知识库",
@@ -277,6 +279,8 @@ async def verify_kb_access(kb: str = QueryParam("default"), current_user: dict =
         save_kb_meta(meta)
         global active_kb
         active_kb = personal_kb
+        # 初始化新 KB 的存储目录
+        await get_kb(personal_kb)
         return personal_kb
     return kb
 
@@ -456,6 +460,7 @@ def create_rag(parser: str = None, working_dir: str = None, chunking_strategy: s
         enable_image_processing=os.getenv("ENABLE_IMAGE_PROCESSING", "false").lower() == "true",
         enable_table_processing=os.getenv("ENABLE_TABLE_PROCESSING", "false").lower() == "true",
         enable_equation_processing=os.getenv("ENABLE_EQUATION_PROCESSING", "false").lower() == "true",
+        enable_video_processing=os.getenv("ENABLE_VIDEO_PROCESSING", "false").lower() == "true",
     )
 
     return RAGAnything(config=config, llm_model_func=llm_func,
@@ -469,6 +474,7 @@ class QueryRequest(BaseModel):
     mode: str = "hybrid"
     vlm_enhanced: bool = False
     only_need_context: bool = False
+    agent_mode: Optional[str] = None  # "react" | "cot" | None（默认普通模式）
 
 class PasteContentRequest(BaseModel):
     content: str
@@ -487,6 +493,7 @@ class BatchDeleteRequest(BaseModel):
     enable_image: Optional[bool] = None
     enable_table: Optional[bool] = None
     enable_equation: Optional[bool] = None
+    enable_video: Optional[bool] = None
 
 
 # ── 生命周期 ───────────────────────────────────────
@@ -777,7 +784,7 @@ async def serve_image(path: str = QueryParam(...)):
 
 @app.post("/api/auth/register")
 @limiter.limit("5/minute")
-async def auth_register(req: AuthRegisterRequest):
+async def auth_register(request: Request, req: AuthRegisterRequest):
     """用户注册"""
     try:
         user = await create_user(req.username, req.email, req.password)
@@ -788,7 +795,7 @@ async def auth_register(req: AuthRegisterRequest):
 
 @app.post("/api/auth/login")
 @limiter.limit("10/minute")
-async def auth_login(req: AuthLoginRequest):
+async def auth_login(request: Request, req: AuthLoginRequest):
     """用户登录，返回 JWT Token（含暴力破解防护）"""
     # 检查账号是否被锁定
     lock_msg = await check_account_locked(req.username)
@@ -820,7 +827,7 @@ class RefreshRequest(BaseModel):
 
 @app.post("/api/auth/refresh")
 @limiter.limit("30/minute")
-async def auth_refresh(req: RefreshRequest):
+async def auth_refresh(request: Request, req: RefreshRequest):
     """使用 Refresh Token 换取新的 Access Token"""
     payload = decode_refresh_token(req.refresh_token)
     if not payload:
@@ -887,12 +894,273 @@ async def admin_delete_user(user_id: int, admin: dict = Depends(get_admin_user))
 
 
 # ════════════════════════════════════════════════════════
+# 工作流编排 API
+# ════════════════════════════════════════════════════════
+
+WORKFLOW_DIR = Path("./workflows")
+WORKFLOW_DIR.mkdir(exist_ok=True)
+
+
+@app.get("/api/workflows")
+async def list_workflows(current_user: dict = Depends(get_current_user)):
+    """列出所有工作流"""
+    workflows = []
+    for f in sorted(WORKFLOW_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            wf = json.loads(f.read_text(encoding="utf-8"))
+            workflows.append({"id": wf.get("id"), "name": wf.get("name"), "created_at": wf.get("created_at"), "updated_at": wf.get("updated_at")})
+        except Exception:
+            pass
+    return {"workflows": workflows}
+
+
+@app.get("/api/workflows/files")
+async def list_uploaded_files(file_type: str = "", current_user: dict = Depends(get_current_user)):
+    """列出 uploads/ 目录下的文件供工作流选择"""
+    upload_dir = Path("./uploads")
+    upload_dir.mkdir(exist_ok=True)
+    files = []
+    for f in sorted(upload_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if f.is_file():
+            if file_type and f.suffix.lower() != file_type:
+                continue
+            files.append({
+                "name": f.name, "size": f.stat().st_size, "suffix": f.suffix.lower(),
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            })
+    return {"files": files}
+
+
+@app.post("/api/workflows/upload")
+async def upload_file_for_workflow(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """上传文件到 uploads/ 供工作流使用"""
+    upload_dir = Path("./uploads")
+    upload_dir.mkdir(exist_ok=True)
+    content = await file.read()
+    (upload_dir / file.filename).write_bytes(content)
+    return {"status": "ok", "filename": file.filename, "size": len(content)}
+
+
+@app.get("/api/workflows/models")
+async def list_available_models(
+    current_user: dict = Depends(get_current_user),
+    type: str = "",
+):
+    """返回系统配置的可用模型列表（来自 .env 配置），支持 ?type=llm|embed 分类"""
+    llm_model = os.getenv("LLM_MODEL", "")
+    vision_model = os.getenv("VISION_MODEL", "")
+    embed_model = os.getenv("EMBEDDING_MODEL", "")
+    extra_llm = os.getenv("LLM_AVAILABLE_MODELS", "")
+    extra_embed = os.getenv("EMBEDDING_AVAILABLE_MODELS", "")
+
+    def _collect(*sources: str) -> list[dict]:
+        seen = set()
+        result = []
+        for src in sources:
+            for m in src.split(","):
+                m = m.strip()
+                if m and m not in seen:
+                    seen.add(m)
+                    result.append({"id": m, "name": m, "source": "env"})
+        return result
+
+    if type == "llm":
+        models = _collect(llm_model, vision_model, extra_llm)
+        if not models:
+            models.append({"id": "qwen-plus", "name": "qwen-plus (默认)", "source": "fallback"})
+    elif type == "embed":
+        models = _collect(embed_model, extra_embed)
+        if not models:
+            models.append({"id": "text-embedding-v4", "name": "text-embedding-v4 (默认)", "source": "fallback"})
+    else:
+        # 兼容旧调用，不分类
+        models = _collect(llm_model, vision_model, embed_model, extra_llm, extra_embed)
+        if not models:
+            models.append({"id": "qwen-plus", "name": "qwen-plus (默认)", "source": "fallback"})
+
+    return {"models": models}
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str, current_user: dict = Depends(get_current_user)):
+    """获取单个工作流"""
+    fpath = WORKFLOW_DIR / f"{workflow_id}.json"
+    if not fpath.exists():
+        raise HTTPException(404, "工作流不存在")
+    return json.loads(fpath.read_text(encoding="utf-8"))
+
+
+@app.post("/api/workflows")
+async def create_workflow(request: Request, current_user: dict = Depends(get_current_user)):
+    """创建新工作流"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "无效的请求体")
+    wf_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    wf = {
+        "id": wf_id,
+        "name": body.get("name", "未命名工作流"),
+        "created_at": now,
+        "updated_at": now,
+        "nodes": body.get("nodes", []),
+        "edges": body.get("edges", []),
+    }
+    (WORKFLOW_DIR / f"{wf_id}.json").write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
+    return wf
+
+
+@app.put("/api/workflows/{workflow_id}")
+async def update_workflow(workflow_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """更新工作流"""
+    fpath = WORKFLOW_DIR / f"{workflow_id}.json"
+    if not fpath.exists():
+        raise HTTPException(404, "工作流不存在")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "无效的请求体")
+    existing = json.loads(fpath.read_text(encoding="utf-8"))
+    existing["name"] = body.get("name", existing["name"])
+    existing["nodes"] = body.get("nodes", existing["nodes"])
+    existing["edges"] = body.get("edges", existing["edges"])
+    existing["updated_at"] = datetime.now().isoformat()
+    fpath.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    return existing
+
+
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow(workflow_id: str, current_user: dict = Depends(get_current_user)):
+    """删除工作流"""
+    fpath = WORKFLOW_DIR / f"{workflow_id}.json"
+    if not fpath.exists():
+        raise HTTPException(404, "工作流不存在")
+    fpath.unlink()
+    return {"status": "ok"}
+
+
+# ── WebSocket 连接管理 ─────────────────────────────
+active_ws_connections: dict[str, list] = {}  # run_id → [ws1, ws2, ...]
+
+
+@app.websocket("/ws/workflow-run/{run_id}")
+async def websocket_workflow_run(ws: WebSocket, run_id: str):
+    """WebSocket: 推送工作流执行状态"""
+    await ws.accept()
+    if run_id not in active_ws_connections:
+        active_ws_connections[run_id] = []
+    active_ws_connections[run_id].append(ws)
+    try:
+        while True:
+            await ws.receive_text()  # 保持连接，忽略客户端消息
+    except WebSocketDisconnect:
+        pass
+    finally:
+        active_ws_connections[run_id].remove(ws)
+        if not active_ws_connections[run_id]:
+            del active_ws_connections[run_id]
+
+
+async def push_run_status(run_id: str, node_id: str | None, status: str, data: dict | None = None):
+    """向所有订阅者推送执行状态"""
+    msg = {"type": "node_status" if node_id else "run_complete",
+           "run_id": run_id, "status": status}
+    if node_id:
+        msg["node_id"] = node_id
+    if data:
+        msg["data"] = data
+    for ws in active_ws_connections.get(run_id, []):
+        try:
+            await ws.send_json(msg)
+        except Exception:
+            pass
+
+
+class WorkflowRunRequest(BaseModel):
+    query_text: str = ""
+
+
+@app.post("/api/workflows/{workflow_id}/run")
+async def run_workflow(workflow_id: str, body: WorkflowRunRequest = WorkflowRunRequest(), current_user: dict = Depends(get_current_user)):
+    """执行工作流 DAG，支持运行时 query_text 注入到 retriever 节点"""
+    fpath = WORKFLOW_DIR / f"{workflow_id}.json"
+    if not fpath.exists():
+        raise HTTPException(404, "工作流不存在")
+    wf = json.loads(fpath.read_text(encoding="utf-8"))
+    nodes = wf.get("nodes", [])
+    if not nodes:
+        raise HTTPException(400, "工作流没有节点")
+
+    # 运行时注入 query_text 到所有 retriever 节点
+    if body.query_text.strip():
+        for node in wf.get("nodes", []):
+            if node.get("data", {}).get("nodeType") == "retriever":
+                node["data"]["query_text"] = body.query_text.strip()
+
+    # 构建执行上下文（注入真实 RAG 组件）
+    default_kb = await get_kb("default")
+    exec_ctx = ExecutionContext(
+        llm_model=LLM_MODEL,
+        llm_api_key=API_KEY,
+        llm_base_url=BASE_URL,
+        embed_model=EMB_MODEL,
+        embed_dim=EMB_DIM,
+        embed_api_key=API_KEY,
+        embed_base_url=BASE_URL,
+        kb_instance=default_kb,
+        upload_dir=Path("./uploads"),
+        openai_complete_func=openai_complete_if_cache,
+        openai_embed_func=openai_embed,
+    )
+
+    async def status_cb(node_id, status, data=None):
+        # exec_ctx._run_id_cache is set by execute_workflow() when run starts
+        if exec_ctx._run_id_cache:
+            await push_run_status(exec_ctx._run_id_cache, node_id, status, data)
+
+    try:
+        result = await execute_workflow(wf, ctx=exec_ctx, status_callback=status_cb)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    return result
+
+
+@app.get("/api/workflows/{workflow_id}/runs")
+async def list_workflow_runs(workflow_id: str, current_user: dict = Depends(get_current_user)):
+    """列出工作流的所有运行记录"""
+    runs = []
+    for f in sorted(RUNS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+            if r.get("workflow_id") == workflow_id:
+                runs.append({
+                    "run_id": r["run_id"], "status": r["status"],
+                    "started_at": r.get("started_at"), "completed_at": r.get("completed_at"),
+                    "workflow_name": r.get("workflow_name"),
+                })
+        except Exception:
+            pass
+    return {"runs": runs}
+
+
+@app.get("/api/workflows/{workflow_id}/runs/{run_id}")
+async def get_workflow_run(workflow_id: str, run_id: str, current_user: dict = Depends(get_current_user)):
+    """获取单次运行详情"""
+    fpath = RUNS_DIR / f"{run_id}.json"
+    if not fpath.exists():
+        raise HTTPException(404, "运行记录不存在")
+    return json.loads(fpath.read_text(encoding="utf-8"))
+
+
+# ════════════════════════════════════════════════════════
 # 业务路由（需认证）
 # ════════════════════════════════════════════════════════
 
 @app.post("/api/upload")
 @limiter.limit("30/minute")
-async def upload_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None,
+async def upload_file(request: Request, file: UploadFile = File(...), background_tasks: BackgroundTasks = None,
                        kb: str = Depends(verify_kb_access), chunking_strategy: str = "",
                        current_user: dict = Depends(get_current_user)):
     """上传单个文件 - 立即返回，后台异步处理"""
@@ -918,7 +1186,7 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
 
 @app.post("/api/upload/batch")
 @limiter.limit("20/minute")
-async def upload_files(files: list[UploadFile] = File(...), background_tasks: BackgroundTasks = None,
+async def upload_files(request: Request, files: list[UploadFile] = File(...), background_tasks: BackgroundTasks = None,
                        kb: str = Depends(verify_kb_access), chunking_strategy: str = "",
                        current_user: dict = Depends(get_current_user)):
     """批量上传文件 - 接收多个文件，逐个后台处理"""
@@ -1012,8 +1280,11 @@ async def list_documents(kb: str = Depends(verify_kb_access)):
         status_path = Path(kb_dir(kb)) / "kv_store_doc_status.json"
         data = {}
         if status_path.exists():
-            with open(status_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                data = json.loads(status_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                lightrag_logger.warning(f"doc_status JSON 损坏，返回空列表: {status_path}")
+                data = {}
         docs = []
         seen_files = set()
         for doc_id, info in data.items():
@@ -1053,33 +1324,61 @@ async def list_documents(kb: str = Depends(verify_kb_access)):
 @app.get("/api/knowledge/stats")
 async def knowledge_stats(kb: str = Depends(verify_kb_access)):
     """知识库总体统计"""
+
+    def _safe_load_json(path: Path) -> dict:
+        """安全加载 JSON，文件损坏时返回空 dict 并记录警告。"""
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            lightrag_logger.warning(f"JSON 文件损坏: {path} — {exc}")
+            # 尝试修复：读取原始文本，移除尾部多余的内容后重新解析
+            try:
+                raw = path.read_text(encoding="utf-8")
+                # 找到最后一个合法 JSON 对象的结束位置
+                depth = 0
+                last_valid = 0
+                for i, ch in enumerate(raw):
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            last_valid = i + 1
+                if last_valid > 0:
+                    fixed = raw[:last_valid]
+                    # 验证修复后的 JSON
+                    data = json.loads(fixed)
+                    lightrag_logger.info(f"JSON 修复成功: {path} (截取 {last_valid}/{len(raw)} 字符)")
+                    # 写回修复后的内容
+                    path.write_text(fixed, encoding="utf-8")
+                    return data
+            except Exception:
+                pass
+            return {}
+
     stats = {"documents": 0, "entities": 0, "relations": 0, "chunks": 0}
     base = Path(kb_dir(kb))
 
     # 实体总数（聚合 count）
     ep = base / "kv_store_full_entities.json"
     if ep.exists():
-        with open(ep, "r", encoding="utf-8") as fh:
-            for v in json.load(fh).values():
-                stats["entities"] += v.get("count", len(v.get("entity_names", [])))
+        for v in _safe_load_json(ep).values():
+            stats["entities"] += v.get("count", len(v.get("entity_names", [])))
 
     # 关系总数
     rp = base / "kv_store_full_relations.json"
     if rp.exists():
-        with open(rp, "r", encoding="utf-8") as fh:
-            for v in json.load(fh).values():
-                stats["relations"] += v.get("count", len(v.get("relation_pairs", [])))
+        for v in _safe_load_json(rp).values():
+            stats["relations"] += v.get("count", len(v.get("relation_pairs", [])))
 
     # chunk 总数
     cp = base / "vdb_chunks.json"
     if cp.exists():
-        with open(cp, "r", encoding="utf-8") as fh:
-            stats["chunks"] = len(json.load(fh))
+        stats["chunks"] = len(_safe_load_json(cp))
 
     dp = base / "kv_store_doc_status.json"
     if dp.exists():
-        with open(dp, "r", encoding="utf-8") as fh:
-            stats["documents"] = len(json.load(fh))
+        stats["documents"] = len(_safe_load_json(dp))
     return stats
 
 
@@ -1234,7 +1533,24 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_access), curr
     if result.status == "success":
         return {"status": "deleted", "doc_id": full_id, "file": file_name, "message": result.message}
     elif result.status == "not_found":
-        raise HTTPException(404, f"文档 {file_name} 数据未找到")
+        # Data may be partially missing (e.g. multimodal processing was
+        # killed mid-flight).  Still remove the doc_status entry so the
+        # user isn't stuck with an undeletable ghost document.
+        try:
+            del doc_status[full_id]
+            import tempfile
+            tmp = status_path.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(doc_status, f, ensure_ascii=False, indent=2)
+            tmp.replace(status_path)
+            return {
+                "status": "deleted",
+                "doc_id": full_id,
+                "file": file_name,
+                "message": "文档记录已清理（部分数据不完整）",
+            }
+        except Exception:
+            raise HTTPException(404, f"文档 {file_name} 数据未找到")
     else:
         raise HTTPException(500, result.message)
 
@@ -1413,6 +1729,7 @@ class AgentCreateRequest(BaseModel):
     llm_model: str = "qwen-plus"
     temperature: float = 0.0
     query_mode: str = "hybrid"
+    agent_mode: str = "none"  # "none" | "react" | "cot"
     system_prompt: str = ""
     use_default_prompt: bool = True
     welcome_message: str = ""
@@ -1428,6 +1745,7 @@ class AgentUpdateRequest(BaseModel):
     temperature: Optional[float] = None
     max_response_tokens: Optional[int] = None
     query_mode: Optional[str] = None
+    agent_mode: Optional[str] = None  # "none" | "react" | "cot"
     retrieval_top_k: Optional[int] = None
     system_prompt: Optional[str] = None
     use_default_prompt: Optional[bool] = None
@@ -1476,6 +1794,7 @@ async def create_agent(req: AgentCreateRequest, current_user: dict = Depends(get
         llm_model=req.llm_model,
         temperature=req.temperature,
         query_mode=req.query_mode,
+        agent_mode=req.agent_mode,
         system_prompt=req.system_prompt,
         use_default_prompt=req.use_default_prompt,
         template_id=req.template_id,
@@ -1598,6 +1917,7 @@ class AgentQueryRequest(BaseModel):
     query: str
     thread_id: str = ""  # 关联的对话线程 ID
     mode: str = ""  # 空则使用智能体默认模式
+    agent_mode: Optional[str] = None  # 空则使用智能体默认的 agent_mode
     vlm_enhanced: bool = False
 
 
@@ -1620,7 +1940,12 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, current_user
     actual_kb = await verify_kb_access(kb=agent.kb_name, current_user=current_user)
 
     instance = await get_kb(actual_kb)
+    # 检索模式（agentic 路径优先 rrf 轻量模式，可被请求级覆盖；普通路径沿用 agent 配置）
     query_mode = req.mode or agent.query_mode
+    # 推理模式：请求级覆盖 > 智能体配置 > 默认 none
+    agent_mode = req.agent_mode or getattr(agent, 'agent_mode', 'none')
+    # AgenticRAG 专用检索模式：优先请求级，否则默认 rrf（更快）
+    agentic_query_mode = req.mode or "rrf"
 
     # 构建 system_prompt
     system_prompt = agent.system_prompt
@@ -1645,6 +1970,142 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, current_user
             yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.name, 'icon': agent.icon, 'thread_id': thread_id}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'thinking', 'content': f'🔍 开始查询: {req.query[:80]}...'}, ensure_ascii=False)}\n\n"
 
+            # ═══ AgenticRAG 推理路径（ReAct / CoT） ═══
+            if agent_mode in ("react", "cot"):
+                start_time = time.time()
+                from raganything.agentic_rag import AgenticRAG, SearchTool
+
+                agentic = AgenticRAG(
+                    llm_func=instance.llm_model_func,
+                    max_steps=int(os.getenv("AGENT_MAX_STEPS", "5")),
+                    mode=agent_mode,
+                )
+                agentic.register_tool(SearchTool(instance, query_mode=agentic_query_mode))
+
+                full_answer = ""
+                trace_steps = []
+
+                if agent_mode == "react":
+                    # ReAct 流式路径
+                    async for event in agentic.run_stream(req.query):
+                        if event.type == "thinking":
+                            sd = {
+                                "step": event.step or 0,
+                                "thought": event.thought or "",
+                                "action": event.action or "",
+                                "observation": event.observation or "",
+                                "elapsed_ms": event.elapsed_ms,
+                            }
+                            trace_steps.append(sd)
+                            yield f"data: {json.dumps({'type': 'thinking', **sd}, ensure_ascii=False)}\n\n"
+                        elif event.type == "token":
+                            full_answer += (event.content or "")
+                            yield f"data: {json.dumps({'type': 'token', 'content': event.content or ''}, ensure_ascii=False)}\n\n"
+                        elif event.type == "done":
+                            if event.answer and len(event.answer) > len(full_answer):
+                                full_answer = event.answer
+                            break
+                else:
+                    # CoT 路径：先 RRF 检索获取上下文，再注入 CoT 推理
+                    cot_context = ""
+                    try:
+                        cot_context = await instance.aquery(
+                            req.query, mode="rrf", only_need_context=True,
+                            top_k=30, max_total_tokens=8000,
+                        ) or ""
+                    except Exception:
+                        pass
+                    agent_result = await agentic.run_with_context(req.query, cot_context)
+                    full_answer = agent_result.answer
+                    for s in agent_result.trace:
+                        trace_steps.append({
+                            "step": s.step_number,
+                            "thought": s.thought,
+                            "elapsed_ms": s.elapsed_ms,
+                        })
+                        yield f"data: {json.dumps({'type': 'thinking', 'step': s.step_number, 'thought': s.thought, 'elapsed_ms': s.elapsed_ms}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
+
+                elapsed = round(time.time() - start_time, 2)
+                print(f"[AGENT-STREAM] mode={agent_mode} steps={len(trace_steps)} elapsed={elapsed}s", flush=True)
+
+                # ── 图片匹配（复用普通模式的 bigram 扫描逻辑）──
+                # 从 ReAct search observation 和 CoT 检索上下文中提取图片路径
+                all_retrieved_text = ""
+                for ts in trace_steps:
+                    if ts.get("observation"):
+                        all_retrieved_text += ts["observation"] + "\n"
+                if agent_mode == "cot" and cot_context:
+                    all_retrieved_text += cot_context + "\n"
+                all_retrieved_text += " " + req.query
+                all_retrieved_text += " " + full_answer
+
+                agent_images = extract_image_paths(all_retrieved_text)
+                if not agent_images:
+                    try:
+                        import json as _json
+                        _chunk_file = Path(kb_dir(actual_kb)) / 'kv_store_text_chunks.json'
+                        if _chunk_file.exists():
+                            _all = _json.loads(_chunk_file.read_text(encoding='utf-8'))
+                            q = req.query.lower()
+                            query_grams = set()
+                            for i in range(len(q) - 1):
+                                query_grams.add(q[i:i+2])
+                            scored = []
+                            for _cid, _chunk in _all.items():
+                                content = _chunk.get('content', '')
+                                paths = extract_image_paths(content)
+                                if not paths:
+                                    continue
+                                content_lower = content.lower()
+                                score = sum(1 for bg in query_grams if bg in content_lower)
+                                for p in paths:
+                                    scored.append((p, score))
+                            best = {}
+                            for p, s in scored:
+                                if p not in best or s > best[p]:
+                                    best[p] = s
+                            agent_images = [p for p, _ in sorted(best.items(), key=lambda x: -x[1]) if _ > 0][:3]
+                            if not agent_images:
+                                agent_images = list(best.keys())[:2]
+                            if agent_images:
+                                print(f"[AGENT-IMG] bigram匹配到 {len(agent_images)} 张相关图片 (共 {len(best)} 张)", flush=True)
+                    except Exception as _fe:
+                        print(f"[AGENT-IMG] 全库扫描失败: {_fe}", flush=True)
+                else:
+                    agent_images = agent_images[:3]
+
+                # 保存到对话线程
+                mgr.add_message(agent_id, thread_id, {
+                    "role": "user", "content": req.query,
+                    "time": datetime.now().isoformat(),
+                })
+                mgr.add_message(agent_id, thread_id, {
+                    "role": "assistant", "content": full_answer,
+                    "elapsed": elapsed, "mode": query_mode,
+                    "agent_mode": agent_mode, "trace": trace_steps,
+                    "time": datetime.now().isoformat(),
+                })
+
+                # 记录全局查询历史
+                record = {
+                    "id": query_id, "query": req.query, "mode": query_mode,
+                    "agent_mode": agent_mode, "answer": full_answer,
+                    "reasoning_trace": {"steps": trace_steps, "total_steps": len(trace_steps)},
+                    "images": agent_images, "time": datetime.now().isoformat(),
+                    "elapsed": elapsed, "kb": actual_kb,
+                    "agent_id": agent_id, "thread_id": thread_id,
+                    "user_id": current_user["id"], "username": current_user["username"],
+                }
+                query_history.insert(0, record)
+                if len(query_history) > 100:
+                    query_history = query_history[:100]
+                save_query_history()
+
+                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': agent_images}, ensure_ascii=False)}\n\n"
+                return
+
+            # ═══ 普通 RAG 流式路径（agent_mode=none） ═══
             start_time = time.time()
 
             # Step 1: 获取检索上下文
@@ -1793,14 +2254,91 @@ QUERY_SYSTEM_PROMPT = """基于检索内容回答。引用检索内容中的具�
 
 @app.post("/api/query")
 @limiter.limit("60/minute")
-async def query_rag(req: QueryRequest, kb: str = Depends(verify_kb_access), current_user: dict = Depends(get_current_user)):
-    """执行查询 - 手动构造 prompt 确保 LLM 使用检索内容"""
+async def query_rag(request: Request, req: QueryRequest, kb: str = Depends(verify_kb_access), current_user: dict = Depends(get_current_user)):
+    """执行查询 - 支持普通模式和 Agentic RAG 模式"""
     validate_query_input(req.query)
     global query_history
+
+    # Query cache (skip for agentic mode or explicit refresh)
+    refresh = request.query_params.get("refresh", "").lower() == "true"
+    agent_mode = req.agent_mode or os.getenv("AGENT_MODE", "none")
+    if not refresh and agent_mode == "none":
+        try:
+            from raganything.query_cache import get_query_cache
+            cache = get_query_cache()
+            cached = cache.get(req.query)
+            if cached:
+                cached["cache_hit"] = True
+                return JSONResponse(content=cached, headers={"X-Cache": "HIT"})
+        except Exception:
+            pass
+
     try:
         start = time.time()
         instance = await get_kb(kb)
 
+        # ── Agentic RAG 模式 ──
+        agent_mode = req.agent_mode or os.getenv("AGENT_MODE", "none")
+        if agent_mode in ("react", "cot"):
+            from raganything.agentic_rag import (
+                AgenticRAG, SearchTool, CalculatorTool,
+                DatabaseQueryTool, WebSearchTool,
+            )
+            max_steps = int(os.getenv("AGENT_MAX_STEPS", "5"))
+
+            agentic = AgenticRAG(
+                llm_func=instance.llm_model_func,
+                max_steps=max_steps,
+                mode=agent_mode,
+            )
+            # 注册 SearchTool（核心工具）
+            agentic.register_tool(SearchTool(instance, query_mode=req.mode))
+            # 注册 CalculatorTool
+            agentic.register_tool(CalculatorTool())
+            # 注册 DatabaseQueryTool（预留）
+            agentic.register_tool(DatabaseQueryTool(kb_dir(kb)))
+            # 注册 WebSearchTool
+            agentic.register_tool(WebSearchTool())
+
+            agent_result = await agentic.run(req.query)
+
+            elapsed = round(time.time() - start, 2)
+            record = {
+                "id": str(uuid.uuid4())[:8],
+                "query": req.query,
+                "mode": req.mode,
+                "agent_mode": agent_mode,
+                "answer": agent_result.answer,
+                "reasoning_trace": {
+                    "steps": [
+                        {
+                            "step_number": s.step_number,
+                            "thought": s.thought,
+                            "action": s.action,
+                            "action_input": s.action_input,
+                            "observation": s.observation,
+                            "elapsed_ms": s.elapsed_ms,
+                        }
+                        for s in agent_result.trace
+                    ],
+                    "total_steps": agent_result.total_steps,
+                    "total_elapsed_ms": agent_result.total_elapsed_ms,
+                },
+                "images": [],
+                "time": datetime.now().isoformat(),
+                "elapsed": elapsed,
+                "kb": kb,
+                "user_id": current_user["id"],
+                "username": current_user["username"],
+            }
+            query_history.insert(0, record)
+            if len(query_history) > 100:
+                query_history = query_history[:100]
+            save_query_history()
+            print(f"[AGENTIC] mode={agent_mode} steps={agent_result.total_steps} elapsed={elapsed}s", flush=True)
+            return record
+
+        # ── 普通 RAG 模式（原有逻辑）──
         # 查询改写（可选，ENABLE_QUERY_REWRITE=true 开启）
         rewritten_query = req.query
         if os.getenv("ENABLE_QUERY_REWRITE", "false").lower() == "true":
@@ -1816,8 +2354,9 @@ async def query_rag(req: QueryRequest, kb: str = Depends(verify_kb_access), curr
                 pass
 
         # Step 1: 获取检索上下文
+        enable_rerank = os.getenv("RERANK_ENABLED", "false").lower() == "true"
         ctx = await instance.aquery(rewritten_query, mode=req.mode, vlm_enhanced=False,
-                                     only_need_context=True, enable_rerank=False,
+                                     only_need_context=True, enable_rerank=enable_rerank,
                                      chunk_top_k=40, top_k=60,
                                      max_entity_tokens=3000, max_relation_tokens=2000,
                                      max_total_tokens=16000)
@@ -1913,7 +2452,16 @@ async def query_rag(req: QueryRequest, kb: str = Depends(verify_kb_access), curr
         if len(query_history) > 100:
             query_history = query_history[:100]
         save_query_history()
-        return record
+
+        # Save to query cache
+        if not refresh and agent_mode == "none":
+            try:
+                from raganything.query_cache import get_query_cache
+                get_query_cache().set(req.query, record)
+            except Exception:
+                pass
+
+        return JSONResponse(content=record, headers={"X-Cache": "MISS"})
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -2166,12 +2714,25 @@ async def get_settings(current_user: dict = Depends(get_current_user)):
         "enable_image": os.getenv("ENABLE_IMAGE_PROCESSING", "false").lower() == "true",
         "enable_table": os.getenv("ENABLE_TABLE_PROCESSING", "false").lower() == "true",
         "enable_equation": os.getenv("ENABLE_EQUATION_PROCESSING", "false").lower() == "true",
+        "enable_video": os.getenv("ENABLE_VIDEO_PROCESSING", "false").lower() == "true",
         "working_dir": WORKING_DIR,
         "parser_output_dir": os.getenv("OUTPUT_DIR", "./output"),
         "supported_extensions": [
             ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".gif", ".webp",
             ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".md",
         ],
+        "rrf": {
+            "rrf_k": int(os.getenv("RRF_K", "60")),
+            "bm25_top_k": int(os.getenv("BM25_TOP_K", "50")),
+            "vector_top_k": int(os.getenv("VECTOR_TOP_K", "100")),
+            "graph_top_k": int(os.getenv("GRAPH_TOP_K", "30")),
+            "graph_depth": int(os.getenv("GRAPH_DEPTH", "2")),
+            "bm25_k1": float(os.getenv("BM25_K1", "1.5")),
+            "bm25_b": float(os.getenv("BM25_B", "0.75")),
+            "bm25_tokenizer": os.getenv("BM25_TOKENIZER", "jieba"),
+            "rrf_channel_timeout": float(os.getenv("RRF_CHANNEL_TIMEOUT", "0.15")),
+            "enabled_channels": os.getenv("RRF_ENABLED_CHANNELS", "bm25,vector,graph"),
+        },
     }
 
 
@@ -2206,6 +2767,9 @@ async def update_settings(settings: SettingsUpdate, current_user: dict = Depends
     if settings.enable_equation is not None:
         os.environ["ENABLE_EQUATION_PROCESSING"] = str(settings.enable_equation).lower()
         changes["enable_equation"] = settings.enable_equation
+    if settings.enable_video is not None:
+        os.environ["ENABLE_VIDEO_PROCESSING"] = str(settings.enable_video).lower()
+        changes["enable_video"] = settings.enable_video
     # 部分配置需要重建 RAG 实例才能生效
     if settings.parser is not None:
         rag = create_rag()
@@ -2321,7 +2885,7 @@ async def list_kbs(current_user: dict = Depends(get_current_user)):
             "owner_username": info.get("owner_username", ""),
             "active": name == active_kb,
         })
-    # 新用户没有 KB 时自动创建个人 KB
+    # 新用户没有 KB 时自动创建个人 KB 并初始化存储
     if not kbs and not is_admin:
         personal_kb = current_user["username"]
         label = f"{current_user['username']}的知识库"
@@ -2332,6 +2896,8 @@ async def list_kbs(current_user: dict = Depends(get_current_user)):
         }
         save_kb_meta(meta)
         active_kb = personal_kb
+        # 初始化存储目录
+        await get_kb(personal_kb)
         kbs.append({
             "name": personal_kb,
             "label": label,
@@ -2396,6 +2962,385 @@ async def delete_kb(name: str, current_user: dict = Depends(get_current_user)):
     if active_kb == name:
         active_kb = "default"
     return {"status": "deleted", "name": name}
+
+
+# ── 智能制造专业智能体 API ──────────────────────────
+
+# Lazy-init manufacturing modules (避免启动时阻塞)
+_manufacturing_components = {}
+
+def _get_manufacturing():
+    """延迟初始化制造模块（首次 API 调用时加载）。"""
+    if not _manufacturing_components:
+        from raganything.manufacturing.knowledge_graph.graph_api import KnowledgeGraphAPI
+        from raganything.manufacturing.knowledge_graph.models import (
+            KnowledgeNode, KnowledgeEdge, CapabilityTag, TagTree,
+        )
+        from raganything.manufacturing.knowledge_pipeline.process_library import ProcessLibrary
+        from raganything.manufacturing.knowledge_pipeline.fault_case_library import FaultCaseLibrary
+        from raganything.manufacturing.agent.code_parser import CodeParser
+        from raganything.manufacturing.agent.deployment_config import DeploymentConfig
+        from raganything.manufacturing.deployment.dashboard import Dashboard
+
+        # 延迟引入 LightRAGGraphStore 避免循环导入
+        from raganything.manufacturing.knowledge_graph.graph_api import LightRAGGraphStore
+        graph_store = LightRAGGraphStore(working_dir=WORKING_DIR)
+
+        _manufacturing_components.update({
+            "graph_api": KnowledgeGraphAPI(graph_storage=graph_store),
+            "process_library": ProcessLibrary(),
+            "fault_case_library": FaultCaseLibrary(),
+            "code_parser": CodeParser(),
+            "deployment_config": DeploymentConfig(),
+            "dashboard": Dashboard(),
+            "TagTree": TagTree,
+            "CapabilityTag": CapabilityTag,
+            "KnowledgeNode": KnowledgeNode,
+            "KnowledgeEdge": KnowledgeEdge,
+        })
+    return _manufacturing_components
+
+
+class ManufacturingQuery(BaseModel):
+    query: str
+    language: str = "gcode"
+    top_k: int = 5
+
+
+# ── 知识图谱 ──
+
+@app.get("/api/manufacturing/knowledge-graph/summary")
+async def mfg_kg_summary():
+    """知识图谱统计摘要。"""
+    m = _get_manufacturing()
+    return m["graph_api"].get_graph_summary()
+
+
+@app.get("/api/manufacturing/knowledge-graph/nodes")
+async def mfg_kg_nodes(track: str = "", node_type: str = "", limit: int = 100, offset: int = 0):
+    """知识节点列表。"""
+    m = _get_manufacturing()
+    return m["graph_api"].get_nodes(competition_track=track, node_type=node_type, limit=limit, offset=offset)
+
+
+@app.get("/api/manufacturing/knowledge-graph/nodes/{node_id}")
+async def mfg_kg_node_detail(node_id: str):
+    """节点详情 + 关联边。"""
+    m = _get_manufacturing()
+    detail = m["graph_api"].get_node(node_id)
+    if not detail:
+        raise HTTPException(404, "节点不存在")
+    return detail
+
+
+@app.get("/api/manufacturing/knowledge-graph/nodes/{node_id}/lineage")
+async def mfg_kg_lineage(node_id: str, upstream: int = 3, downstream: int = 3):
+    """知识谱系树。"""
+    m = _get_manufacturing()
+    lineage = m["graph_api"].get_lineage(node_id, upstream_depth=upstream, downstream_depth=downstream)
+    if not lineage:
+        raise HTTPException(404, "节点不存在")
+    return lineage
+
+
+# ── 工艺库 ──
+
+@app.get("/api/manufacturing/process-library/search")
+async def mfg_process_search(q: str = "", category: str = "", limit: int = 20):
+    """企业工艺库检索。"""
+    m = _get_manufacturing()
+    results = m["process_library"].search(q, category=category, limit=limit)
+    return {"total": len(results), "results": results}
+
+
+@app.get("/api/manufacturing/process-library/categories")
+async def mfg_process_categories():
+    """工艺类别统计。"""
+    m = _get_manufacturing()
+    return m["process_library"].list_by_category()
+
+
+# ── 故障案例库 ──
+
+@app.get("/api/manufacturing/fault-cases/search")
+async def mfg_fault_search(q: str = "", top_k: int = 10):
+    """故障案例检索。"""
+    m = _get_manufacturing()
+    results = m["fault_case_library"].search(q, top_k=top_k)
+    return {"total": len(results), "results": results}
+
+
+@app.get("/api/manufacturing/fault-cases/stats")
+async def mfg_fault_stats():
+    """故障案例统计。"""
+    m = _get_manufacturing()
+    return m["fault_case_library"].get_statistics()
+
+
+# ── 代码解析 ──
+
+@app.post("/api/manufacturing/code/parse")
+async def mfg_code_parse(body: ManufacturingQuery):
+    """G 代码 / PLC 指令表解析。"""
+    m = _get_manufacturing()
+    return m["code_parser"].parse(body.query, language=body.language)
+
+
+# ── 数据看板 ──
+
+@app.get("/api/manufacturing/dashboard")
+async def mfg_dashboard():
+    """制造智能体数据看板。"""
+    m = _get_manufacturing()
+    return m["dashboard"].get_snapshot(
+        knowledge_graph_api=m.get("graph_api"),
+        process_library=m.get("process_library"),
+        fault_case_library=m.get("fault_case_library"),
+    )
+
+
+# ── 部署配置 ──
+
+@app.get("/api/manufacturing/institutions")
+async def mfg_institutions():
+    """注册机构列表。"""
+    m = _get_manufacturing()
+    return m["deployment_config"].list_institutions()
+
+
+# ── 智能体 API ──
+
+class MfgAgentQuery(BaseModel):
+    query: str
+    context: Optional[dict] = None
+
+
+class MfgDiagnosisStart(BaseModel):
+    query: str
+
+
+class MfgDiagnosisContinue(BaseModel):
+    session_id: str
+    query: str
+
+
+async def _get_mfg_agent_components(kb: str = "default"):
+    """延迟初始化制造智能体组件（仅故障诊断）。"""
+    m = _get_manufacturing()
+    cache_key = f"diag_{kb}"
+    if cache_key not in m:
+        from raganything.manufacturing.agent.fault_diagnosis import FaultDiagnosisEngine
+        from raganything.manufacturing.knowledge_pipeline.fault_case_library import FaultCaseLibrary
+        import logging
+        _logger = logging.getLogger("manufacturing")
+
+        fault_lib = FaultCaseLibrary(storage_path="./data/manufacturing_kb/fault_cases")
+
+        class MfgLLMAdapter:
+            async def generate(self, prompt: str) -> str:
+                if not API_KEY or not BASE_URL:
+                    raise RuntimeError("LLM 服务未配置")
+                result = await openai_complete_if_cache(
+                    LLM_MODEL, prompt,
+                    system_prompt="你是智能制造教学专家。",
+                    api_key=API_KEY, base_url=BASE_URL,
+                )
+                if result is None:
+                    raise RuntimeError("LLM 返回为空")
+                return result if isinstance(result, str) else str(result)
+
+        m[cache_key] = {
+            "fault_diagnosis": FaultDiagnosisEngine(case_library=fault_lib, llm_client=MfgLLMAdapter()),
+        }
+
+    return m[cache_key]
+
+
+MFG_SYSTEM_PROMPT = "你是智能制造教学专家。基于检索内容回答，引用具体事实和数据。检索内容没有的信息不要编造。"
+
+
+async def _get_mfg_qa_engine(kb: str = "default") -> "QAEngine":
+    """延迟初始化制造智能体 QA 引擎（每个 KB 独立实例）。"""
+    from raganything.manufacturing.agent.qa_engine import QAEngine
+
+    m = _get_manufacturing()
+    cache_key = f"qa_{kb}"
+    if cache_key not in m:
+        instance = await get_kb(kb)
+
+        async def _llm_func(prompt, system_prompt=None, history_messages=None, **kw):
+            if "max_tokens" not in kw:
+                kw["max_tokens"] = int(os.getenv("MAX_TOKENS", "8192"))
+            return await openai_complete_if_cache(
+                LLM_MODEL, prompt, system_prompt=system_prompt,
+                history_messages=history_messages or [],
+                api_key=API_KEY, base_url=BASE_URL, **kw,
+            )
+
+        m[cache_key] = QAEngine(
+            rag_client=instance,
+            llm_client=_llm_func,
+            query_mode="rrf",
+            max_steps=3,
+        )
+    return m[cache_key]
+
+
+@app.post("/api/manufacturing/qa")
+async def mfg_qa(body: MfgAgentQuery, kb: str = QueryParam("default"),
+                 current_user: dict = Depends(get_current_user)):
+    """智能制造文本问答 — AgenticRAG 多步推理。"""
+    engine = await _get_mfg_qa_engine(kb)
+    response = await engine.answer(body.query, context=body.context)
+    # 记录查询日志
+    m = _get_manufacturing()
+    m["dashboard"].log_query(
+        user_id=str(current_user["id"]),
+        institution_id="default",
+        query=body.query,
+        query_type="qa",
+        response_ms=response.processing_time_ms,
+    )
+    return {
+        "query": response.query,
+        "answer": response.answer,
+        "citations": response.citations,
+        "related_images": response.related_images,
+        "confidence": response.confidence,
+        "processing_time_ms": response.processing_time_ms,
+        "needs_human_review": response.needs_human_review,
+        "trace": response.trace,
+    }
+
+
+@app.post("/api/manufacturing/qa/stream")
+async def mfg_qa_stream(body: MfgAgentQuery, kb: str = QueryParam("default"),
+                        current_user: dict = Depends(get_current_user)):
+    """智能制造文本问答 — AgenticRAG 真流式 SSE（与通用智能体一致）。"""
+    if not API_KEY or not BASE_URL:
+        raise HTTPException(503, "LLM 服务未配置")
+
+    async def event_stream():
+        import time as _time
+        start_time = _time.time()
+        query_id = str(uuid.uuid4())[:8]
+
+        try:
+            engine = await _get_mfg_qa_engine(kb)
+
+            async for event in engine.answer_stream(body.query):
+                event_type = event.get("type", "")
+
+                if event_type == "thinking":
+                    thought_preview = (event.get("thought", "") or "")[:200]
+                    obs_preview = (event.get("observation", "") or "")[:150]
+                    thinking_data = {
+                        'type': 'thinking',
+                        'step': event.get('step', 0),
+                        'thought': thought_preview,
+                        'action': event.get('action', ''),
+                        'observation_preview': obs_preview,
+                        'elapsed_ms': event.get('elapsed_ms', 0),
+                    }
+                    yield f"data: {json.dumps(thinking_data, ensure_ascii=False)}\n\n"
+
+                elif event_type == "token":
+                    token_data = {'type': 'token', 'content': event.get('content', '')}
+                    yield f"data: {json.dumps(token_data, ensure_ascii=False)}\n\n"
+
+                elif event_type == "done":
+                    # 记录查询日志
+                    try:
+                        m = _get_manufacturing()
+                        response_ms = event.get("elapsed_ms", (_time.time() - start_time) * 1000)
+                        m["dashboard"].log_query(
+                            user_id=str(current_user["id"]),
+                            institution_id="default",
+                            query=body.query,
+                            query_type="qa",
+                            response_ms=response_ms,
+                        )
+                    except Exception:
+                        pass
+
+                    if event.get("images"):
+                        img_data = {'type': 'images', 'images': event['images']}
+                        yield f"data: {json.dumps(img_data, ensure_ascii=False)}\n\n"
+
+                    elapsed = event.get("elapsed_ms", (_time.time() - start_time) * 1000) / 1000
+                    done_data = {
+                        'type': 'done',
+                        'id': query_id,
+                        'elapsed': round(elapsed, 2),
+                        'confidence': event.get('confidence', 0),
+                        'citations_count': len(event.get('citations', [])),
+                        'images_count': len(event.get('images', [])),
+                    }
+                    yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
+
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/manufacturing/fault-diagnosis")
+async def mfg_diagnosis_start(body: MfgDiagnosisStart, kb: str = QueryParam("default")):
+    """故障诊断 — 开始新会话。"""
+    m = await _get_mfg_agent_components(kb=kb)
+    import uuid
+    sid = str(uuid.uuid4())[:8]
+    result = m["fault_diagnosis"].start_diagnosis(sid, body.query)
+    return result
+
+
+@app.post("/api/manufacturing/fault-diagnosis/continue")
+async def mfg_diagnosis_continue(body: MfgDiagnosisContinue, kb: str = QueryParam("default")):
+    """故障诊断 — 继续会话。"""
+    m = await _get_mfg_agent_components(kb=kb)
+    result = m["fault_diagnosis"].continue_diagnosis(body.session_id, body.query)
+    return result
+
+
+# ── 健康检查 ──
+
+@app.get("/api/manufacturing/kb-list")
+async def mfg_kb_list(current_user: dict = Depends(get_current_user)):
+    """制造智能体可用 KB 列表（跨用户，所有 KB 均可检索）。"""
+    meta = load_kb_meta()
+    kbs = []
+    for name, info in meta.items():
+        kbs.append({
+            "name": name,
+            "label": info.get("name", name),
+            "created": info.get("created", ""),
+            "owner_username": info.get("owner_username", ""),
+        })
+    return {"knowledge_bases": kbs}
+
+
+@app.get("/api/manufacturing/health")
+async def mfg_health():
+    """制造模块健康检查。"""
+    try:
+        m = _get_manufacturing()
+        return {
+            "status": "healthy",
+            "graph_api": m["graph_api"] is not None,
+            "process_library": m["process_library"] is not None,
+            "fault_case_library": m["fault_case_library"] is not None,
+            "code_parser": m["code_parser"] is not None,
+        }
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
 
 
 # ── 前端静态文件 ────────────────────────────────────

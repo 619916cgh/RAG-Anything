@@ -5,6 +5,7 @@ RAG-Anything 认证模块
 import os
 import sqlite3
 import secrets
+import uuid
 import hashlib
 import time
 from datetime import datetime, timedelta
@@ -17,11 +18,12 @@ from passlib.context import CryptContext
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── JWT 配置 ──────────────────────────────────────
-SECRET_KEY = os.getenv("JWT_SECRET", secrets.token_hex(32))
-REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET", secrets.token_hex(32))
+SECRET_KEY = os.getenv("JWT_SECRET") or secrets.token_hex(32)
+REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET") or secrets.token_hex(32)
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 REFRESH_EXPIRY_DAYS = int(os.getenv("REFRESH_EXPIRY_DAYS", "7"))
 ALGORITHM = "HS256"
+SERVER_START_ID = uuid.uuid4().hex  # 每次进程启动重新生成，嵌入 JWT 实现重启即失效
 
 # ── 数据库路径 ────────────────────────────────────
 DB_PATH = Path(os.getenv("AUTH_DB_PATH", "./auth.db"))
@@ -42,7 +44,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 async def init_db():
-    """初始化数据库：创建 users 表 + 默认管理员"""
+    """初始化数据库：创建 users 表 + settings 表 + 默认管理员 + 持久化密钥"""
     import aiosqlite
 
     async with aiosqlite.connect(str(DB_PATH)) as db:
@@ -63,6 +65,13 @@ async def init_db():
                 updated_at  TEXT DEFAULT (datetime('now','localtime'))
             )
         """)
+        # settings 表：持久化 JWT 密钥等配置（key-value 结构）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
         await db.commit()
         # 迁移旧表：添加暴力破解防护列
         try:
@@ -74,6 +83,32 @@ async def init_db():
         except Exception:
             pass
         await db.commit()
+
+        # 加载或持久化 JWT 密钥（环境变量优先，否则读/写数据库）
+        global SECRET_KEY, REFRESH_SECRET_KEY
+        if not os.getenv("JWT_SECRET"):
+            row = await (await db.execute("SELECT value FROM settings WHERE key = 'jwt_secret'")).fetchone()
+            if row:
+                SECRET_KEY = row[0]
+                print("[AUTH] JWT 密钥已从数据库加载")
+            else:
+                await db.execute("INSERT INTO settings (key, value) VALUES ('jwt_secret', ?)", (SECRET_KEY,))
+                await db.commit()
+                print("[AUTH] JWT 密钥已生成并持久化到数据库")
+        else:
+            print("[AUTH] JWT 密钥从环境变量加载")
+
+        if not os.getenv("JWT_REFRESH_SECRET"):
+            row = await (await db.execute("SELECT value FROM settings WHERE key = 'jwt_refresh_secret'")).fetchone()
+            if row:
+                REFRESH_SECRET_KEY = row[0]
+                print("[AUTH] Refresh 密钥已从数据库加载")
+            else:
+                await db.execute("INSERT INTO settings (key, value) VALUES ('jwt_refresh_secret', ?)", (REFRESH_SECRET_KEY,))
+                await db.commit()
+                print("[AUTH] Refresh 密钥已生成并持久化到数据库")
+        else:
+            print("[AUTH] Refresh 密钥从环境变量加载")
 
     # 确保默认管理员存在
     admin = await get_user_by_username(DEFAULT_ADMIN_USERNAME)
@@ -285,11 +320,12 @@ async def reset_failed_logins(username: str):
 # ── JWT 工具 ──────────────────────────────────────
 
 def create_token(user_id: int, username: str, is_admin: bool) -> str:
-    """签发 JWT Token"""
+    """签发 JWT Token，含 server_start_id 用于重启失效"""
     payload = {
         "user_id": user_id,
         "username": username,
         "is_admin": is_admin,
+        "sid": SERVER_START_ID,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -297,9 +333,11 @@ def create_token(user_id: int, username: str, is_admin: bool) -> str:
 
 
 def decode_token(token: str) -> dict | None:
-    """验证并解码 JWT Token，失败返回 None"""
+    """验证并解码 JWT Token，失败或 server_start_id 不匹配返回 None"""
     try:
         payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("sid") != SERVER_START_ID:
+            return None
         return payload
     except pyjwt.ExpiredSignatureError:
         return None
@@ -308,12 +346,13 @@ def decode_token(token: str) -> dict | None:
 
 
 def create_refresh_token(user_id: int, username: str, is_admin: bool) -> str:
-    """签发 Refresh Token（有效期 7 天）"""
+    """签发 Refresh Token（有效期 7 天），含 server_start_id 用于重启失效"""
     payload = {
         "user_id": user_id,
         "username": username,
         "is_admin": is_admin,
         "type": "refresh",
+        "sid": SERVER_START_ID,
         "exp": datetime.utcnow() + timedelta(days=REFRESH_EXPIRY_DAYS),
         "iat": datetime.utcnow(),
     }
@@ -321,10 +360,12 @@ def create_refresh_token(user_id: int, username: str, is_admin: bool) -> str:
 
 
 def decode_refresh_token(token: str) -> dict | None:
-    """验证并解码 Refresh Token"""
+    """验证并解码 Refresh Token，失败或 server_start_id 不匹配返回 None"""
     try:
         payload = pyjwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "refresh":
+            return None
+        if payload.get("sid") != SERVER_START_ID:
             return None
         return payload
     except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
