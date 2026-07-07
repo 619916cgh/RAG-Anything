@@ -123,7 +123,7 @@ const NAV_GROUPS = [
     eyebrow: '01',
     items: [
       { to: '/knowledge', icon: Database, label: '知识库', desc: '文档 / 实体 / 图谱', requiredPermission: null },
-      { to: '/agents', icon: Bot, label: '智能体', desc: 'RAG 问答与推理', requiredPermission: null },
+      { to: '/agents', icon: Bot, label: '智能体', desc: '教学问答与推理', requiredPermission: null },
       { to: '/workflow', icon: GitBranch, label: '工作流', desc: '编排知识处理链路', requiredPermission: 'workflow:read' },
     ],
   },
@@ -161,9 +161,9 @@ const ROUTE_META = [
 
 const getRouteMeta = (pathname) =>
   ROUTE_META.find(item => item.test(pathname)) || {
-    kicker: 'RAG 控制台',
-    title: '智能知识工程平台',
-    subtitle: '以知识库、智能体和工作流连接专业知识与实际任务。',
+    kicker: '知元平台',
+    title: '多模态教学知识服务平台',
+    subtitle: '以课程资源、知识库、智能体和工作流连接教学内容与学习服务。',
   }
 
 // ---- 角色徽标 ----
@@ -316,7 +316,7 @@ export default function App() {
       <div className="flex items-center justify-center h-screen bg-cloud-100">
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center space-y-4">
           <BookOpen size={36} className="mx-auto text-sky-300 animate-float" />
-          <p className="text-ink-muted text-sm font-medium">正在准备你的知识空间...</p>
+          <p className="text-ink-muted text-sm font-medium">正在准备知元教学空间...</p>
         </motion.div>
       </div>
     )
@@ -362,14 +362,14 @@ export default function App() {
             <BookOpen size={18} />
           </div>
           <div className="cockpit-brand-copy">
-            <span>RAG-Anything</span>
-            <small>知识智能操作系统</small>
+            <span>知元</span>
+            <small>多模态教学知识服务平台</small>
           </div>
         </NavLink>
 
         <div className="cockpit-command-panel">
           <div className="cockpit-command-kicker">实时工作空间</div>
-          <div className="cockpit-command-title">AI 知识控制台</div>
+          <div className="cockpit-command-title">教学知识服务平台</div>
           <div className="cockpit-command-grid">
             <span />
             <span />
@@ -408,8 +408,8 @@ export default function App() {
           <div className="cockpit-system-state">
             <span className="cockpit-pulse" />
             <div>
-              <strong>RAG 引擎在线</strong>
-              <small>向量 / 图谱 / 智能体就绪</small>
+              <strong>知元服务在线</strong>
+              <small>课程 / 图谱 / 智能体就绪</small>
             </div>
           </div>
         </div>
@@ -451,7 +451,7 @@ export default function App() {
               <BookOpen size={16} className="text-white" />
             </div>
             <span className="topnav-brand-text">
-              RAG<span className="text-sky-500">Anything</span>
+              知元
             </span>
           </NavLink>
 

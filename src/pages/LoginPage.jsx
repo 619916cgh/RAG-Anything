@@ -171,9 +171,9 @@ export default function LoginPage() {
             <BookOpen size={26} className="text-white" />
           </div>
           <h1 className="font-display font-semibold text-2xl tracking-tight text-ink-primary">
-            RAG<span className="text-sky-500">Anything</span>
+            知元
           </h1>
-          <p className="text-sm text-ink-muted mt-2">欢迎回来，请登录以继续</p>
+          <p className="text-sm text-ink-muted mt-2">多模态教学知识服务平台</p>
         </div>
 
         <div className="card p-6 shadow-cloud">
@@ -236,7 +236,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-2xs text-ink-muted mt-6">
-          RAG-Anything · 知识管理平台
+          知元 · 多模态教学知识服务平台
         </p>
       </motion.div>
     </div>

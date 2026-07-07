@@ -85,9 +85,9 @@ export default function RegisterPage() {
             <BookOpen size={26} className="text-white" />
           </div>
           <h1 className="font-display font-semibold text-2xl tracking-tight text-ink-primary dark:text-cloud-200">
-            RAG<span className="text-sky-500 dark:text-sky-400">Anything</span>
+            知元
           </h1>
-          <p className="text-sm text-ink-muted dark:text-cloud-500 mt-2">创建账号，开始使用知识管理平台</p>
+          <p className="text-sm text-ink-muted dark:text-cloud-500 mt-2">创建账号，开始使用多模态教学知识服务平台</p>
         </div>
 
         {/* 卡片 */}
@@ -195,7 +195,7 @@ export default function RegisterPage() {
         </div>
 
         <p className="text-center text-2xs text-ink-muted dark:text-cloud-500 mt-6">
-          RAG-Anything · 知识管理平台
+          知元 · 多模态教学知识服务平台
         </p>
       </motion.div>
     </div>

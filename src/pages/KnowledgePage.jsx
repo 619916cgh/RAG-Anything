@@ -1,16 +1,24 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Layers, Trash2, Clock, Database, FileText, Hash, X, Search } from 'lucide-react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { Plus, Layers, Trash2, Clock, Database, FileText, CircleDot, X, Search, UserRound } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { api, setCurrentKB, getCurrentKB } from '../utils/api'
 import Pagination from '../components/Pagination'
 
-const PAGE_SIZE = 8
+const KB_GRID_ROWS = 3
+const FALLBACK_GRID_COLUMNS = 4
+const FALLBACK_PAGE_SIZE = FALLBACK_GRID_COLUMNS * KB_GRID_ROWS
 
 // ====================== 知识库选择器（卡片网格） ======================
-function KBSelector({ kbs, activeKB, kbStats, onSwitch, onDelete, deletingKB }) {
+function KBSelector({ kbs, kbStats, onSwitch, onDelete, deletingKB, gridRef, reserveRows = false }) {
   const [showDelete, setShowDelete] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const gridClassName = reserveRows
+    ? 'resource-grid resource-grid-kbs resource-grid-kbs-fixed-rows'
+    : 'resource-grid resource-grid-kbs'
+  const gridStyle = reserveRows
+    ? { '--kb-grid-rows': KB_GRID_ROWS, '--kb-grid-row-gaps': KB_GRID_ROWS - 1 }
+    : undefined
 
   const handleDeleteClick = (e, kb) => {
     e.stopPropagation()
@@ -28,58 +36,88 @@ function KBSelector({ kbs, activeKB, kbStats, onSwitch, onDelete, deletingKB }) 
     }
   }
 
+  const formatCount = (value) => {
+    const n = Number(value || 0)
+    return new Intl.NumberFormat('zh-CN').format(Number.isFinite(n) ? n : 0)
+  }
+
   return (
-    <div className="resource-grid resource-grid-kbs">
+    <div ref={gridRef} className={gridClassName} style={gridStyle}>
       {kbs.map(kb => {
-        const isActive = kb.name === activeKB
         const stats = kbStats[kb.name]
+        const documentCount = Number(stats?.documents || 0)
+        const entityCount = Number(stats?.entities || 0)
+        const hasStats = stats !== undefined
 
         return (
-          <motion.button
+          <motion.article
             key={kb.name}
             layout
-            onClick={() => onSwitch(kb.name)}
-            className={`directory-card resource-card group cursor-pointer ${isActive ? 'directory-card-active' : ''}`}
+            className="directory-card resource-card resource-card-kb group cursor-pointer"
           >
-            {isActive && (
-              <span className="od-pill absolute top-3 right-3">当前启用</span>
-            )}
+            <button
+              type="button"
+              className="resource-card-kb-hitarea"
+              onClick={() => onSwitch(kb.name)}
+              aria-label={`打开知识库 ${kb.label || kb.name}`}
+            />
 
-            <div className="directory-icon">
-              <Database size={20} />
+            <div className="resource-card-kb-head">
+              <div className="directory-icon resource-card-kb-icon">
+                <Database size={18} />
+              </div>
+              <div className="resource-card-kb-copy">
+                <h3 className="resource-card-kb-title text-ink-primary">
+                  {kb.label || kb.name}
+                </h3>
+              </div>
             </div>
 
-            <h3 className="text-base font-semibold mb-1 truncate pr-16 text-ink-primary">
-              {kb.label || kb.name}
-            </h3>
-            <p className="text-2xs text-ink-muted mb-3 truncate font-mono">/{kb.name}</p>
-
-            <div className="flex items-center gap-4 text-2xs text-ink-muted mb-2 rounded-lg border border-cloud-300 bg-cloud-50 px-3 py-2">
-              {stats !== undefined ? (
+            <div className="resource-card-kb-metrics" aria-label="知识库统计">
+              {hasStats ? (
                 <>
-                  <span className="flex items-center gap-1" title="文档数"><FileText size={10} />{stats.documents || 0}</span>
-                  <span className="flex items-center gap-1" title="实体数"><Hash size={10} />{stats.entities || 0}</span>
+                  <span className="resource-card-kb-metric" title={`文档数：${formatCount(documentCount)}`}>
+                    <FileText size={13} />
+                    <strong>{formatCount(documentCount)}</strong>
+                    <small>文档</small>
+                  </span>
+                  <span className="resource-card-kb-metric" title={`实体数：${formatCount(entityCount)}`}>
+                    <CircleDot size={13} />
+                    <strong>{formatCount(entityCount)}</strong>
+                    <small>实体</small>
+                  </span>
                 </>
               ) : (
-                <span className="text-ink-muted/60">加载中…</span>
+                <span className="resource-card-kb-loading">加载统计中…</span>
               )}
             </div>
 
-            <div className="directory-footer text-2xs text-ink-muted">
-              <span className="flex items-center gap-1"><Clock size={10} />{kb.created ? formatDate(kb.created) : '暂无日期'}</span>
-              {kb.owner_username && <span className="od-pill truncate">@{kb.owner_username}</span>}
+            <div className="directory-footer resource-card-kb-footer text-2xs text-ink-muted">
+              <span className="resource-card-kb-meta" title="创建日期">
+                <Clock size={11} />
+                <span>创建 {kb.created ? formatDate(kb.created) : '暂无日期'}</span>
+              </span>
+              {kb.owner_username && (
+                <span className="resource-card-kb-owner" title={`所有者：${kb.owner_username}`}>
+                  <UserRound size={11} />
+                  <span>@{kb.owner_username}</span>
+                </span>
+              )}
             </div>
 
             {kb.name !== 'default' && (
               <button
+                type="button"
                 onClick={(e) => handleDeleteClick(e, kb)}
-                className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-ink-muted hover:text-rose-500 hover:bg-rose-50"
+                onKeyDown={e => e.stopPropagation()}
+                className="resource-card-kb-delete absolute opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-lg text-ink-muted hover:text-rose-500 hover:bg-rose-50"
                 title="删除知识库"
+                aria-label={`删除 ${kb.label || kb.name}`}
               >
                 <Trash2 size={13} />
               </button>
             )}
-          </motion.button>
+          </motion.article>
         )
       })}
 
@@ -125,7 +163,6 @@ function KBSelector({ kbs, activeKB, kbStats, onSwitch, onDelete, deletingKB }) 
 export default function KnowledgePage() {
   const navigate = useNavigate()
   const [kbs, setKBs] = useState([])
-  const [activeKB, setActiveKB] = useState(null)
   const [kbsLoaded, setKbsLoaded] = useState(false)
   const [deletingKB, setDeletingKB] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
@@ -134,11 +171,46 @@ export default function KnowledgePage() {
   const [kbStats, setKbStats] = useState({})
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(FALLBACK_PAGE_SIZE)
   const genRef = useRef(0)
+  const gridRef = useRef(null)
   const createInputRef = useRef()
 
   useEffect(() => { if (showCreate && createInputRef.current) createInputRef.current.focus() }, [showCreate])
   useEffect(() => { setPage(1) }, [search])
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return undefined
+
+    let frame = 0
+    const updatePageSize = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const templateColumns = window.getComputedStyle(grid).gridTemplateColumns
+        const columns = templateColumns && templateColumns !== 'none'
+          ? templateColumns.split(' ').filter(Boolean).length
+          : 1
+
+        setPageSize(Math.max(1, columns) * KB_GRID_ROWS)
+      })
+    }
+
+    updatePageSize()
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updatePageSize)
+      : null
+
+    resizeObserver?.observe(grid)
+    window.addEventListener('resize', updatePageSize)
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', updatePageSize)
+    }
+  }, [])
 
   const showToast = (msg, type = 'info') => {
     setToast({ msg, type })
@@ -152,15 +224,14 @@ export default function KnowledgePage() {
       const kbList = r.knowledge_bases || []
       setKBs(kbList)
       const current = getCurrentKB()
+      const currentExists = current && kbList.some(kb => kb.name === current)
 
-      if (current && kbList.some(kb => kb.name === current)) {
-        setActiveKB(current)
-      } else if (r.active && kbList.some(kb => kb.name === r.active)) {
-        setActiveKB(r.active)
-        setCurrentKB(r.active)
-      } else if (kbList.length > 0) {
-        setActiveKB(kbList[0].name)
-        setCurrentKB(kbList[0].name)
+      if (!currentExists) {
+        if (r.active && kbList.some(kb => kb.name === r.active)) {
+          setCurrentKB(r.active)
+        } else if (kbList.length > 0) {
+          setCurrentKB(kbList[0].name)
+        }
       }
 
       // 顺序获取所有知识库统计，避免模块级 currentKB 产生竞争
@@ -189,7 +260,6 @@ export default function KnowledgePage() {
 
   // 跳转到知识库详情页
   const switchKB = useCallback((name) => {
-    setActiveKB(name)
     setCurrentKB(name)
     navigate(`/knowledge/${name}`)
   }, [navigate])
@@ -249,9 +319,9 @@ export default function KnowledgePage() {
     ].some(value => String(value || '').toLowerCase().includes(normalizedSearch))
   })
 
-  const totalPages = Math.max(1, Math.ceil(filteredKBs.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filteredKBs.length / pageSize))
   const currentPage = Math.min(page, totalPages)
-  const paginatedKBs = filteredKBs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginatedKBs = filteredKBs.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   useEffect(() => {
     if (page > totalPages) {
@@ -291,15 +361,16 @@ export default function KnowledgePage() {
 
         <KBSelector
           kbs={paginatedKBs}
-          activeKB={activeKB}
           kbStats={kbStats}
           onSwitch={switchKB}
           onDelete={deleteKB}
           deletingKB={deletingKB}
+          gridRef={gridRef}
+          reserveRows={paginatedKBs.length > 0}
         />
 
         {filteredKBs.length > 0 && (
-          <Pagination page={currentPage} totalPages={totalPages} onPageChange={setPage} className="resource-pagination" />
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={setPage} className="resource-pagination resource-pagination-kbs" />
         )}
 
         {/* 尚未加载知识库时的空状态 */}

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Bot, Trash2, Edit3, X, MessageSquare, Database,
@@ -11,7 +12,8 @@ import Pagination from '../components/Pagination'
 const MODE_LABELS = { rrf: '融合', hybrid: '混合', local: '精确', global: '全局', naive: '快速' }
 const AGENT_MODE_LABELS = { none: '普通', react: 'ReAct', cot: 'CoT' }
 const AGENT_MODE_ICONS = { none: MessageSquare, react: Brain, cot: Layers }
-const PAGE_SIZE = 6
+const AGENT_GRID_ROWS = 2
+const AGENTS_PER_PAGE = 8
 
 export default function AgentsPage() {
   const navigate = useNavigate()
@@ -24,9 +26,63 @@ export default function AgentsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [gridColumns, setGridColumns] = useState(4)
+  const gridRef = useRef(null)
 
   useEffect(() => { loadData() }, [])
   useEffect(() => { setPage(1) }, [search])
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return undefined
+
+    let frame = 0
+    const updateGridColumns = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const templateColumns = window.getComputedStyle(grid).gridTemplateColumns
+        const columns = templateColumns && templateColumns !== 'none'
+          ? templateColumns.split(' ').filter(Boolean).length
+          : 1
+
+        setGridColumns(Math.max(1, columns))
+      })
+    }
+
+    updateGridColumns()
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updateGridColumns)
+      : null
+
+    resizeObserver?.observe(grid)
+    window.addEventListener('resize', updateGridColumns)
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', updateGridColumns)
+    }
+  }, [])
+  useEffect(() => {
+    if (!showModal) return
+
+    const root = document.documentElement
+    const body = document.body
+    const previousRootOverflow = root.style.overflow
+    const previousBodyOverflow = body.style.overflow
+
+    root.classList.add('agent-config-scroll-locked')
+    body.classList.add('agent-config-scroll-locked')
+    root.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+
+    return () => {
+      root.classList.remove('agent-config-scroll-locked')
+      body.classList.remove('agent-config-scroll-locked')
+      root.style.overflow = previousRootOverflow
+      body.style.overflow = previousBodyOverflow
+    }
+  }, [showModal])
 
   function getDefaultForm() {
     return {
@@ -116,9 +172,18 @@ export default function AgentsPage() {
     ].some(value => String(value || '').toLowerCase().includes(normalizedSearch))
   })
 
-  const totalPages = Math.max(1, Math.ceil(filteredAgents.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filteredAgents.length / AGENTS_PER_PAGE))
   const currentPage = Math.min(page, totalPages)
-  const paginatedAgents = filteredAgents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginatedAgents = filteredAgents.slice((currentPage - 1) * AGENTS_PER_PAGE, currentPage * AGENTS_PER_PAGE)
+  const agentGridRows = paginatedAgents.length > 0
+    ? Math.max(AGENT_GRID_ROWS, Math.ceil(paginatedAgents.length / Math.max(1, gridColumns)))
+    : AGENT_GRID_ROWS
+  const agentGridClassName = paginatedAgents.length > 0
+    ? 'resource-grid resource-grid-agents resource-grid-agents-fixed-rows'
+    : 'resource-grid resource-grid-agents'
+  const agentGridStyle = paginatedAgents.length > 0
+    ? { '--agent-grid-rows': agentGridRows, '--agent-grid-row-gaps': agentGridRows - 1 }
+    : undefined
 
   useEffect(() => {
     if (page > totalPages) {
@@ -157,18 +222,18 @@ export default function AgentsPage() {
         </div>
 
         {/* 智能体卡片 */}
-        <div className="resource-grid resource-grid-agents">
+        <div ref={gridRef} className={agentGridClassName} style={agentGridStyle}>
           {paginatedAgents.map(agent => (
             <motion.div
               key={agent.id}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              className="directory-card resource-card group cursor-pointer"
+              className="directory-card resource-card resource-card-agent group cursor-pointer"
               onClick={() => startChat(agent)}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="directory-icon">
+                  <div className="directory-icon resource-card-agent-icon">
                     {agent.icon ? <span className="text-xl leading-none">{agent.icon}</span> : <Bot size={18} />}
                   </div>
                   <div className="min-w-0">
@@ -176,7 +241,7 @@ export default function AgentsPage() {
                     <p className="text-2xs text-ink-muted font-mono truncate">ID: {agent.id}</p>
                   </div>
                 </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                <div className="resource-card-agent-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                   <button className="p-1.5 rounded-lg text-ink-muted hover:text-sky-500 hover:bg-sky-50 transition-colors" onClick={() => openEdit(agent)} aria-label={`编辑 ${agent.name}`}>
                     <Edit3 size={14} aria-hidden="true" />
                   </button>
@@ -187,12 +252,12 @@ export default function AgentsPage() {
               </div>
 
               {agent.description ? (
-                <p className="text-xs text-ink-muted leading-relaxed min-h-[36px] line-clamp-2">{agent.description}</p>
+                <p className="resource-card-agent-desc text-xs text-ink-muted leading-relaxed min-h-[36px] line-clamp-2">{agent.description}</p>
               ) : (
                 <p className="text-xs text-ink-muted/60 leading-relaxed min-h-[36px] line-clamp-2">暂无描述</p>
               )}
 
-              <div className="flex flex-wrap gap-1.5">
+              <div className="resource-card-agent-tags flex flex-wrap gap-1.5">
                 <span className="tag tag-purple">
                   <Database size={10} /> {agent.kb_name}
                 </span>
@@ -207,7 +272,7 @@ export default function AgentsPage() {
                 </span>
               </div>
 
-              <button className="directory-footer w-full flex items-center justify-center gap-2 text-xs font-medium text-ink-primary hover:text-sky-600 transition-colors">
+              <button className="directory-footer resource-card-agent-footer w-full flex items-center justify-center gap-2 text-xs font-medium text-ink-primary hover:text-sky-600 transition-colors">
                 <MessageSquare size={13} /> 开始对话
               </button>
             </motion.div>
@@ -215,7 +280,7 @@ export default function AgentsPage() {
         </div>
 
         {filteredAgents.length > 0 && (
-          <Pagination page={currentPage} totalPages={totalPages} onPageChange={setPage} className="resource-pagination" />
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={setPage} className="resource-pagination resource-pagination-agents" />
         )}
 
         {agents.length === 0 && (
@@ -237,18 +302,18 @@ export default function AgentsPage() {
       </section>
 
       {/* 创建/编辑弹窗 */}
+      {createPortal(
       <AnimatePresence>
         {showModal && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-sky-900/25 dark:bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)} role="dialog" aria-modal="true" aria-label={editingAgent ? '编辑智能体' : '新建智能体'}>
+          <div className="agent-config-overlay" onClick={() => setShowModal(false)} role="dialog" aria-modal="true" aria-label={editingAgent ? '编辑智能体' : '新建智能体'}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="card w-full max-w-2xl max-h-[80vh] overflow-y-auto m-4"
+              className="agent-config-modal w-full"
               onClick={e => e.stopPropagation()}
             >
-              <div className="p-6 space-y-5">
-                <div className="flex items-center justify-between">
+              <div className="agent-config-header flex items-center justify-between">
                   <h3 className="font-display text-lg font-semibold text-ink-primary">
                     {editingAgent ? '编辑智能体' : '新建智能体'}
                   </h3>
@@ -256,6 +321,8 @@ export default function AgentsPage() {
                     <X size={20} aria-hidden="true" />
                   </button>
                 </div>
+
+                <div className="agent-config-scroll space-y-3.5">
 
                 {/* 模板选择 */}
                 {!editingAgent && templates.length > 0 && (
@@ -381,17 +448,20 @@ export default function AgentsPage() {
                 </div>
 
                 {/* 操作按钮 */}
-                <div className="flex gap-3 pt-2">
+                </div>
+
+                <div className="agent-config-footer flex gap-3">
                   <button onClick={saveAgent} className="btn-primary flex-1">
                     {editingAgent ? '保存修改' : '创建智能体'}
                   </button>
                   <button onClick={() => setShowModal(false)} className="btn-secondary">取消</button>
                 </div>
-              </div>
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
 
       {/* 删除确认 */}
       <AnimatePresence>

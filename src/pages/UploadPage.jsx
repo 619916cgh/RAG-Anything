@@ -136,12 +136,11 @@ export default function UploadPage({ onToast }) {
 
       {/* 拖拽上传 */}
       <motion.div
-        whileHover={{ scale: 1.005 }}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={`card border-dashed p-12 text-center cursor-pointer transition-all dark:bg-sky-900/20 dark:border-sky-800/30 ${
-          dragOver ? 'border-sky-400 bg-sky-50/50 dark:bg-sky-900/40 scale-[1.02] shadow-cloud-md' : 'border-cloud-400/70'
+          dragOver ? 'border-sky-400 bg-sky-50/50 dark:bg-sky-900/40 shadow-cloud-md' : 'border-cloud-400/70'
         }`}
         onClick={() => document.getElementById('file-input').click()}
         role="button"
