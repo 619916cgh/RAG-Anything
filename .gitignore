@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+*.log
+.tmp-*.log
+critique.json
+
+.agents/
+.codex/
+
+.DS_Store
+Thumbs.db

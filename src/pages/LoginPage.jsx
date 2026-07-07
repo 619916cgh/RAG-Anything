@@ -1,0 +1,244 @@
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { BookOpen, Loader2, ArrowRight, KeyRound, Check, Circle } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { useAuth } from '../context/AuthContext'
+
+function checkPasswordStrength(pw) {
+  return {
+    length: pw.length >= 8,
+    upper: /[A-Z]/.test(pw),
+    lower: /[a-z]/.test(pw),
+    digit: /[0-9]/.test(pw),
+    special: /[^A-Za-z0-9]/.test(pw),
+    score() {
+      return [this.upper, this.lower, this.digit, this.special].filter(Boolean).length
+    },
+  }
+}
+
+export default function LoginPage() {
+  const { login, token } = useAuth()
+  const navigate = useNavigate()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  // 密码修改状态（must_change_password 为真时启用）
+  const [mustChangePw, setMustChangePw] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwStrength, setPwStrength] = useState(null)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!username.trim() || !password) {
+      setError('请填写用户名和密码')
+      return
+    }
+    setLoading(true)
+    try {
+      const result = await login(username.trim(), password)
+      // 检查是否需要修改密码
+      if (result.user?.must_change_password) {
+        setMustChangePw(true)
+      } else {
+        navigate('/')
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault()
+    setError('')
+
+    const strength = checkPasswordStrength(newPassword)
+    if (strength.score() < 3) {
+      setError('密码需包含大写字母、小写字母、数字、特殊字符中的至少三类')
+      return
+    }
+    if (newPassword !== confirmPw) {
+      setError('两次密码不一致')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/me/password', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ old_password: password, new_password: newPassword }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: '密码修改失败' }))
+        throw new Error(err.detail || '密码修改失败')
+      }
+      navigate('/')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 强制修改密码界面
+  if (mustChangePw) {
+    const strength = newPassword ? checkPasswordStrength(newPassword) : null
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-cloud-100 px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm"
+        >
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500 shadow-cloud-md mb-4">
+              <KeyRound size={26} className="text-white" />
+            </div>
+            <h1 className="font-display font-semibold text-xl text-ink-primary">修改初始密码</h1>
+            <p className="text-sm text-ink-muted mt-2">首次登录需要设置一个新密码</p>
+          </div>
+
+          <div className="card p-6 shadow-cloud">
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              {error && (
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                  className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs">{error}</motion.div>
+              )}
+
+              <div>
+                <label className="block text-xs font-medium text-ink-body mb-1.5">新密码</label>
+                <input type="password" className="input-field text-sm py-2.5 w-full"
+                  placeholder="至少 8 位，含大小写字母、数字、特殊字符中的 3 类"
+                  value={newPassword} onChange={e => { setNewPassword(e.target.value); setPwStrength(checkPasswordStrength(e.target.value)) }}
+                  autoFocus />
+                {pwStrength && (
+                  <div className="mt-2 space-y-1">
+                    {[
+                      ['length', '至少 8 位'],
+                      ['upper', '大写字母'],
+                      ['lower', '小写字母'],
+                      ['digit', '数字'],
+                      ['special', '特殊字符'],
+                    ].map(([k, label]) => (
+                      <div key={k} className={`flex items-center gap-1.5 text-xs ${pwStrength[k] ? 'text-sage-600' : 'text-ink-muted'}`}>
+                        {pwStrength[k] ? <Check size={11} /> : <Circle size={11} />} {label}
+                      </div>
+                    ))}
+                    <div className="text-xs text-ink-muted mt-1">满足 {pwStrength.score()} / 4 类</div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink-body mb-1.5">确认密码</label>
+                <input type="password" className="input-field text-sm py-2.5 w-full"
+                  placeholder="再次输入新密码" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} />
+              </div>
+
+              <button type="submit" disabled={loading}
+                className="btn-primary w-full py-2.5 text-sm flex items-center justify-center gap-2">
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                {loading ? '修改中…' : '确认修改'}
+              </button>
+            </form>
+          </div>
+        </motion.div>
+      </div>
+    )
+  }
+
+  // 正常登录界面
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-cloud-100 px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-sm"
+      >
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-sky-500 shadow-cloud-md mb-4">
+            <BookOpen size={26} className="text-white" />
+          </div>
+          <h1 className="font-display font-semibold text-2xl tracking-tight text-ink-primary">
+            RAG<span className="text-sky-500">Anything</span>
+          </h1>
+          <p className="text-sm text-ink-muted mt-2">欢迎回来，请登录以继续</p>
+        </div>
+
+        <div className="card p-6 shadow-cloud">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs"
+              >
+                {error}
+              </motion.div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-ink-body mb-1.5">用户名</label>
+              <input
+                type="text"
+                className="input-field text-sm py-2.5 w-full"
+                placeholder="请输入用户名"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                maxLength={64}
+                required
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-ink-body mb-1.5">密码</label>
+              <input
+                type="password"
+                className="input-field text-sm py-2.5 w-full"
+                placeholder="请输入密码"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary w-full py-2.5 text-sm flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <ArrowRight size={16} />
+              )}
+              {loading ? '正在登录…' : '登录'}
+            </button>
+          </form>
+
+          <p className="text-center text-xs text-ink-muted mt-5">
+            还没有账号？{' '}
+            <Link to="/register" className="text-sky-500 hover:text-sky-600 font-medium transition-colors">
+              立即注册
+            </Link>
+          </p>
+        </div>
+
+        <p className="text-center text-2xs text-ink-muted mt-6">
+          RAG-Anything · 知识管理平台
+        </p>
+      </motion.div>
+    </div>
+  )
+}

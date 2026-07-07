@@ -1,0 +1,57 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+
+export default function Pagination({ page, totalPages, onPageChange, className = '' }) {
+  if (totalPages <= 1) return null
+
+  const pages = []
+  const maxVisible = 5
+  let start = Math.max(1, page - Math.floor(maxVisible / 2))
+  let end = Math.min(totalPages, start + maxVisible - 1)
+
+  if (end - start + 1 < maxVisible) {
+    start = Math.max(1, end - maxVisible + 1)
+  }
+
+  for (let i = start; i <= end; i += 1) {
+    pages.push(i)
+  }
+
+  return (
+    <div className={`flex items-center justify-between gap-3 pt-4 ${className}`}>
+      <span className="text-xs text-ink-muted">
+        第 {page} / {totalPages} 页
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          aria-label="上一页"
+          className="pagination-btn inline-flex items-center justify-center rounded-lg hover:bg-cloud-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft size={14} className="text-ink-body" aria-hidden="true" />
+        </button>
+        {pages.map(p => (
+          <button
+            key={p}
+            onClick={() => onPageChange(p)}
+            className={`pagination-btn rounded-lg text-xs font-medium transition-colors ${
+              p === page
+                ? 'bg-sky-500 text-white'
+                : 'text-ink-body hover:bg-cloud-100'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          aria-label="下一页"
+          className="pagination-btn inline-flex items-center justify-center rounded-lg hover:bg-cloud-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronRight size={14} className="text-ink-body" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
