@@ -45,12 +45,37 @@ def test_timeout_terminates_runner_and_fails_closed(monkeypatch, tmp_path):
         staticmethod(lambda candidate: terminated.append(candidate)),
     )
 
-    with pytest.raises(ODLConversionError, match="timed out"):
+    # Other parser tests reload this optional module, so resolve the exception
+    # from the current module object rather than a stale imported class.
+    with pytest.raises(odl_module.ODLConversionError, match="timed out"):
         parser._run_single_page_runner(source_pdf, page_dir, 1, 1, 0.01, java_bin)
 
     assert terminated == [process]
     assert (page_dir / "runner-request.json").is_file()
     assert not (page_dir / "runner-result.json").exists()
+
+
+def test_runner_environment_excludes_worker_secrets(monkeypatch, tmp_path):
+    parser = OpenDataLoaderParser()
+    source_pdf, page_dir, java_bin = _runner_args(tmp_path)
+    process = MagicMock()
+    process.wait.return_value = 0
+    captured = {}
+
+    def fake_popen(*args, **kwargs):
+        captured.update(kwargs["env"])
+        result_path = page_dir / "runner-result.json"
+        result_path.write_text("{}", encoding="utf-8")
+        return process
+
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-runner")
+    monkeypatch.setattr(odl_module.subprocess, "Popen", fake_popen)
+
+    with pytest.raises(odl_module.ODLValidationError):
+        parser._run_single_page_runner(source_pdf, page_dir, 1, 1, 1, java_bin)
+
+    assert "OPENAI_API_KEY" not in captured
+    assert captured["JAVA_HOME"] == str(java_bin.parent.parent)
 
 
 def test_windows_tree_kill_waits_for_runner_exit(monkeypatch):
@@ -90,7 +115,7 @@ def test_windows_tree_kill_failure_fails_closed(monkeypatch):
     original_name = odl_module.os.name
     odl_module.os.name = "nt"
     try:
-        with pytest.raises(ODLConversionError, match="process-tree termination failed"):
+        with pytest.raises(odl_module.ODLConversionError, match="process-tree termination failed"):
             OpenDataLoaderParser._terminate_process_tree(process)
     finally:
         odl_module.os.name = original_name
@@ -132,7 +157,7 @@ def test_missing_runner_result_fails_closed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(odl_module.subprocess, "Popen", lambda *args, **kwargs: process)
 
-    with pytest.raises(ODLValidationError, match="valid result metadata"):
+    with pytest.raises(odl_module.ODLValidationError, match="valid result metadata"):
         parser._run_single_page_runner(source_pdf, page_dir, 1, 1, 1, java_bin)
 
 
@@ -175,7 +200,7 @@ def test_tampered_runner_artifact_hash_fails_closed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(odl_module.subprocess, "Popen", fake_popen)
 
-    with pytest.raises(ODLValidationError, match="artifact identity check failed"):
+    with pytest.raises(odl_module.ODLValidationError, match="artifact identity check failed"):
         parser._run_single_page_runner(source_pdf, page_dir, 1, 1, 1, java_bin)
 
 

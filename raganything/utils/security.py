@@ -16,6 +16,8 @@ import hashlib
 import logging
 import time
 import uuid
+from collections.abc import Iterator
+from typing import Any
 from fastapi import HTTPException
 
 
@@ -73,6 +75,129 @@ def _normalize_input(text: str) -> str:
     text = _ZERO_WIDTH_RE.sub('', text)
     text = unicodedata.normalize('NFKC', text)
     return text
+
+
+class DocumentContentSafetyError(RuntimeError):
+    """Raised before untrusted parsed content can reach any ingestion sink."""
+
+    failure_stage = "security"
+    failure_code = "document_prompt_injection"
+
+    def __init__(
+        self,
+        rule_index: int,
+        block_type: str,
+        page_idx: int | None,
+        document_id: str | None = None,
+    ):
+        self.rule_index = rule_index
+        self.block_type = block_type
+        self.page_idx = page_idx
+        self.document_id = document_id
+        super().__init__("Document content matched an ingestion security rule")
+
+
+_INGESTION_TEXT_FIELDS = frozenset(
+    {
+        "text",
+        "content",
+        "table_body",
+        "table_data",
+        "data",
+        "table_caption",
+        "table_footnote",
+        "image_caption",
+        "img_caption",
+        "image_footnote",
+        "img_footnote",
+        "caption",
+        "alt",
+        "alt_text",
+        "latex",
+        "equation",
+        "description",
+    }
+)
+
+# Parser element types are untrusted metadata.  Restrict what can be emitted
+# in security telemetry so a malformed type cannot become a log-content sink.
+_SAFE_INGESTION_BLOCK_TYPES = frozenset(
+    {"text", "table", "image", "equation", "video", "unknown"}
+)
+
+
+def _safe_ingestion_block_type(value: object) -> str:
+    block_type = str(value or "unknown").strip().lower()
+    if block_type in _SAFE_INGESTION_BLOCK_TYPES:
+        return block_type
+    return "unknown"
+
+
+def _iter_text_values(value: Any) -> Iterator[str]:
+    """Yield scalar text from an allowed parsed-content field."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _iter_text_values(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_text_values(item)
+
+
+def validate_content_list_for_ingestion(
+    content_list: list[dict[str, Any]], document_id: str | None = None
+) -> None:
+    """Fail closed when parsed document text matches an injection rule.
+
+    Parser output is untrusted input and must be checked before it is cached,
+    used as VLM context, or sent to LightRAG. Audit logs contain only block
+    metadata and a digest, never document text.
+    """
+    for block_index, item in enumerate(content_list):
+        if not isinstance(item, dict):
+            continue
+        block_type = _safe_ingestion_block_type(item.get("type"))
+        page_value = item.get("page_idx")
+        try:
+            page_idx = int(page_value) if page_value is not None else None
+        except (TypeError, ValueError):
+            page_idx = None
+        for field_name in _INGESTION_TEXT_FIELDS:
+            if field_name not in item:
+                continue
+            for text_value in _iter_text_values(item[field_name]):
+                normalized = _normalize_input(text_value)
+                for rule_index, pattern in enumerate(PROMPT_INJECTION_REGEX):
+                    if not pattern.search(normalized):
+                        continue
+                    content_hash = hashlib.sha256(
+                        text_value.encode("utf-8", errors="replace")
+                    ).hexdigest()
+                    _security_logger.warning(
+                        "DOCUMENT_PROMPT_INJECTION_BLOCKED | rule=%d | "
+                        "block_type=%s | page_idx=%s | field=%s | "
+                        "content_sha256=%s | content_length=%d",
+                        rule_index,
+                        block_type,
+                        page_idx,
+                        field_name,
+                        content_hash,
+                        len(text_value),
+                        extra={
+                            "security_event": "document_prompt_injection_blocked",
+                            "rule_index": rule_index,
+                            "block_index": block_index,
+                            "block_type": block_type,
+                            "page_idx": page_idx,
+                            "field_name": field_name,
+                            "content_sha256": content_hash,
+                            "content_length": len(text_value),
+                        },
+                    )
+                    raise DocumentContentSafetyError(
+                        rule_index, block_type, page_idx, document_id
+                    )
 
 
 def validate_query_input(query: str, user_id: str = "anonymous") -> str:

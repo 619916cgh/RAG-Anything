@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+import math
 import os
 import re
 import signal
@@ -58,11 +59,28 @@ _JAVA_HEAP_RE = re.compile(r"-Xmx[1-9][0-9]*[mMgG]")
 _RUNNER_RESULT_SCHEMA = "opendataloader-runner-result-v1"
 _CONVERSION_SEMAPHORE = threading.BoundedSemaphore(_DEFAULT_CONCURRENCY)
 
+# The runner executes a third-party Python package and its JVM.  Do not pass
+# the worker's complete environment (which commonly contains model/API
+# credentials) into that process.
+_RUNNER_ENV_ALLOWLIST = frozenset(
+    {
+        "COMSPEC",
+        "LANG",
+        "LC_ALL",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    }
+)
+
 # ── structured error helpers ────────────────────────────────────────────
 
 
 def _trim_path_for_log(path: str | Path, working_dir: str = "") -> str:
-    """Return a relative path when *path* is inside *working_dir*."""
+    """Return a safe, non-absolute identifier for parser telemetry."""
     try:
         rp = Path(path).resolve()
         if working_dir:
@@ -71,9 +89,9 @@ def _trim_path_for_log(path: str | Path, working_dir: str = "") -> str:
                 return str(rp.relative_to(wd))
             except ValueError:
                 pass
-        return str(rp)
+        return rp.name or "<external-file>"
     except Exception:
-        return str(path)
+        return "<unavailable-file>"
 
 
 class OpenDataLoaderError(RuntimeError):
@@ -241,9 +259,7 @@ class OpenDataLoaderParser(Parser):
             )
             output = proc.stderr or proc.stdout  # Java prints version to stderr
         except Exception as exc:
-            raise ODLPreflightError(
-                f"Failed to invoke Java at {java_bin}: {exc}"
-            ) from exc
+            raise ODLPreflightError("Failed to invoke Java runtime") from exc
 
         import re
 
@@ -255,7 +271,7 @@ class OpenDataLoaderParser(Parser):
         m = re.search(r'version\s+"1\.(\d+)\.(\d+)[_\d]*"', output)
         if m:
             return int(m.group(1)), int(m.group(2)), 0
-        raise ODLPreflightError(f"Cannot determine Java version from: {output[:200]}")
+        raise ODLPreflightError("Cannot determine Java version")
 
     def check_installation(self) -> bool:
         """Verify the Python package and a compatible Java runtime.
@@ -331,7 +347,7 @@ class OpenDataLoaderParser(Parser):
             # pypdf is a required dependency of this project
             raise ODLPreflightError("pypdf is required for page counting")
         except Exception as exc:
-            raise ODLPreflightError(f"Cannot read PDF page count: {exc}") from exc
+            raise ODLPreflightError("Cannot read PDF page count") from exc
 
         if page_count > self._odl_max_pages:
             raise ODLPreflightError(
@@ -459,10 +475,18 @@ class OpenDataLoaderParser(Parser):
                 "max_output_bytes": self._odl_max_output_bytes,
             },
         )
-        runner_env = os.environ.copy()
+        runner_env = {
+            key: value
+            for key in _RUNNER_ENV_ALLOWLIST
+            if (value := os.environ.get(key))
+        }
         runner_env["JAVA_HOME"] = str(java_bin.parent.parent)
         runner_env["PATH"] = (
-            str(java_bin.parent) + os.pathsep + runner_env.get("PATH", "")
+            str(java_bin.parent)
+            + os.pathsep
+            + str(Path(sys.executable).resolve().parent)
+            + os.pathsep
+            + str(Path(os.environ.get("SYSTEMROOT", "")).resolve() / "System32")
         )
         popen_kwargs: Dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
@@ -560,14 +584,9 @@ class OpenDataLoaderParser(Parser):
         # Secondary: scan one level deep
         candidates = list(output_dir.glob(f"**/{file_stem}.json"))
         if not candidates:
-            raise ODLValidationError(
-                f"No JSON artifact found for '{file_stem}' in {output_dir}"
-            )
+            raise ODLValidationError("Expected JSON artifact was not produced")
         if len(candidates) > 1:
-            raise ODLValidationError(
-                f"Ambiguous JSON artifacts for '{file_stem}': "
-                f"{[str(c.relative_to(output_dir)) for c in candidates]}"
-            )
+            raise ODLValidationError("Multiple JSON artifacts were produced")
         return candidates[0]
 
     @staticmethod
@@ -581,7 +600,7 @@ class OpenDataLoaderParser(Parser):
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
-            raise ODLValidationError(f"Failed to read JSON artifact: {exc}") from exc
+            raise ODLValidationError("Failed to read JSON artifact") from exc
 
         if not isinstance(data, dict):
             raise ODLValidationError(f"Expected JSON object, got {type(data).__name__}")
@@ -600,9 +619,7 @@ class OpenDataLoaderParser(Parser):
 
         pages = data.get("number of pages")
         if not isinstance(pages, int) or pages <= 0:
-            raise ODLValidationError(
-                f"'number of pages' must be a positive integer, got {pages!r}"
-            )
+            raise ODLValidationError("'number of pages' must be a positive integer")
 
         return data
 
@@ -990,7 +1007,7 @@ class OpenDataLoaderParser(Parser):
                 coverage,
                 provenance_ref={
                     "schema": "odl-provenance-ref-v1",
-                    "path": str(sidecar_path),
+                    "path": sidecar_path.relative_to(run_root).as_posix(),
                     "sha256": self._sha256(sidecar_path),
                     "normalized_content_sha256": normalized_identity,
                     "adapter_schema": _ADAPTER_SCHEMA_VERSION,
@@ -1016,8 +1033,11 @@ class OpenDataLoaderParser(Parser):
         except FileNotFoundError:
             raise
         except Exception as exc:
-            self.logger.error("Unexpected error in OpenDataLoader parse_pdf: %s", exc)
-            raise ODLConversionError(f"Unexpected parser error: {exc}") from exc
+            self.logger.error(
+                "Unexpected error in OpenDataLoader parse_pdf: type=%s",
+                type(exc).__name__,
+            )
+            raise ODLConversionError("Unexpected parser error") from exc
         finally:
             if cross_process_lock is not None:
                 cross_process_lock.release()
@@ -1038,10 +1058,9 @@ class OpenDataLoaderParser(Parser):
             return self.parse_pdf(file_path, output_dir, method, lang, **kwargs)
         if ext in self.OFFICE_FORMATS | self.IMAGE_FORMATS | self.TEXT_FORMATS:
             raise ODLValidationError(
-                f"OpenDataLoader is PDF-only; file type '{ext}' is not supported. "
-                f"Use the global parser for non-PDF documents."
+                "OpenDataLoader is PDF-only; use the global parser for non-PDF documents."
             )
-        raise ODLValidationError(f"Unsupported file type '{ext}' for OpenDataLoader.")
+        raise ODLValidationError("OpenDataLoader only supports PDF inputs")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1100,8 +1119,16 @@ def _normalize_bbox(raw_bbox: List[float]) -> List[float]:
     format, but we validate the shape.
     """
     if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
-        raise ODLValidationError(f"Expected 4-element bounding box, got {raw_bbox!r}")
-    return [float(v) for v in raw_bbox]
+        raise ODLValidationError("Expected a 4-element bounding box")
+    try:
+        bbox = [float(value) for value in raw_bbox]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ODLValidationError(
+            "Bounding box coordinates must be finite numeric values"
+        ) from exc
+    if not all(math.isfinite(value) for value in bbox):
+        raise ODLValidationError("Bounding box coordinates must be finite numeric values")
+    return bbox
 
 
 def _build_table_block(

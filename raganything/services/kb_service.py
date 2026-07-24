@@ -779,6 +779,14 @@ class WorkerProcessError(RuntimeError):
         self.page_coverage = payload.get("page_coverage")
 
 
+def _sanitize_failure_code(value: object) -> str:
+    """Keep failure metadata stable and free from worker-controlled text."""
+    code = str(value or "").strip().lower()
+    if re.fullmatch(r"[a-z0-9_]{1,64}", code):
+        return code
+    return ""
+
+
 def _retry_cleanup_lock(kb_name: str, filename: str) -> asyncio.Lock:
     key = (kb_name, os.path.basename(filename))
     lock = _retry_cleanup_locks.get(key)
@@ -2538,6 +2546,7 @@ async def _persist_failed_doc_status(
     error_message: str,
     task_id: str = "",
     chunking_strategy: str = "",
+    failure_code: str = "",
 ) -> str | None:
     """Create a retryable failed document record when parsing never reached LightRAG."""
     doc_id = "doc-failed-" + hashlib.sha256(
@@ -2550,6 +2559,9 @@ async def _persist_failed_doc_status(
         "content_ready": False,
         "multimodal_processed": False,
     }
+    safe_failure_code = _sanitize_failure_code(failure_code)
+    if safe_failure_code:
+        metadata["failure_code"] = safe_failure_code
     if chunking_strategy:
         metadata["chunking_strategy"] = chunking_strategy
     record = {
@@ -2595,6 +2607,7 @@ async def _fix_stuck_doc_status(
     task_id: str = "",
     chunking_strategy: str = "",
     file_hash: str = "",
+    failure_code: str = "",
 ):
     """Fix documents stuck in 'handling' state after subprocess crash/timeout.
 
@@ -2605,6 +2618,7 @@ async def _fix_stuck_doc_status(
         filename: The file whose doc_status may be stuck
     """
     try:
+        safe_failure_code = _sanitize_failure_code(failure_code)
         data = await _load_doc_status_json(kb_name)
         data = data or {}
         changed = False
@@ -2706,6 +2720,8 @@ async def _fix_stuck_doc_status(
                     "task_id": task_id,
                     "file_hash": file_hash,
                 })
+                if safe_failure_code:
+                    metadata["failure_code"] = safe_failure_code
                 multimodal_chunks = metadata.get("multimodal_chunks")
                 if isinstance(multimodal_chunks, dict):
                     residual_ids = [str(value) for value in multimodal_chunks if value]
@@ -2732,9 +2748,19 @@ async def _fix_stuck_doc_status(
                 task_id,
             )
             if chunking_strategy:
-                await _persist_failed_doc_status(*failure_args, chunking_strategy)
+                if safe_failure_code:
+                    await _persist_failed_doc_status(
+                        *failure_args, chunking_strategy, safe_failure_code
+                    )
+                else:
+                    await _persist_failed_doc_status(*failure_args, chunking_strategy)
             else:
-                await _persist_failed_doc_status(*failure_args)
+                if safe_failure_code:
+                    await _persist_failed_doc_status(
+                        *failure_args, failure_code=safe_failure_code
+                    )
+                else:
+                    await _persist_failed_doc_status(*failure_args)
     except Exception as ex:
         kb_logger.error(f"[FIX-STUCK] 修复失败: {ex}")
 
@@ -3201,6 +3227,7 @@ async def _finalize_failed_upload(
     error_message: str,
     file_hash: str | None,
     chunking_strategy: str = "",
+    failure_code: str = "",
 ) -> None:
     """Persist document failure before making its task terminal.
 
@@ -3219,6 +3246,7 @@ async def _finalize_failed_upload(
         task_id,
         chunking_strategy,
         file_hash or "",
+        failure_code,
     )
 
     degraded = await _find_degraded_document(
@@ -4555,6 +4583,9 @@ async def _process_uploaded_file(
             str(e),
             file_hash,
             actual_strategy,
+            # Parser and ingestion security errors use the same constrained
+            # metadata channel. Never persist an exception message as a code.
+            failure_code=getattr(e, "failure_code", ""),
         )
     finally:
         if worker_slot_acquired and worker_slot is not None:
@@ -4850,6 +4881,7 @@ async def _reprocess_multimodal_for_kb(kb_name: str, user_id: int = 1):
         dict with ``processed``, ``skipped``, ``total``, ``message``
     """
     from raganything.utils._content import separate_content
+    from raganything.utils.security import validate_content_list_for_ingestion
     from raganything.services.ws_service import ws_broadcast, add_event
 
     instance = await get_kb(kb_name)
@@ -4971,6 +5003,10 @@ async def _reprocess_multimodal_for_kb(kb_name: str, user_id: int = 1):
                 content_list, _ = await instance.parse_document(
                     str(original_path.resolve())
                 )
+
+            # Cached parser output remains untrusted and may predate the
+            # ingestion gate. Validate before it reaches VLM processing.
+            validate_content_list_for_ingestion(content_list, doc_id)
 
             # Separate multimodal content
             _, multimodal_items = separate_content(content_list)

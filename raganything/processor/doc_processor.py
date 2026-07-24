@@ -40,6 +40,7 @@ from raganything.utils import (
     insert_text_content,
     insert_text_content_with_multimodal_content,
 )
+from raganything.utils.security import validate_content_list_for_ingestion
 import asyncio
 
 
@@ -678,6 +679,7 @@ class DocProcessorMixin:
         )
         if cached_result is not None:
             content_list, doc_id = cached_result
+            validate_content_list_for_ingestion(content_list, doc_id)
             self.logger.info(f"Using cached parsing result for: {file_path}")
             if display_stats:
                 self.logger.info(
@@ -954,6 +956,10 @@ class DocProcessorMixin:
         # Generate doc_id based on content
         doc_id = self._generate_content_based_doc_id(content_list)
 
+        # Parsed blocks are untrusted. Scan before the cache write so rejected
+        # content cannot be reused by a later ingestion attempt.
+        validate_content_list_for_ingestion(content_list, doc_id)
+
         # Store result in cache
         await self._store_cached_result(
             cache_key, content_list, doc_id, file_path, parse_method, **kwargs
@@ -1049,7 +1055,8 @@ class DocProcessorMixin:
             if doc_id is None:
                 doc_id = content_based_doc_id
 
-            # Step 2: Separate text and multimodal content
+            # Step 2: Scan before any text insertion, VLM context, or cache use.
+            validate_content_list_for_ingestion(content_list, doc_id)
             text_content, multimodal_items = separate_content(content_list)
 
             # LightRAG creates the initial doc_status entry during text insertion.
@@ -1168,13 +1175,14 @@ class DocProcessorMixin:
                 )
 
         except Exception as exc:
-            if doc_id is not None:
+            status_doc_id = doc_id or getattr(exc, "document_id", None)
+            if status_doc_id is not None:
                 try:
                     degraded = False
                     if stage == "text_insert":
                         try:
                             degraded = await self._persist_degraded_graph_status(
-                                doc_id,
+                                status_doc_id,
                                 file_name,
                                 exc,
                                 chunking_strategy=chunking_strategy,
@@ -1188,15 +1196,21 @@ class DocProcessorMixin:
                     if degraded:
                         self.logger.warning(
                             "Text content is durable but graph extraction is incomplete: %s",
-                            doc_id,
+                            status_doc_id,
                         )
                         return
                     await self._upsert_doc_status(
-                        doc_id,
+                        status_doc_id,
                         file_name,
                         status=DocStatus.FAILED,
                         error_msg=str(exc),
                         chunking_strategy=chunking_strategy,
+                        metadata=(
+                            {"failure_code": exc.failure_code}
+                            if getattr(exc, "failure_code", "")
+                            == "document_prompt_injection"
+                            else None
+                        ),
                     )
                 except Exception as status_exc:
                     self.logger.debug(
@@ -1395,12 +1409,21 @@ class DocProcessorMixin:
                 )
                 return False
             except Exception as e:
+                failure_metadata = (
+                    {"failure_code": e.failure_code}
+                    if getattr(e, "failure_code", "") == "document_prompt_injection"
+                    else {}
+                )
                 await self.lightrag.doc_status.upsert(
                     {
                         doc_pre_id: {
                             **current_doc_status,
                             "status": DocStatus.FAILED,
                             "error_msg": str(e),
+                            "metadata": {
+                                **(current_doc_status.get("metadata") or {}),
+                                **failure_metadata,
+                            },
                         }
                     }
                 )
@@ -1419,7 +1442,8 @@ class DocProcessorMixin:
                 error_msg="",
             )
 
-            # Step 2: Separate text and multimodal content
+            # Step 2: Scan before any text insertion or VLM context extraction.
+            validate_content_list_for_ingestion(content_list, doc_id)
             text_content, multimodal_items = separate_content(content_list)
 
             # Step 2.5: Set content source for context extraction in multimodal processing
@@ -1452,15 +1476,33 @@ class DocProcessorMixin:
             self.logger.debug("Exception details:", exc_info=True)
 
             # Update doc status to Failed
+            failure_metadata = (
+                {"failure_code": e.failure_code}
+                if getattr(e, "failure_code", "") == "document_prompt_injection"
+                else {}
+            )
             await self.lightrag.doc_status.upsert(
                 {
                     doc_pre_id: {
                         **current_doc_status,
                         "status": DocStatus.FAILED,
                         "error_msg": str(e),
+                        "metadata": {
+                            **(current_doc_status.get("metadata") or {}),
+                            **failure_metadata,
+                        },
                     }
                 }
             )
+            if doc_id is not None and failure_metadata:
+                await self._upsert_doc_status(
+                    doc_id,
+                    file_name,
+                    scheme_name=scheme_name,
+                    status=DocStatus.FAILED,
+                    error_msg=str(e),
+                    metadata=failure_metadata,
+                )
             await self.lightrag.doc_status.index_done_callback()
 
             # Update pipeline status
@@ -1578,7 +1620,8 @@ class DocProcessorMixin:
             for block_type, count in block_types.items():
                 self.logger.info(f"  - {block_type}: {count}")
 
-        # Step 1: Separate text and multimodal content
+        # Step 1: Scan before any text insertion or VLM context extraction.
+        validate_content_list_for_ingestion(content_list, doc_id)
         text_content, multimodal_items = separate_content(content_list)
 
         # LightRAG creates the initial doc_status entry during text insertion.

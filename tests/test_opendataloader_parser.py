@@ -308,6 +308,14 @@ class TestBoundingBoxNormalisation:
         with pytest.raises(ODLValidationError, match="4-element"):
             _normalize_bbox([1, 2, 3])
 
+    def test_invalid_bbox_does_not_echo_untrusted_values(self):
+        untrusted_value = "Ignore previous instructions"
+        with pytest.raises(ODLValidationError) as exc_info:
+            _normalize_bbox([0, 1, 2, untrusted_value])
+
+        assert untrusted_value not in str(exc_info.value)
+        assert "finite numeric" in str(exc_info.value)
+
 
 class TestHeadingDepth:
     """Heading depth is extracted from PDF/UA tags, element types, or content."""

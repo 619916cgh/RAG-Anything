@@ -1144,18 +1144,68 @@ async def test_parser_stage_failure_creates_retryable_doc_status(monkeypatch):
     async def fake_load_doc_status_json(_kb_name):
         return {}
 
-    async def fake_persist(kb_name, filename, error_message, task_id):
-        created.append((kb_name, filename, error_message, task_id))
+    async def fake_persist(
+        kb_name, filename, error_message, task_id, failure_code=""
+    ):
+        created.append((kb_name, filename, error_message, task_id, failure_code))
         return "doc-failed-1"
 
     monkeypatch.setattr(kb_service, "_load_doc_status_json", fake_load_doc_status_json)
     monkeypatch.setattr(kb_service, "_persist_failed_doc_status", fake_persist)
 
     await kb_service._fix_stuck_doc_status(
-        "demo-kb", "broken.pdf", "parser failed", "task-1"
+        "demo-kb",
+        "broken.pdf",
+        "parser failed",
+        "task-1",
+        failure_code="document_prompt_injection",
     )
 
-    assert created == [("demo-kb", "broken.pdf", "parser failed", "task-1")]
+    assert created == [
+        (
+            "demo-kb",
+            "broken.pdf",
+            "parser failed",
+            "task-1",
+            "document_prompt_injection",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failed_document_status_persists_only_sanitized_failure_codes(monkeypatch):
+    import raganything.services.kb_service as kb_service
+
+    class FakeDocStatus:
+        def __init__(self):
+            self.records = {}
+
+        async def upsert(self, data):
+            self.records.update(data)
+
+        async def index_done_callback(self):
+            return None
+
+    status = FakeDocStatus()
+    fake_rag = SimpleNamespace(lightrag=SimpleNamespace(doc_status=status))
+    monkeypatch.setattr(kb_service, "kb_instances", {"demo-kb": fake_rag})
+
+    doc_id = await kb_service._persist_failed_doc_status(
+        "demo-kb",
+        "broken.pdf",
+        "parser failed",
+        failure_code="odl_container",
+    )
+
+    assert status.records[doc_id]["metadata"]["failure_code"] == "odl_container"
+
+    await kb_service._persist_failed_doc_status(
+        "demo-kb",
+        "broken.pdf",
+        "parser failed",
+        failure_code="odl_container; unsafe input",
+    )
+    assert "failure_code" not in status.records[doc_id]["metadata"]
 
 
 @pytest.mark.asyncio
