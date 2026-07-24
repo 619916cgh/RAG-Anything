@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from raganything.asset_urls import attach_public_media_urls
 from raganything.parser.base import Parser
+from raganything.utils.process_lock import FileLock, get_lock_dir
 
 # ── constants ──────────────────────────────────────────────────────────
 _PACKAGE_NAME = "opendataloader-pdf"
@@ -49,12 +50,16 @@ _DEFAULT_HEAP = os.getenv("ODL_JAVA_HEAP", "-Xmx2g")
 _DEFAULT_THREADS = "1"
 _DEFAULT_MAX_PAGES = int(os.getenv("ODL_MAX_PAGES", "500"))
 _DEFAULT_MAX_BYTES = int(os.getenv("ODL_MAX_BYTES", str(200 * 1024 * 1024)))  # 200 MiB
+_DEFAULT_MAX_OUTPUT_BYTES = int(
+    os.getenv("ODL_MAX_OUTPUT_BYTES", str(1024 * 1024 * 1024))
+)  # 1 GiB
 _DEFAULT_CONCURRENCY = max(1, int(os.getenv("ODL_CONCURRENCY", "1")))
 _JAVA_HEAP_RE = re.compile(r"-Xmx[1-9][0-9]*[mMgG]")
 _RUNNER_RESULT_SCHEMA = "opendataloader-runner-result-v1"
 _CONVERSION_SEMAPHORE = threading.BoundedSemaphore(_DEFAULT_CONCURRENCY)
 
 # ── structured error helpers ────────────────────────────────────────────
+
 
 def _trim_path_for_log(path: str | Path, working_dir: str = "") -> str:
     """Return a relative path when *path* is inside *working_dir*."""
@@ -117,6 +122,7 @@ class ODLContainerError(OpenDataLoaderError):
 
 # ── adapter ─────────────────────────────────────────────────────────────
 
+
 class OpenDataLoaderParser(Parser):
     """PDF-only parser backed by OpenDataLoader PDF 2.5.0 (local fast mode).
 
@@ -130,6 +136,8 @@ class OpenDataLoaderParser(Parser):
         "_odl_threads",
         "_odl_max_pages",
         "_odl_max_bytes",
+        "_odl_max_output_bytes",
+        "_odl_concurrency",
     )
 
     logger = logging.getLogger(__name__)
@@ -141,6 +149,8 @@ class OpenDataLoaderParser(Parser):
         threads: int | None = None,
         max_pages: int | None = None,
         max_bytes: int | None = None,
+        max_output_bytes: int | None = None,
+        concurrency: int | None = None,
     ) -> None:
         super().__init__()
         self._odl_timeout = timeout if timeout is not None else _DEFAULT_TIMEOUT
@@ -152,6 +162,12 @@ class OpenDataLoaderParser(Parser):
         self._odl_threads = str(threads or _DEFAULT_THREADS)
         self._odl_max_pages = max_pages if max_pages is not None else _DEFAULT_MAX_PAGES
         self._odl_max_bytes = max_bytes if max_bytes is not None else _DEFAULT_MAX_BYTES
+        self._odl_max_output_bytes = (
+            max_output_bytes
+            if max_output_bytes is not None
+            else _DEFAULT_MAX_OUTPUT_BYTES
+        )
+        self._odl_concurrency = max(1, concurrency or _DEFAULT_CONCURRENCY)
 
     # ── identity ────────────────────────────────────────────────────
 
@@ -170,10 +186,13 @@ class OpenDataLoaderParser(Parser):
             "mode": "fast_local",
             "java_min_major": _JAVA_MIN_MAJOR,
             "threads": _DEFAULT_THREADS,
+            "java_heap": _DEFAULT_HEAP,
             "timeout_seconds": _DEFAULT_TIMEOUT,
             "page_timeout_seconds": _DEFAULT_PAGE_TIMEOUT,
             "max_pages": _DEFAULT_MAX_PAGES,
             "max_bytes": _DEFAULT_MAX_BYTES,
+            "max_output_bytes": _DEFAULT_MAX_OUTPUT_BYTES,
+            "concurrency": _DEFAULT_CONCURRENCY,
         }
 
     # ── installation check ──────────────────────────────────────────
@@ -227,6 +246,7 @@ class OpenDataLoaderParser(Parser):
             ) from exc
 
         import re
+
         # Match lines like: openjdk version "17.0.19" 2026-04-21
         m = re.search(r'version\s+"(\d+)\.(\d+)\.(\d+)"', output)
         if m:
@@ -235,9 +255,7 @@ class OpenDataLoaderParser(Parser):
         m = re.search(r'version\s+"1\.(\d+)\.(\d+)[_\d]*"', output)
         if m:
             return int(m.group(1)), int(m.group(2)), 0
-        raise ODLPreflightError(
-            f"Cannot determine Java version from: {output[:200]}"
-        )
+        raise ODLPreflightError(f"Cannot determine Java version from: {output[:200]}")
 
     def check_installation(self) -> bool:
         """Verify the Python package and a compatible Java runtime.
@@ -306,6 +324,7 @@ class OpenDataLoaderParser(Parser):
 
         try:
             import pypdf
+
             reader = pypdf.PdfReader(str(pdf_path))
             page_count = len(reader.pages)
         except ImportError:
@@ -326,26 +345,44 @@ class OpenDataLoaderParser(Parser):
 
     @staticmethod
     def _terminate_process_tree(process: subprocess.Popen[Any]) -> None:
-        """Terminate a runner and every JVM child it owns."""
+        """Terminate a runner and every JVM child it owns, or fail closed."""
         if process.poll() is not None:
             return
-        try:
-            if os.name == "nt":
-                subprocess.run(
+        if os.name == "nt":
+            try:
+                completed = subprocess.run(
                     ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                     check=False,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     timeout=10,
                 )
-            else:
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ODLConversionError(
+                    "Unable to terminate OpenDataLoader process tree"
+                ) from exc
+            if completed.returncode != 0:
+                raise ODLConversionError(
+                    "OpenDataLoader process-tree termination failed"
+                )
+        else:
+            try:
                 os.killpg(process.pid, signal.SIGTERM)
                 try:
                     process.wait(timeout=5)
+                    return
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL)
-        except (OSError, subprocess.SubprocessError):
-            process.kill()
+            except OSError as exc:
+                raise ODLConversionError(
+                    "Unable to terminate OpenDataLoader process group"
+                ) from exc
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired as exc:
+            raise ODLConversionError(
+                "OpenDataLoader process tree did not exit after termination"
+            ) from exc
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -362,8 +399,39 @@ class OpenDataLoaderParser(Parser):
         try:
             resolved.relative_to(root_resolved)
         except ValueError as exc:
-            raise ODLContainerError("Parser artifact escapes the output directory") from exc
+            raise ODLContainerError(
+                "Parser artifact escapes the output directory"
+            ) from exc
         return resolved
+
+    @staticmethod
+    def _output_size(root: Path) -> int:
+        """Return output bytes without following links outside *root*."""
+        total = 0
+        for candidate in root.rglob("*"):
+            try:
+                stat_result = candidate.lstat()
+            except OSError as exc:
+                raise ODLContainerError("Cannot inspect parser artifact") from exc
+            if candidate.is_symlink():
+                raise ODLContainerError("Parser artifact contains a symbolic link")
+            if candidate.is_file():
+                total += stat_result.st_size
+        return total
+
+    @staticmethod
+    def _acquire_cross_process_slot(
+        working_dir: str, capacity: int, deadline: float
+    ) -> FileLock:
+        """Reserve one shared OpenDataLoader slot across document workers."""
+        lock_dir = get_lock_dir(working_dir) / "opendataloader"
+        while time.monotonic() < deadline:
+            for slot in range(capacity):
+                lock = FileLock(str(lock_dir / f"slot-{slot}.lock"))
+                if lock.acquire():
+                    return lock
+            time.sleep(0.1)
+        raise ODLConversionError("OpenDataLoader concurrency limit timed out")
 
     def _run_single_page_runner(
         self,
@@ -372,6 +440,7 @@ class OpenDataLoaderParser(Parser):
         source_pages: int,
         page: int,
         timeout: float,
+        java_bin: Path,
     ) -> Dict[str, Any]:
         """Run the official SDK in a supervised child process for one page."""
         if not _JAVA_HEAP_RE.fullmatch(self._odl_heap):
@@ -387,12 +456,19 @@ class OpenDataLoaderParser(Parser):
                 "source_total_pages": source_pages,
                 "page": page,
                 "java_heap": self._odl_heap,
+                "max_output_bytes": self._odl_max_output_bytes,
             },
+        )
+        runner_env = os.environ.copy()
+        runner_env["JAVA_HOME"] = str(java_bin.parent.parent)
+        runner_env["PATH"] = (
+            str(java_bin.parent) + os.pathsep + runner_env.get("PATH", "")
         )
         popen_kwargs: Dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
+            "env": runner_env,
         }
         if os.name == "nt":
             popen_kwargs["creationflags"] = (
@@ -401,17 +477,19 @@ class OpenDataLoaderParser(Parser):
         else:
             popen_kwargs["start_new_session"] = True
         process = subprocess.Popen(
-            [sys.executable, "-m", "raganything.parser.opendataloader_runner", "--request", str(request_path)],
+            [
+                sys.executable,
+                "-m",
+                "raganything.parser.opendataloader_runner",
+                "--request",
+                str(request_path),
+            ],
             **popen_kwargs,
         )
         try:
             return_code = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             self._terminate_process_tree(process)
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
             raise ODLConversionError(f"OpenDataLoader page {page} timed out") from exc
         result_path = self._contained_path(page_dir / "runner-result.json", page_dir)
         if return_code != 0 and not result_path.is_file():
@@ -419,34 +497,50 @@ class OpenDataLoaderParser(Parser):
         try:
             result = json.loads(result_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise ODLValidationError("OpenDataLoader runner did not produce valid result metadata") from exc
+            raise ODLValidationError(
+                "OpenDataLoader runner did not produce valid result metadata"
+            ) from exc
         if result.get("schema_version") != _RUNNER_RESULT_SCHEMA:
             raise ODLValidationError("OpenDataLoader runner result schema is invalid")
         entries = result.get("pages")
         if not isinstance(entries, list) or len(entries) != 1:
-            raise ODLPageCoverageError("OpenDataLoader runner did not prove exactly one page")
+            raise ODLPageCoverageError(
+                "OpenDataLoader runner did not prove exactly one page"
+            )
         entry = entries[0]
         if not isinstance(entry, dict) or entry.get("page") != page:
             raise ODLPageCoverageError("OpenDataLoader runner returned the wrong page")
         if return_code != 0:
             raise ODLPageCoverageError(
-                f"OpenDataLoader runner failed to prove page {page}", coverage={
+                f"OpenDataLoader runner failed to prove page {page}",
+                coverage={
                     "source_total_pages": source_pages,
                     "successful_pages": [],
                     "failed_pages": [page],
-                    "skipped_pages": [p for p in range(1, source_pages + 1) if p != page],
-                }
+                    "skipped_pages": [
+                        p for p in range(1, source_pages + 1) if p != page
+                    ],
+                },
             )
         if entry.get("state") not in {"success", "blank"}:
-            raise ODLPageCoverageError("OpenDataLoader runner did not prove page success")
-        for artifact_key, hash_key in (("json_relpath", "json_sha256"), ("markdown_relpath", "markdown_sha256")):
+            raise ODLPageCoverageError(
+                "OpenDataLoader runner did not prove page success"
+            )
+        for artifact_key, hash_key in (
+            ("json_relpath", "json_sha256"),
+            ("markdown_relpath", "markdown_sha256"),
+        ):
             relpath = entry.get(artifact_key)
             expected_hash = entry.get(hash_key)
             if not isinstance(relpath, str) or not isinstance(expected_hash, str):
-                raise ODLValidationError("OpenDataLoader runner artifact metadata is invalid")
+                raise ODLValidationError(
+                    "OpenDataLoader runner artifact metadata is invalid"
+                )
             artifact = self._contained_path(page_dir / relpath, page_dir)
             if not artifact.is_file() or self._sha256(artifact) != expected_hash:
-                raise ODLValidationError("OpenDataLoader runner artifact identity check failed")
+                raise ODLValidationError(
+                    "OpenDataLoader runner artifact identity check failed"
+                )
         entry["output_root"] = page_dir
         return entry
 
@@ -490,17 +584,13 @@ class OpenDataLoaderParser(Parser):
             raise ODLValidationError(f"Failed to read JSON artifact: {exc}") from exc
 
         if not isinstance(data, dict):
-            raise ODLValidationError(
-                f"Expected JSON object, got {type(data).__name__}"
-            )
+            raise ODLValidationError(f"Expected JSON object, got {type(data).__name__}")
 
         # Required top-level keys
         required = ("file name", "number of pages", "kids")
         missing = [k for k in required if k not in data]
         if missing:
-            raise ODLValidationError(
-                f"JSON missing required top-level keys: {missing}"
-            )
+            raise ODLValidationError(f"JSON missing required top-level keys: {missing}")
 
         kids = data.get("kids")
         if not isinstance(kids, list):
@@ -517,9 +607,7 @@ class OpenDataLoaderParser(Parser):
         return data
 
     @staticmethod
-    def _resolve_media_path(
-        image_ref: str, output_root: Path
-    ) -> Optional[Path]:
+    def _resolve_media_path(image_ref: str, output_root: Path) -> Optional[Path]:
         """Resolve a media reference safely within *output_root*.
 
         Returns the absolute resolved path, or ``None`` if the reference
@@ -581,14 +669,18 @@ class OpenDataLoaderParser(Parser):
                     page_idx = 0
 
                 # Determine heading depth from various sources
-                heading_depth = _extract_heading_depth(el_type, pdfua_tag, text_level, content)
+                heading_depth = _extract_heading_depth(
+                    el_type, pdfua_tag, text_level, content
+                )
 
                 # Build provenance entry
                 prov_entry = {
                     "odl_id": el_id,
                     "odl_type": el_type,
                     "odl_pdfua_tag": pdfua_tag,
-                    "source_page": int(src_page) if isinstance(src_page, (int, float)) else None,
+                    "source_page": (
+                        int(src_page) if isinstance(src_page, (int, float)) else None
+                    ),
                     "page_idx": page_idx,
                 }
                 if bbox is not None:
@@ -628,46 +720,58 @@ class OpenDataLoaderParser(Parser):
 
                 elif el_type == "table":
                     # Table — generate normalized table block from cells/labels
-                    table_block = _build_table_block(el, output_root, page_idx, working_dir)
+                    table_block = _build_table_block(
+                        el, output_root, page_idx, working_dir
+                    )
                     if table_block:
                         content_list.append(table_block)
 
                 elif el_type in ("figure", "image"):
                     # Image block
-                    image_block = _build_image_block(el, output_root, page_idx, working_dir)
+                    image_block = _build_image_block(
+                        el, output_root, page_idx, working_dir
+                    )
                     if image_block:
                         content_list.append(image_block)
                     else:
                         # Safe text fallback
-                        content_list.append({
-                            "type": "text",
-                            "text": f"[Image: {el.get('alt','') or el.get('caption','') or 'unnamed'}]",
-                            "page_idx": page_idx,
-                        })
+                        content_list.append(
+                            {
+                                "type": "text",
+                                "text": f"[Image: {el.get('alt','') or el.get('caption','') or 'unnamed'}]",
+                                "page_idx": page_idx,
+                            }
+                        )
 
                 elif el_type in ("formula", "equation"):
                     # Equation → text representation or existing contract
                     formula_text = str(content or "")
-                    content_list.append({
-                        "type": "text",
-                        "text": formula_text if formula_text else "[Formula]",
-                        "page_idx": page_idx,
-                    })
+                    content_list.append(
+                        {
+                            "type": "text",
+                            "text": formula_text if formula_text else "[Formula]",
+                            "page_idx": page_idx,
+                        }
+                    )
 
                 else:
                     # Unknown type – safe text fallback if there's content
                     if content:
-                        content_list.append({
-                            "type": "text",
-                            "text": str(content),
-                            "page_idx": page_idx,
-                        })
+                        content_list.append(
+                            {
+                                "type": "text",
+                                "text": str(content),
+                                "page_idx": page_idx,
+                            }
+                        )
                     else:
-                        content_list.append({
-                            "type": "text",
-                            "text": f"[Unsupported OpenDataLoader element: {el_type or 'unknown'}]",
-                            "page_idx": page_idx,
-                        })
+                        content_list.append(
+                            {
+                                "type": "text",
+                                "text": f"[Unsupported OpenDataLoader element: {el_type or 'unknown'}]",
+                                "page_idx": page_idx,
+                            }
+                        )
 
                 provenance.append(prov_entry)
 
@@ -718,6 +822,11 @@ class OpenDataLoaderParser(Parser):
             raise ODLPreflightError(
                 "OpenDataLoader requires opendataloader-pdf==2.5.0 and Java 17+"
             )
+        java_bin = self._find_java()
+        if java_bin is None:
+            raise ODLPreflightError(
+                "OpenDataLoader Java runtime disappeared after preflight"
+            )
 
         # 2. Output directory (unique per file path)
         if output_dir:
@@ -728,12 +837,22 @@ class OpenDataLoaderParser(Parser):
         unique_out.mkdir(parents=True, exist_ok=True)
         run_root = unique_out / f"run-{time.time_ns()}"
         run_root.mkdir(parents=True, exist_ok=False)
-        if not _CONVERSION_SEMAPHORE.acquire(timeout=self._odl_timeout):
+        deadline = time.monotonic() + self._odl_timeout
+        if not _CONVERSION_SEMAPHORE.acquire(
+            timeout=max(0, deadline - time.monotonic())
+        ):
             raise ODLConversionError("OpenDataLoader concurrency limit timed out")
+        cross_process_lock: FileLock | None = None
 
         try:
+            cross_process_lock = self._acquire_cross_process_slot(
+                working_dir,
+                self._odl_concurrency,
+                deadline,
+            )
             # 3. Source page count (pypdf)
             import pypdf
+
             source_pages = len(pypdf.PdfReader(str(pdf_path)).pages)
 
             # 4. Convert each page in an independently supervised process.
@@ -743,11 +862,12 @@ class OpenDataLoaderParser(Parser):
             successful_pages: List[int] = []
             blank_pages: List[int] = []
             raw_artifacts: List[Dict[str, Any]] = []
-            deadline = conv_start + self._odl_timeout
             for page in range(1, source_pages + 1):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise ODLConversionError("OpenDataLoader conversion exceeded total timeout")
+                    raise ODLConversionError(
+                        "OpenDataLoader conversion exceeded total timeout"
+                    )
                 page_dir = run_root / "pages" / f"page-{page:04d}"
                 entry = self._run_single_page_runner(
                     pdf_path,
@@ -755,6 +875,7 @@ class OpenDataLoaderParser(Parser):
                     source_pages,
                     page,
                     min(self._odl_page_timeout, remaining),
+                    java_bin,
                 )
                 json_path = self._contained_path(
                     page_dir / entry["json_relpath"], page_dir
@@ -786,10 +907,16 @@ class OpenDataLoaderParser(Parser):
                         "page": page,
                         "json": json_path.relative_to(run_root).as_posix(),
                         "json_sha256": entry["json_sha256"],
-                        "markdown": (page_dir / entry["markdown_relpath"]).relative_to(run_root).as_posix(),
+                        "markdown": (page_dir / entry["markdown_relpath"])
+                        .relative_to(run_root)
+                        .as_posix(),
                         "markdown_sha256": entry["markdown_sha256"],
                     }
                 )
+                if self._output_size(run_root) > self._odl_max_output_bytes:
+                    raise ODLValidationError(
+                        "OpenDataLoader output exceeds configured byte limit"
+                    )
             conv_elapsed = time.monotonic() - conv_start
             self.logger.info(
                 "OpenDataLoader conversion completed in %.1fs for %s",
@@ -827,7 +954,9 @@ class OpenDataLoaderParser(Parser):
             # 5. Retain content and raw-artifact identity only after coverage proof.
             sidecar_path = run_root / f"{pdf_path.stem}_provenance.json"
             normalized_identity = hashlib.sha256(
-                json.dumps(content_list, ensure_ascii=True, sort_keys=True).encode("utf-8")
+                json.dumps(content_list, ensure_ascii=True, sort_keys=True).encode(
+                    "utf-8"
+                )
             ).hexdigest()
             sidecar = {
                 "adapter_schema_version": _ADAPTER_SCHEMA_VERSION,
@@ -843,6 +972,10 @@ class OpenDataLoaderParser(Parser):
                 "elements": provenance,
             }
             _write_atomic_json(sidecar_path, sidecar)
+            if self._output_size(run_root) > self._odl_max_output_bytes:
+                raise ODLValidationError(
+                    "OpenDataLoader output exceeds configured byte limit"
+                )
 
             # 6. Attach public media URLs to image blocks
             for block in content_list:
@@ -851,7 +984,18 @@ class OpenDataLoaderParser(Parser):
 
             # 7. Return PageTrackedContent
             from raganything.parser.office_parser import PageTrackedContent
-            result = PageTrackedContent(content_list, coverage)
+
+            result = PageTrackedContent(
+                content_list,
+                coverage,
+                provenance_ref={
+                    "schema": "odl-provenance-ref-v1",
+                    "path": str(sidecar_path),
+                    "sha256": self._sha256(sidecar_path),
+                    "normalized_content_sha256": normalized_identity,
+                    "adapter_schema": _ADAPTER_SCHEMA_VERSION,
+                },
+            )
             self.logger.info(
                 "OpenDataLoader parsed %s: %d pages, %d blocks, %d blank pages",
                 _trim_path_for_log(pdf_path, working_dir),
@@ -861,19 +1005,22 @@ class OpenDataLoaderParser(Parser):
             )
             return result
 
-        except (ODLPreflightError, ODLConversionError,
-                ODLValidationError, ODLPageCoverageError, ODLContainerError):
+        except (
+            ODLPreflightError,
+            ODLConversionError,
+            ODLValidationError,
+            ODLPageCoverageError,
+            ODLContainerError,
+        ):
             raise
         except FileNotFoundError:
             raise
         except Exception as exc:
-            self.logger.error(
-                "Unexpected error in OpenDataLoader parse_pdf: %s", exc
-            )
-            raise ODLConversionError(
-                f"Unexpected parser error: {exc}"
-            ) from exc
+            self.logger.error("Unexpected error in OpenDataLoader parse_pdf: %s", exc)
+            raise ODLConversionError(f"Unexpected parser error: {exc}") from exc
         finally:
+            if cross_process_lock is not None:
+                cross_process_lock.release()
             _CONVERSION_SEMAPHORE.release()
 
     def parse_document(
@@ -894,14 +1041,13 @@ class OpenDataLoaderParser(Parser):
                 f"OpenDataLoader is PDF-only; file type '{ext}' is not supported. "
                 f"Use the global parser for non-PDF documents."
             )
-        raise ODLValidationError(
-            f"Unsupported file type '{ext}' for OpenDataLoader."
-        )
+        raise ODLValidationError(f"Unsupported file type '{ext}' for OpenDataLoader.")
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # internal helpers
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _extract_heading_depth(
     el_type: str,
@@ -938,7 +1084,8 @@ def _extract_heading_depth(
     if isinstance(content, str) and content.strip():
         stripped = content.strip()
         import re
-        m = re.match(r'^(\d+(?:\.\d+)*)\s', stripped)
+
+        m = re.match(r"^(\d+(?:\.\d+)*)\s", stripped)
         if m:
             return len(m.group(1).split("."))
 
@@ -953,9 +1100,7 @@ def _normalize_bbox(raw_bbox: List[float]) -> List[float]:
     format, but we validate the shape.
     """
     if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
-        raise ODLValidationError(
-            f"Expected 4-element bounding box, got {raw_bbox!r}"
-        )
+        raise ODLValidationError(f"Expected 4-element bounding box, got {raw_bbox!r}")
     return [float(v) for v in raw_bbox]
 
 
@@ -987,10 +1132,12 @@ def _build_table_block(
             row_cells = row
         else:
             continue
-        rows.append([
-            str(c.get("content", "")) if isinstance(c, dict) else str(c)
-            for c in row_cells
-        ])
+        rows.append(
+            [
+                str(c.get("content", "")) if isinstance(c, dict) else str(c)
+                for c in row_cells
+            ]
+        )
 
     if not rows:
         # Fallback: extract from content string
@@ -1020,9 +1167,7 @@ def _build_table_block(
     # Attach table image if present
     table_img = el.get("image") or el.get("table_img_path")
     if table_img:
-        resolved = OpenDataLoaderParser._resolve_media_path(
-            str(table_img), output_root
-        )
+        resolved = OpenDataLoaderParser._resolve_media_path(str(table_img), output_root)
         if resolved:
             block["img_path"] = str(resolved)
             attach_public_media_urls(block)

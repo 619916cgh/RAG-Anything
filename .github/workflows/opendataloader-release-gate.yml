@@ -135,6 +135,9 @@ jobs:
         run: |
           docker run --rm --entrypoint java raganything:opendataloader -version
           docker run --rm --entrypoint python raganything:opendataloader -c "from importlib.metadata import version; assert version('opendataloader-pdf') == '2.5.0'"
+      - name: Run opt-in image real PDF adapter smoke
+        run: |
+          docker run --rm --entrypoint python raganything:opendataloader -c "from pathlib import Path; from tempfile import TemporaryDirectory; from pypdf import PdfWriter; from raganything.parser.opendataloader_parser import OpenDataLoaderParser; temp=TemporaryDirectory(); pdf=Path(temp.name)/'blank.pdf'; writer=PdfWriter(); [writer.add_blank_page(width=612, height=792) for _ in range(2)]; output=pdf.open('wb'); writer.write(output); output.close(); parser=OpenDataLoaderParser(timeout=120); assert parser.check_installation(); content=parser.parse_pdf(pdf, output_dir=temp.name); assert content.page_coverage == {'source_total_pages': 2, 'successful_pages': [], 'failed_pages': [], 'skipped_pages': [], 'blank_pages': [1, 2]}; temp.cleanup()"
 
   redistribution-evidence:
     name: Final artifact SBOM and legal gate

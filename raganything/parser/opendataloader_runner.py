@@ -12,10 +12,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
-
 
 _REQUEST_SCHEMA = "opendataloader-runner-request-v1"
 _RESULT_SCHEMA = "opendataloader-runner-result-v1"
@@ -44,6 +44,32 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _output_size(root: Path) -> int:
+    """Return bytes under *root* and reject symbolic-link artifacts."""
+    total = 0
+    for candidate in root.rglob("*"):
+        if candidate.is_symlink():
+            raise ValueError("conversion output contains symbolic link")
+        try:
+            stat_result = candidate.lstat()
+        except OSError as exc:
+            raise ValueError("conversion output cannot be inspected") from exc
+        if candidate.is_file():
+            total += stat_result.st_size
+    return total
+
+
+def _discard_conversion_outputs(root: Path) -> None:
+    """Remove SDK artifacts after a resource-limit failure, retaining protocol files."""
+    for candidate in root.iterdir():
+        if candidate.name in {"runner-request.json", "runner-result.json"}:
+            continue
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink(missing_ok=True)
+        elif candidate.is_dir():
+            shutil.rmtree(candidate)
 
 
 def _find_single_artifact(directory: Path, suffix: str) -> Path:
@@ -109,9 +135,10 @@ def _run(request_path: Path) -> int:
     java_heap = request.get("java_heap")
     if not isinstance(java_heap, str) or not _HEAP_RE.fullmatch(java_heap):
         raise ValueError("invalid Java heap limit")
+    max_output_bytes = request.get("max_output_bytes")
+    if not isinstance(max_output_bytes, int) or max_output_bytes < 1:
+        raise ValueError("max_output_bytes must be positive")
 
-    env = os.environ.copy()
-    env["JAVA_TOOL_OPTIONS"] = java_heap
     os.environ["JAVA_TOOL_OPTIONS"] = java_heap
     result: dict[str, Any] = {
         "schema_version": _RESULT_SCHEMA,
@@ -139,6 +166,9 @@ def _run(request_path: Path) -> int:
         json_path = _find_single_artifact(output_root, ".json")
         markdown_path = _find_single_artifact(output_root, ".md")
         _, top_level_elements = _validate_page_json(json_path, page)
+        if _output_size(output_root) > max_output_bytes:
+            _discard_conversion_outputs(output_root)
+            raise ValueError("conversion output exceeds configured byte limit")
         # A dedicated official pages=<n> conversion plus a valid contained
         # artifact is the proof for an empty page; batch omission is never used.
         state = "blank" if top_level_elements == 0 else "success"

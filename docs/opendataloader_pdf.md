@@ -28,8 +28,10 @@ cache or ingestion.
 
 `ODL_TIMEOUT` limits one document, `ODL_PAGE_TIMEOUT` limits one controlled
 runner, `ODL_JAVA_HEAP` accepts only values such as `-Xmx2g`, and
-`ODL_CONCURRENCY` defaults to one conversion per worker. `ODL_MAX_PAGES` and
-`ODL_MAX_BYTES` reject inputs before Java starts. Timeouts terminate the runner
+`ODL_CONCURRENCY` defaults to one shared conversion across workers using the
+same `WORKING_DIR`. `ODL_MAX_PAGES` and `ODL_MAX_BYTES` reject inputs before
+Java starts. `ODL_MAX_OUTPUT_BYTES` caps retained JSON, Markdown, images, and
+provenance output. Timeouts terminate the runner
 process tree on Windows and Linux containers.
 
 Parser artifacts and provenance sidecars remain under the parser output root.

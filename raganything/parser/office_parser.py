@@ -23,7 +23,6 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 from .base import Parser
 from ..utils.process_lock import FileLock
 
-
 _DOCLING_ASCII_RUNTIME_LOCK = threading.Lock()
 _DOCLING_ASCII_RUNTIME_READY = False
 _RAPIDOCR_RUNTIME_LOCK = threading.RLock()
@@ -32,9 +31,15 @@ _RAPIDOCR_RUNTIME_LOCK = threading.RLock()
 class PageTrackedContent(list):
     """A content list that carries the immutable source-page manifest."""
 
-    def __init__(self, values: List[Dict[str, Any]], page_coverage: Dict[str, Any]):
+    def __init__(
+        self,
+        values: List[Dict[str, Any]],
+        page_coverage: Dict[str, Any],
+        provenance_ref: Dict[str, Any] | None = None,
+    ):
         super().__init__(values)
         self.page_coverage = page_coverage
+        self.provenance_ref = provenance_ref
 
 
 class PdfPageCoverageError(RuntimeError):
@@ -43,7 +48,9 @@ class PdfPageCoverageError(RuntimeError):
     failure_stage = "parsing"
     failure_code = "pdf_page_coverage_incomplete"
 
-    def __init__(self, page_coverage: Dict[str, Any], cause: BaseException | None = None):
+    def __init__(
+        self, page_coverage: Dict[str, Any], cause: BaseException | None = None
+    ):
         self.page_coverage = page_coverage
         self.cause = cause
         failed_pages = page_coverage.get("failed_pages") or []
@@ -60,7 +67,9 @@ class OcrOutOfMemoryError(PdfPageCoverageError):
     failure_code = "ocr_oom"
 
 
-def _safe_positive_int(value: str | None, default: int, *, minimum: int = 1, maximum: int = 100000) -> int:
+def _safe_positive_int(
+    value: str | None, default: int, *, minimum: int = 1, maximum: int = 100000
+) -> int:
     try:
         return max(minimum, min(int(value or default), maximum))
     except (TypeError, ValueError):
@@ -68,7 +77,11 @@ def _safe_positive_int(value: str | None, default: int, *, minimum: int = 1, max
 
 
 def _safe_positive_float(
-    value: str | None, default: float, *, minimum: float = 0.25, maximum: float = 8.0,
+    value: str | None,
+    default: float,
+    *,
+    minimum: float = 0.25,
+    maximum: float = 8.0,
 ) -> float:
     try:
         return max(minimum, min(float(value or default), maximum))
@@ -156,8 +169,12 @@ def _worker_memory_snapshot() -> Dict[str, int]:
                 ctypes.byref(performance), performance.cb
             ):
                 page_size = int(performance.PageSize)
-                snapshot["system_commit_bytes"] = int(performance.CommitTotal) * page_size
-                snapshot["system_commit_limit_bytes"] = int(performance.CommitLimit) * page_size
+                snapshot["system_commit_bytes"] = (
+                    int(performance.CommitTotal) * page_size
+                )
+                snapshot["system_commit_limit_bytes"] = (
+                    int(performance.CommitLimit) * page_size
+                )
     except Exception:
         # Telemetry cannot make document processing fail.
         pass
@@ -187,7 +204,12 @@ def _mirror_docling_package(source: Path, runtime_root: Path) -> None:
     """Create one atomic mirror while coordinating across worker processes."""
     runtime_base = runtime_root.parent
     target_sentinel = (
-        runtime_root / "docling_parse" / "pdf_resources" / "glyphs" / "standard" / "additional.dat"
+        runtime_root
+        / "docling_parse"
+        / "pdf_resources"
+        / "glyphs"
+        / "standard"
+        / "additional.dat"
     )
     runtime_base.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(runtime_base / ".docling-runtime.lock"))
@@ -269,7 +291,11 @@ def _prepare_docling_ascii_runtime() -> Optional[Path]:
             return source.parent
 
         override = os.getenv("DOCLING_ASCII_RUNTIME_DIR", "").strip()
-        runtime_base = Path(override) if override else Path(tempfile.gettempdir()) / "raganything-docling"
+        runtime_base = (
+            Path(override)
+            if override
+            else Path(tempfile.gettempdir()) / "raganything-docling"
+        )
         if _contains_non_ascii(runtime_base):
             raise RuntimeError(
                 "DOCLING_ASCII_RUNTIME_DIR must contain ASCII characters only"
@@ -313,13 +339,16 @@ def _prepare_docling_ascii_runtime() -> Optional[Path]:
                 f"docling_parse loaded outside ASCII runtime: {loaded_file}"
             )
         loaded_sentinel = (
-            loaded_file.parent / "pdf_resources" / "glyphs" / "standard" / "additional.dat"
+            loaded_file.parent
+            / "pdf_resources"
+            / "glyphs"
+            / "standard"
+            / "additional.dat"
         )
         if not loaded_sentinel.is_file():
             raise RuntimeError(f"Docling resource validation failed: {loaded_sentinel}")
         _DOCLING_ASCII_RUNTIME_READY = True
         return runtime_root
-
 
 
 class DoclingParser(Parser):
@@ -479,7 +508,9 @@ class DoclingParser(Parser):
         try:
             from pypdf import PdfReader
         except ImportError as exc:  # pragma: no cover - project dependency
-            raise RuntimeError("pypdf is required for PDF page coverage checks") from exc
+            raise RuntimeError(
+                "pypdf is required for PDF page coverage checks"
+            ) from exc
 
         reader = PdfReader(str(pdf_path))
         page_specs: List[Dict[str, Any]] = []
@@ -489,46 +520,58 @@ class DoclingParser(Parser):
             height = abs(float(box.height))
             if width <= 0 or height <= 0:
                 raise RuntimeError(f"PDF page {page_number} has an invalid MediaBox")
-            page_specs.append({
-                "page_number": page_number,
-                "width_points": width,
-                "height_points": height,
-            })
+            page_specs.append(
+                {
+                    "page_number": page_number,
+                    "width_points": width,
+                    "height_points": height,
+                }
+            )
         if not page_specs:
             raise RuntimeError("PDF contains no pages")
         return page_specs
 
     @staticmethod
-    def _bounded_ocr_profile(page_spec: Dict[str, Any], *, degraded: bool) -> Dict[str, Any]:
+    def _bounded_ocr_profile(
+        page_spec: Dict[str, Any], *, degraded: bool
+    ) -> Dict[str, Any]:
         """Keep one page's rendered OCR input and ONNX work buffers bounded."""
         width = float(page_spec["width_points"])
         height = float(page_spec["height_points"])
         if degraded:
             max_scale = _safe_positive_float(
-                os.getenv("DOCLING_OCR_RETRY_RENDER_SCALE"), 1.5, maximum=3.0,
+                os.getenv("DOCLING_OCR_RETRY_RENDER_SCALE"),
+                1.5,
+                maximum=3.0,
             )
             pixel_budget = _safe_positive_int(
-                os.getenv("DOCLING_OCR_RETRY_MAX_PIXELS"), 2_000_000,
+                os.getenv("DOCLING_OCR_RETRY_MAX_PIXELS"),
+                2_000_000,
                 minimum=250_000,
                 maximum=16_000_000,
             )
             max_side = _safe_positive_int(
-                os.getenv("DOCLING_OCR_RETRY_MAX_SIDE_LEN"), 1200,
+                os.getenv("DOCLING_OCR_RETRY_MAX_SIDE_LEN"),
+                1200,
                 minimum=320,
                 maximum=2000,
             )
             picture_scale = 0.75
         else:
             max_scale = _safe_positive_float(
-                os.getenv("DOCLING_OCR_MAX_RENDER_SCALE"), 3.0, maximum=3.0,
+                os.getenv("DOCLING_OCR_MAX_RENDER_SCALE"),
+                3.0,
+                maximum=3.0,
             )
             pixel_budget = _safe_positive_int(
-                os.getenv("DOCLING_OCR_MAX_PIXELS"), 8_000_000,
+                os.getenv("DOCLING_OCR_MAX_PIXELS"),
+                8_000_000,
                 minimum=500_000,
                 maximum=32_000_000,
             )
             max_side = _safe_positive_int(
-                os.getenv("DOCLING_OCR_MAX_SIDE_LEN"), 1600,
+                os.getenv("DOCLING_OCR_MAX_SIDE_LEN"),
+                1600,
                 minimum=320,
                 maximum=2000,
             )
@@ -589,7 +632,9 @@ class DoclingParser(Parser):
                 )
                 with _rapidocr_render_scale(profile["ocr_render_scale"]):
                     result = converter.convert(
-                        str(pdf_path), page_range=(page_no, page_no), raises_on_error=True,
+                        str(pdf_path),
+                        page_range=(page_no, page_no),
+                        raises_on_error=True,
                     )
                 self._require_single_page_success(result, page_no)
                 document = result.document
@@ -602,7 +647,9 @@ class DoclingParser(Parser):
                 telemetry["memory_after"] = _worker_memory_snapshot()
                 page_record["attempts"].append(telemetry)
                 page_record["status"] = "success"
-                self.logger.info("OCR_PAGE_METRICS %s", json.dumps(telemetry, ensure_ascii=False))
+                self.logger.info(
+                    "OCR_PAGE_METRICS %s", json.dumps(telemetry, ensure_ascii=False)
+                )
                 return page_content, page_record, None
             except Exception as exc:
                 last_error = exc
@@ -611,7 +658,9 @@ class DoclingParser(Parser):
                 telemetry["error"] = str(exc)[:1000]
                 telemetry["memory_after"] = _worker_memory_snapshot()
                 page_record["attempts"].append(telemetry)
-                self.logger.warning("OCR_PAGE_METRICS %s", json.dumps(telemetry, ensure_ascii=False))
+                self.logger.warning(
+                    "OCR_PAGE_METRICS %s", json.dumps(telemetry, ensure_ascii=False)
+                )
                 self._release_docling_converters()
                 if not _is_ocr_out_of_memory(exc) or attempt == 2:
                     break
@@ -623,8 +672,12 @@ class DoclingParser(Parser):
                 del result
                 gc.collect()
 
-        page_record["error_type"] = type(last_error).__name__ if last_error else "RuntimeError"
-        page_record["error"] = str(last_error)[:1000] if last_error else "page conversion failed"
+        page_record["error_type"] = (
+            type(last_error).__name__ if last_error else "RuntimeError"
+        )
+        page_record["error"] = (
+            str(last_error)[:1000] if last_error else "page conversion failed"
+        )
         return None, page_record, last_error or RuntimeError("page conversion failed")
 
     @staticmethod
@@ -635,7 +688,11 @@ class DoclingParser(Parser):
             for page in (getattr(result, "pages", None) or [])
             if getattr(page, "page_no", None) is not None
         }
-        if "partial" not in status and "failure" not in status and page_no in converted_pages:
+        if (
+            "partial" not in status
+            and "failure" not in status
+            and page_no in converted_pages
+        ):
             return
         errors = [
             str(getattr(item, "error_message", item))
@@ -650,7 +707,9 @@ class DoclingParser(Parser):
             with open(file_subdir / "page_coverage.json", "w", encoding="utf-8") as f:
                 json.dump(coverage, f, ensure_ascii=False, indent=2)
         except Exception as exc:
-            logging.getLogger(__name__).warning("Could not write PDF page coverage: %s", exc)
+            logging.getLogger(__name__).warning(
+                "Could not write PDF page coverage: %s", exc
+            )
 
     def _release_docling_converters(self) -> None:
         with self._converter_cache_lock:
@@ -735,7 +794,10 @@ class DoclingParser(Parser):
         """
         _prepare_docling_ascii_runtime()
         from docling.document_converter import DocumentConverter, PdfFormatOption
-        from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+        from docling.datamodel.accelerator_options import (
+            AcceleratorDevice,
+            AcceleratorOptions,
+        )
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import (
             PdfPipelineOptions,
@@ -748,19 +810,27 @@ class DoclingParser(Parser):
         do_ocr = bool(kwargs.get("allow_ocr", True))
         artifacts_path = kwargs.get("artifacts_path")
         lang = kwargs.get("lang")
-        ocr_profile = dict(kwargs.get("_ocr_profile") or {
-            "ocr_render_scale": 3.0,
-            "images_scale": 1.0,
-            "rapidocr_max_side_len": _safe_positive_int(
-                os.getenv("DOCLING_OCR_MAX_SIDE_LEN"), 1600, minimum=320, maximum=2000,
-            ),
-            "rapidocr_rec_batch_num": 1,
-            "onnx_threads": 1,
-            "docling_batch_size": 1,
-            "queue_max_size": 2,
-            "degraded": False,
-        })
-        profile_key = tuple(sorted((str(key), str(value)) for key, value in ocr_profile.items()))
+        ocr_profile = dict(
+            kwargs.get("_ocr_profile")
+            or {
+                "ocr_render_scale": 3.0,
+                "images_scale": 1.0,
+                "rapidocr_max_side_len": _safe_positive_int(
+                    os.getenv("DOCLING_OCR_MAX_SIDE_LEN"),
+                    1600,
+                    minimum=320,
+                    maximum=2000,
+                ),
+                "rapidocr_rec_batch_num": 1,
+                "onnx_threads": 1,
+                "docling_batch_size": 1,
+                "queue_max_size": 2,
+                "degraded": False,
+            }
+        )
+        profile_key = tuple(
+            sorted((str(key), str(value)) for key, value in ocr_profile.items())
+        )
 
         cache_key = (table_mode, do_tables, do_ocr, artifacts_path, lang, profile_key)
         # Fast path: snapshot read outside the lock (dict reads are atomic in
@@ -791,7 +861,9 @@ class DoclingParser(Parser):
         # page, but the standard PDF pipeline otherwise queues four OCR/layout/
         # table pages and up to 100 pending pages before releasing image buffers.
         batch_size = _safe_positive_int(
-            str(ocr_profile.get("docling_batch_size", 1)), 1, maximum=4,
+            str(ocr_profile.get("docling_batch_size", 1)),
+            1,
+            maximum=4,
         )
         if hasattr(pipeline_options, "ocr_batch_size"):
             pipeline_options.ocr_batch_size = batch_size
@@ -801,19 +873,25 @@ class DoclingParser(Parser):
             pipeline_options.table_batch_size = batch_size
         if hasattr(pipeline_options, "queue_max_size"):
             pipeline_options.queue_max_size = _safe_positive_int(
-                str(ocr_profile.get("queue_max_size", 2)), 2, maximum=8,
+                str(ocr_profile.get("queue_max_size", 2)),
+                2,
+                maximum=8,
             )
         if hasattr(pipeline_options, "accelerator_options"):
             pipeline_options.accelerator_options = AcceleratorOptions(
                 num_threads=_safe_positive_int(
-                    str(ocr_profile.get("onnx_threads", 1)), 1, maximum=4,
+                    str(ocr_profile.get("onnx_threads", 1)),
+                    1,
+                    maximum=4,
                 ),
                 device=AcceleratorDevice.CPU,
             )
 
         if do_ocr and hasattr(pipeline_options, "ocr_options"):
             onnx_threads = _safe_positive_int(
-                str(ocr_profile.get("onnx_threads", 1)), 1, maximum=4,
+                str(ocr_profile.get("onnx_threads", 1)),
+                1,
+                maximum=4,
             )
             pipeline_options.ocr_options = RapidOcrOptions(
                 lang=[str(lang)] if lang else ["chinese"],
@@ -851,7 +929,9 @@ class DoclingParser(Parser):
             )
         if hasattr(pipeline_options, "images_scale"):
             pipeline_options.images_scale = _safe_positive_float(
-                str(ocr_profile.get("images_scale", 1.0)), 1.0, maximum=1.0,
+                str(ocr_profile.get("images_scale", 1.0)),
+                1.0,
+                maximum=1.0,
             )
 
         # Slow path: serialize converter construction so that concurrent
@@ -1128,7 +1208,9 @@ class DoclingParser(Parser):
             # .doc (old binary format) not supported by Docling natively,
             # use LibreOffice to convert to PDF first
             if doc_path.suffix.lower() == ".doc":
-                self.logger.info("Legacy .doc format detected, converting via LibreOffice")
+                self.logger.info(
+                    "Legacy .doc format detected, converting via LibreOffice"
+                )
                 pdf_path = self.convert_office_to_pdf(doc_path, output_dir)
                 return self.parse_pdf(
                     pdf_path=pdf_path, output_dir=output_dir, lang=lang, **kwargs
@@ -1246,4 +1328,3 @@ class DoclingParser(Parser):
                 "Install it with: pip install docling"
             )
             return False
-

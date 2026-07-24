@@ -43,7 +43,6 @@ from raganything.utils import (
 import asyncio
 
 
-
 class DocProcessorMixin:
     """Document parsing, caching, and processing entry points."""
 
@@ -84,7 +83,17 @@ class DocProcessorMixin:
             {
                 key: value
                 for key, value in kwargs.items()
-                if key in {"lang", "device", "start_page", "end_page", "formula", "table", "backend", "source"}
+                if key
+                in {
+                    "lang",
+                    "device",
+                    "start_page",
+                    "end_page",
+                    "formula",
+                    "table",
+                    "backend",
+                    "source",
+                }
             }
         )
         return config
@@ -93,7 +102,9 @@ class DocProcessorMixin:
         """Return True when this PDF requires a validated page-coverage manifest."""
         if file_path.suffix.lower() != ".pdf":
             return False
-        return self._parser_supports_pdf_coverage(self._effective_parser_name(file_path))
+        return self._parser_supports_pdf_coverage(
+            self._effective_parser_name(file_path)
+        )
 
     @staticmethod
     def _validate_pdf_page_coverage(page_coverage: Any) -> Dict[str, Any]:
@@ -107,7 +118,9 @@ class DocProcessorMixin:
         try:
             total_pages = int(page_coverage.get("source_total_pages"))
         except (TypeError, ValueError) as exc:
-            raise ValueError("PDF page coverage has no valid source_total_pages") from exc
+            raise ValueError(
+                "PDF page coverage has no valid source_total_pages"
+            ) from exc
         if total_pages <= 0:
             raise ValueError("PDF page coverage has no source pages")
 
@@ -118,9 +131,14 @@ class DocProcessorMixin:
         blank = {int(value) for value in page_coverage.get("blank_pages") or []}
 
         # blank_pages are acknowledged empty pages — they are covered
-        covered = success | blank
-        if success & failed or success & skipped or failed & skipped:
+        states = (success, failed, skipped, blank)
+        if any(
+            left & right
+            for index, left in enumerate(states)
+            for right in states[index + 1 :]
+        ):
             raise ValueError("PDF page coverage contains overlapping page states")
+        covered = success | blank
         if covered | failed | skipped != expected:
             raise ValueError("PDF page coverage does not account for every source page")
         if failed or skipped:
@@ -129,6 +147,78 @@ class DocProcessorMixin:
                 + ",".join(str(p) for p in sorted(failed | skipped))
             )
         return page_coverage
+
+    def _validated_odl_provenance_ref(
+        self,
+        content_list: List[Dict[str, Any]],
+        page_coverage: Dict[str, Any],
+    ) -> Dict[str, Any] | None:
+        """Return a safe relative OpenDataLoader sidecar reference, if valid."""
+        raw_ref = getattr(content_list, "provenance_ref", None)
+        if (
+            not isinstance(raw_ref, dict)
+            or raw_ref.get("schema") != "odl-provenance-ref-v1"
+        ):
+            return None
+        try:
+            artifact_root = Path(self.config.parser_output_dir).resolve()
+            raw_path = raw_ref.get("path")
+            if isinstance(raw_path, str) and raw_path:
+                sidecar_path = Path(raw_path).resolve(strict=True)
+            else:
+                relative_path = raw_ref.get("relative_path")
+                if (
+                    not isinstance(relative_path, str)
+                    or not relative_path
+                    or Path(relative_path).is_absolute()
+                    or ".." in Path(relative_path).parts
+                ):
+                    return None
+                sidecar_path = (artifact_root / relative_path).resolve(strict=True)
+            relative_path = sidecar_path.relative_to(artifact_root).as_posix()
+            if sidecar_path.is_symlink() or ".." in Path(relative_path).parts:
+                return None
+            sidecar_bytes = sidecar_path.read_bytes()
+            sidecar = json.loads(sidecar_bytes)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(sidecar, dict):
+            return None
+        content_hash = hashlib.sha256(
+            json.dumps(list(content_list), ensure_ascii=True, sort_keys=True).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        if (
+            raw_ref.get("sha256") != hashlib.sha256(sidecar_bytes).hexdigest()
+            or raw_ref.get("normalized_content_sha256") != content_hash
+            or sidecar.get("normalized_content_sha256") != content_hash
+            or sidecar.get("coverage") != page_coverage
+            or sidecar.get("adapter_schema_version") != raw_ref.get("adapter_schema")
+        ):
+            return None
+        return {
+            "schema": "odl-provenance-ref-v1",
+            "relative_path": relative_path,
+            "sha256": raw_ref["sha256"],
+            "normalized_content_sha256": content_hash,
+            "adapter_schema": raw_ref["adapter_schema"],
+        }
+
+    def _parser_status_metadata(
+        self, file_path: Path, content_list: List[Dict[str, Any]], page_coverage: Any
+    ) -> Dict[str, Any] | None:
+        """Keep parser metadata lightweight and free of filesystem paths."""
+        metadata: Dict[str, Any] = {}
+        if isinstance(page_coverage, dict):
+            metadata["page_coverage"] = page_coverage
+        if self._effective_parser_name(file_path) == "opendataloader":
+            provenance_ref = self._validated_odl_provenance_ref(
+                content_list, page_coverage
+            )
+            if provenance_ref is not None:
+                metadata["provenance_ref"] = provenance_ref
+        return metadata or None
 
     def _generate_cache_key(
         self, file_path: Path, parse_method: str = None, **kwargs
@@ -164,6 +254,7 @@ class DocProcessorMixin:
     def _current_doc_status_timestamp() -> str:
         """Return a Beijing time (UTC+8) timestamp for doc_status bookkeeping."""
         return beijing_now()
+
     async def _ensure_doc_status_record(
         self,
         doc_id: str,
@@ -216,9 +307,7 @@ class DocProcessorMixin:
         if isinstance(metadata_update, dict) or chunking_strategy:
             existing_metadata = current_doc_status.get("metadata") or {}
             metadata = (
-                dict(existing_metadata)
-                if isinstance(existing_metadata, dict)
-                else {}
+                dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
             )
             if isinstance(metadata_update, dict):
                 metadata.update(metadata_update)
@@ -262,10 +351,14 @@ class DocProcessorMixin:
             records_by_id = records
         else:
             record_list = list(records or [])
-            if len(record_list) != expected_count or any(record is None for record in record_list):
+            if len(record_list) != expected_count or any(
+                record is None for record in record_list
+            ):
                 return False
             records_by_id = dict(zip(chunk_ids, record_list))
-        if any(not isinstance(records_by_id.get(chunk_id), dict) for chunk_id in chunk_ids):
+        if any(
+            not isinstance(records_by_id.get(chunk_id), dict) for chunk_id in chunk_ids
+        ):
             return False
 
         metadata = current.get("metadata") or {}
@@ -273,7 +366,9 @@ class DocProcessorMixin:
         existing_failed_ids = metadata.get("failed_chunk_ids")
         if isinstance(existing_failed_ids, list):
             failed_chunk_ids = [
-                str(value) for value in existing_failed_ids if str(value) in records_by_id
+                str(value)
+                for value in existing_failed_ids
+                if str(value) in records_by_id
             ]
         else:
             failed_chunk_ids = [
@@ -287,18 +382,30 @@ class DocProcessorMixin:
             retry_count = 0
         error_message = str(error)
         retryable_markers = (
-            "timeout", "timed out", "429", "rate limit", "connection",
-            "502", "503", "504", "server error", "temporarily unavailable",
+            "timeout",
+            "timed out",
+            "429",
+            "rate limit",
+            "connection",
+            "502",
+            "503",
+            "504",
+            "server error",
+            "temporarily unavailable",
         )
-        metadata.update({
-            "content_ready": True,
-            "graph_status": "pending",
-            "failure_stage": "entity_extraction",
-            "retryable": any(marker in error_message.lower() for marker in retryable_markers),
-            "failed_chunk_ids": failed_chunk_ids,
-            "retry_count": retry_count,
-            "last_error": error_message[:4000],
-        })
+        metadata.update(
+            {
+                "content_ready": True,
+                "graph_status": "pending",
+                "failure_stage": "entity_extraction",
+                "retryable": any(
+                    marker in error_message.lower() for marker in retryable_markers
+                ),
+                "failed_chunk_ids": failed_chunk_ids,
+                "retry_count": retry_count,
+                "last_error": error_message[:4000],
+            }
+        )
         await self._upsert_doc_status(
             doc_id,
             file_path,
@@ -381,7 +488,9 @@ class DocProcessorMixin:
 
             # Check parsing configuration
             cached_config = cached_data.get("parse_config", {})
-            current_config = self._effective_parse_config(file_path, parse_method, **kwargs)
+            current_config = self._effective_parse_config(
+                file_path, parse_method, **kwargs
+            )
 
             if cached_config != current_config:
                 self.logger.debug(f"Cache invalid - config changed: {cache_key}")
@@ -391,15 +500,40 @@ class DocProcessorMixin:
             doc_id = cached_data.get("doc_id")
 
             if self._requires_pdf_page_coverage(file_path):
-                if cached_data.get("cache_version") != "2.0":
-                    self.logger.debug("Cache invalid - PDF page coverage version missing: %s", cache_key)
+                effective_parser = self._effective_parser_name(file_path)
+                expected_cache_version = (
+                    "3.0" if effective_parser == "opendataloader" else "2.0"
+                )
+                if cached_data.get("cache_version") != expected_cache_version:
+                    self.logger.debug(
+                        "Cache invalid - PDF page coverage version missing: %s",
+                        cache_key,
+                    )
                     return None
                 page_coverage = self._validate_pdf_page_coverage(
                     cached_data.get("page_coverage")
                 )
                 from raganything.parser.office_parser import PageTrackedContent
 
-                content_list = PageTrackedContent(content_list, page_coverage)
+                provenance_ref = None
+                if effective_parser == "opendataloader":
+                    cached_content = PageTrackedContent(
+                        content_list,
+                        page_coverage,
+                        provenance_ref=cached_data.get("provenance_ref"),
+                    )
+                    provenance_ref = self._validated_odl_provenance_ref(
+                        cached_content, page_coverage
+                    )
+                    if provenance_ref is None:
+                        self.logger.debug(
+                            "Cache invalid - OpenDataLoader sidecar missing or changed: %s",
+                            cache_key,
+                        )
+                        return None
+                content_list = PageTrackedContent(
+                    content_list, page_coverage, provenance_ref=provenance_ref
+                )
 
             if content_list and doc_id:
                 self.logger.debug(
@@ -444,12 +578,25 @@ class DocProcessorMixin:
             # Get file modification time
             file_mtime = file_path.stat().st_mtime
 
-            parse_config = self._effective_parse_config(file_path, parse_method, **kwargs)
+            parse_config = self._effective_parse_config(
+                file_path, parse_method, **kwargs
+            )
 
             page_coverage = getattr(content_list, "page_coverage", None)
             requires_page_coverage = self._requires_pdf_page_coverage(file_path)
+            effective_parser = self._effective_parser_name(file_path)
             if requires_page_coverage:
                 page_coverage = self._validate_pdf_page_coverage(page_coverage)
+            provenance_ref = None
+            if effective_parser == "opendataloader":
+                provenance_ref = self._validated_odl_provenance_ref(
+                    content_list, page_coverage
+                )
+                if provenance_ref is None:
+                    self.logger.warning(
+                        "Not caching OpenDataLoader result without a valid sidecar reference"
+                    )
+                    return
 
             cache_data = {
                 cache_key: {
@@ -458,17 +605,24 @@ class DocProcessorMixin:
                     "mtime": file_mtime,
                     "parse_config": parse_config,
                     "cached_at": time.time(),
-                    "cache_version": "2.0" if requires_page_coverage else "1.0",
+                    "cache_version": (
+                        "3.0"
+                        if effective_parser == "opendataloader"
+                        else "2.0" if requires_page_coverage else "1.0"
+                    ),
                 }
             }
             if requires_page_coverage:
                 cache_data[cache_key]["page_coverage"] = page_coverage
+            if provenance_ref is not None:
+                cache_data[cache_key]["provenance_ref"] = provenance_ref
             await self.parse_cache.upsert(cache_data)
             # Ensure data is persisted to disk
             await self.parse_cache.index_done_callback()
             self.logger.info(f"Stored parsing result in cache: {cache_key}")
         except Exception as e:
             self.logger.warning(f"Error storing to parse cache: {e}")
+
     async def parse_document(
         self,
         file_path: str,
@@ -544,11 +698,16 @@ class DocProcessorMixin:
         ext = file_path.suffix.lower()
 
         if effective_parser == "opendataloader" and ext != ".pdf":
-            raise ValueError("OpenDataLoader may only be selected through PDF_PARSER for PDF files")
+            raise ValueError(
+                "OpenDataLoader may only be selected through PDF_PARSER for PDF files"
+            )
 
         try:
             doc_parser = getattr(self, "doc_parser", None)
-            if doc_parser is None or getattr(self, "_cached_parser_name", "") != effective_parser:
+            if (
+                doc_parser is None
+                or getattr(self, "_cached_parser_name", "") != effective_parser
+            ):
                 doc_parser = get_parser(effective_parser)
                 self.doc_parser = doc_parser
                 self._cached_parser_name = effective_parser
@@ -623,10 +782,12 @@ class DocProcessorMixin:
                 self.logger.info(
                     f"Detected video file: {file_path}, routing to video processor..."
                 )
-                content_list = [{
-                    "type": "video",
-                    "video_path": str(file_path),
-                }]
+                content_list = [
+                    {
+                        "type": "video",
+                        "video_path": str(file_path),
+                    }
+                ]
             else:
                 # For other or unknown formats, use generic parser
                 self.logger.info(
@@ -674,9 +835,8 @@ class DocProcessorMixin:
             raise ValueError("Parsing failed: No content was extracted")
 
         # ── OCR Quality Check + Auto-Retry (Phase 3) ──
-        if (
-            effective_parser != "opendataloader"
-            and getattr(self.config, "ocr_quality_check_enabled", True)
+        if effective_parser != "opendataloader" and getattr(
+            self.config, "ocr_quality_check_enabled", True
         ):
             from raganything.utils._quality import validate_and_suggest
 
@@ -690,9 +850,12 @@ class DocProcessorMixin:
                     quality_threshold=quality_threshold,
                     source_total_pages=(
                         page_coverage.get("source_total_pages")
-                        if isinstance(page_coverage, dict) else None
+                        if isinstance(page_coverage, dict)
+                        else None
                     ),
-                    page_coverage=page_coverage if isinstance(page_coverage, dict) else None,
+                    page_coverage=(
+                        page_coverage if isinstance(page_coverage, dict) else None
+                    ),
                 )
 
                 self.logger.info(
@@ -763,7 +926,9 @@ class DocProcessorMixin:
                         )
 
                     if len(content_list) == 0:
-                        self.logger.error("Retry with '%s' produced no content", retry_method)
+                        self.logger.error(
+                            "Retry with '%s' produced no content", retry_method
+                        )
                         continue
 
                     page_coverage = getattr(content_list, "page_coverage", None)
@@ -773,13 +938,15 @@ class DocProcessorMixin:
                     parse_method = retry_method  # update for cache key
                     self.logger.info(
                         "Retry successful: extracted %d blocks with method '%s'",
-                        len(content_list), retry_method,
+                        len(content_list),
+                        retry_method,
                     )
 
                 except Exception as retry_exc:
                     self.logger.error(
                         "Parse retry with '%s' failed: %s. Keeping original result.",
-                        retry_method, retry_exc,
+                        retry_method,
+                        retry_exc,
                     )
                     # Keep original content_list, don't retry further
                     break
@@ -820,6 +987,7 @@ class DocProcessorMixin:
             )
 
         return content_list, doc_id
+
     async def process_document_complete(
         self,
         file_path: str,
@@ -895,9 +1063,8 @@ class DocProcessorMixin:
                     status=DocStatus.HANDLING,
                     error_msg="",
                     chunking_strategy=chunking_strategy,
-                    metadata=(
-                        {"page_coverage": page_coverage}
-                        if isinstance(page_coverage, dict) else None
+                    metadata=self._parser_status_metadata(
+                        Path(file_path), content_list, page_coverage
                     ),
                 )
 
@@ -940,7 +1107,8 @@ class DocProcessorMixin:
                 if ds and ds.get("status") == "failed":
                     self.logger.error(
                         "LightRAG pipeline failed for doc %s: %s",
-                        doc_id[:16], ds.get("error_msg", "unknown error"),
+                        doc_id[:16],
+                        ds.get("error_msg", "unknown error"),
                     )
                     raise RuntimeError(
                         f"文档处理失败（LightRAG entity extraction）: "
@@ -952,9 +1120,8 @@ class DocProcessorMixin:
                     status=DocStatus.HANDLING,
                     error_msg="",
                     chunking_strategy=chunking_strategy,
-                    metadata=(
-                        {"page_coverage": page_coverage}
-                        if isinstance(page_coverage, dict) else None
+                    metadata=self._parser_status_metadata(
+                        Path(file_path), content_list, page_coverage
                     ),
                 )
                 # Register chunk → doc source mappings for citation tracing
@@ -1086,7 +1253,9 @@ class DocProcessorMixin:
         doc_pre_id = f"doc-pre-{file_name}"
         pipeline_status = None
         pipeline_status_lock = None
-        current_doc_status = {}  # initialised here so the except block can always unpack it
+        current_doc_status = (
+            {}
+        )  # initialised here so the except block can always unpack it
 
         async def mark_initialization_failed(error_msg: str) -> None:
             """Persist init failures when LightRAG doc_status is already available."""
@@ -1332,6 +1501,7 @@ class DocProcessorMixin:
                     self.logger.error(
                         f"Failed to update pipeline status in finally block: {_finally_err}"
                     )
+
     async def insert_content_list(
         self,
         content_list: List[Dict[str, Any]],
@@ -1462,7 +1632,8 @@ class DocProcessorMixin:
             if ds and ds.get("status") == "failed":
                 self.logger.error(
                     "LightRAG pipeline failed for doc %s: %s",
-                    doc_id[:16], ds.get("error_msg", "unknown error"),
+                    doc_id[:16],
+                    ds.get("error_msg", "unknown error"),
                 )
                 raise RuntimeError(
                     f"文档处理失败（LightRAG entity extraction）: "
@@ -1492,6 +1663,7 @@ class DocProcessorMixin:
         # run them as a background task so text chunks are searchable immediately.
         if multimodal_items:
             import asyncio as _asyncio
+
             try:
                 loop = _asyncio.get_running_loop()
                 await self._set_multimodal_status_record(doc_id, False)
