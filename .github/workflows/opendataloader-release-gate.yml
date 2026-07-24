@@ -1,6 +1,9 @@
 name: OpenDataLoader Release Gate
 
 on:
+  push:
+    branches:
+      - odl-ci-validation
   pull_request:
     paths:
       - 'pyproject.toml'
