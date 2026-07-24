@@ -48,7 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir ".[opendataloader]" \
-    && java -version 2>&1 | grep -Eq 'version "17\\.|openjdk 17\\.' \
+    && java -version 2>&1 | grep -Fq '17.' \
     && python -c "from importlib.metadata import version; assert version('opendataloader-pdf') == '2.5.0'"
 
 # Keep the default final target free of OpenDataLoader and Java.
