@@ -1,3 +1,11 @@
+FROM node:20-slim AS frontend-build
+
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.11-slim AS base
 
 LABEL org.opencontainers.image.title="RAG-Anything"
@@ -20,8 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 前端构建
-WORKDIR /app/frontend
-RUN npm install && npm run build
+COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 
 WORKDIR /app
 

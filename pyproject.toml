@@ -22,10 +22,15 @@ classifiers = [
 ]
 dependencies = [
     "huggingface_hub",
+    "bcrypt<4.1.0",
     "lightrag-hku<1.5",
     "mineru[core]",
     "pypdf>=3.9.0",
+    "prometheus-fastapi-instrumentator<8",
+    "rank-bm25",
+    "jieba",
     "tqdm",
+    "asyncpg",
 ]
 
 [project.optional-dependencies]
