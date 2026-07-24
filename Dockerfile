@@ -6,7 +6,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.11-slim AS base
+FROM python:3.11-slim-bookworm AS base
 
 LABEL org.opencontainers.image.title="RAG-Anything"
 LABEL org.opencontainers.image.description="All-in-One Multimodal RAG System"
