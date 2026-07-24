@@ -21,6 +21,8 @@ import re
 import asyncio
 import logging
 import time
+import signal
+import subprocess
 from contextlib import asynccontextmanager
 from collections import OrderedDict
 from datetime import datetime
@@ -61,6 +63,51 @@ WORKING_DIR = os.getenv("WORKING_DIR", "./rag_storage")
 CHUNKING_STRATEGY = os.getenv("CHUNKING_STRATEGY", "recursive")
 MAX_CACHED_KBS = int(os.getenv("MAX_CACHED_KBS", "16"))
 _VLM_IMAGE_MIME_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
+
+
+def _worker_process_group_kwargs() -> dict[str, Any]:
+    """Create an isolated process group/session for worker descendants."""
+    if os.name == "nt":
+        return {
+            "creationflags": (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            )
+        }
+    return {"start_new_session": True}
+
+
+async def _terminate_worker_process_tree(proc) -> None:
+    """Terminate a timed-out worker and all descendants, fail closed."""
+    if proc.returncode is not None:
+        return
+    if os.name == "nt":
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("worker process-tree termination failed") from exc
+        if result.returncode != 0 and proc.returncode is None:
+            raise RuntimeError("worker process-tree termination failed")
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+            return
+        except asyncio.TimeoutError:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                return
+    await asyncio.wait_for(proc.wait(), timeout=10)
 
 # ── KB State ──────────────────────────────────────────────
 _kb_locks: dict[str, asyncio.Lock] = {}
@@ -4155,6 +4202,7 @@ async def _process_uploaded_file(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(Path(__file__).parent.parent.parent),
             env=_worker_subprocess_env(),
+            **_worker_process_group_kwargs(),
         )
 
         # Track worker process for KB deletion to kill it if needed
@@ -4227,7 +4275,7 @@ async def _process_uploaded_file(
             returncode_before_kill = proc.returncode
             if proc.returncode is None:
                 try:
-                    proc.kill()
+                    await _terminate_worker_process_tree(proc)
                 except ProcessLookupError:
                     # The child can exit between the watchdog decision and
                     # kill(); still collect its final return code/output.

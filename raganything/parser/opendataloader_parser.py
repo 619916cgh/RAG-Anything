@@ -280,50 +280,48 @@ class OpenDataLoaderParser(Parser):
         are available; returns ``False`` rather than raising when the
         optional dependency is absent.
         """
+        return self.installation_error() is None
+
+    def installation_error(self) -> str | None:
+        """Return an actionable, non-network runtime prerequisite error."""
         # 1. Python package
         try:
             import opendataloader_pdf  # noqa: F401
         except ImportError:
-            self.logger.debug(
-                "OpenDataLoader PDF Python package is not installed. "
-                "Install with: pip install opendataloader-pdf==%s",
-                _PINNED_VERSION,
+            return (
+                "OpenDataLoader Python package is not installed; install "
+                f"opendataloader-pdf=={_PINNED_VERSION} with the opendataloader extra"
             )
-            return False
         try:
             from importlib.metadata import version
 
             if version(_PACKAGE_NAME) != _PINNED_VERSION:
-                self.logger.debug(
-                    "OpenDataLoader PDF version must be %s.", _PINNED_VERSION
+                return (
+                    f"OpenDataLoader Python package must be version {_PINNED_VERSION}; "
+                    "reinstall the opendataloader extra"
                 )
-                return False
         except Exception:
-            return False
+            return "OpenDataLoader Python package version cannot be determined"
 
         # 2. Java runtime
         java = self._find_java()
         if java is None:
-            self.logger.debug(
-                "Java runtime not found. Please install JRE %d+ "
-                "and set JAVA_HOME or add java to PATH.",
-                _JAVA_MIN_MAJOR,
+            return (
+                f"Java {_JAVA_MIN_MAJOR}+ runtime not found; set JAVA_HOME "
+                "or add java to PATH"
             )
-            return False
 
         try:
             major, _, _ = self._java_version(java)
             if major < _JAVA_MIN_MAJOR:
-                self.logger.debug(
-                    "Java %d is below minimum required version %d.",
-                    major,
-                    _JAVA_MIN_MAJOR,
+                return (
+                    f"Java {major} is unsupported; install Java {_JAVA_MIN_MAJOR}+ "
+                    "and update JAVA_HOME"
                 )
-                return False
         except ODLPreflightError:
-            return False
+            return "Java version cannot be determined; install a supported Java runtime"
 
-        return True
+        return None
 
     # ── preflight ───────────────────────────────────────────────────
 
@@ -403,10 +401,35 @@ class OpenDataLoaderParser(Parser):
     @staticmethod
     def _sha256(path: Path) -> str:
         digest = hashlib.sha256()
-        with path.open("rb") as source:
+        with OpenDataLoaderParser._open_verified_file(path) as source:
             for chunk in iter(lambda: source.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    @staticmethod
+    def _open_verified_file(path: Path):
+        """Open a regular artifact without accepting a symlink replacement."""
+        before = path.lstat()
+        if not path.is_file() or path.is_symlink():
+            raise ODLContainerError("Parser artifact is not a regular file")
+        flags = os.O_RDONLY
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(path), flags)
+        try:
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino, opened.st_size) != (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+            ):
+                raise ODLContainerError("Parser artifact changed during open")
+            return os.fdopen(fd, "rb")
+        except Exception:
+            os.close(fd)
+            raise
 
     @staticmethod
     def _contained_path(path: Path, root: Path) -> Path:
@@ -519,8 +542,9 @@ class OpenDataLoaderParser(Parser):
         if return_code != 0 and not result_path.is_file():
             raise ODLConversionError(f"OpenDataLoader page {page} conversion failed")
         try:
-            result = json.loads(result_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            with self._open_verified_file(result_path) as result_file:
+                result = json.loads(result_file.read().decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ODLContainerError) as exc:
             raise ODLValidationError(
                 "OpenDataLoader runner did not produce valid result metadata"
             ) from exc
@@ -597,9 +621,9 @@ class OpenDataLoaderParser(Parser):
         Raises ``ODLValidationError`` on schema violations.
         """
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
+            with OpenDataLoaderParser._open_verified_file(json_path) as f:
+                data = json.loads(f.read().decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError, ODLContainerError) as exc:
             raise ODLValidationError("Failed to read JSON artifact") from exc
 
         if not isinstance(data, dict):
@@ -711,7 +735,11 @@ class OpenDataLoaderParser(Parser):
                     prov_entry["heading_depth"] = heading_depth
 
                 # Normalise by element type
-                if el_type in ("heading",) or pdfua_tag and pdfua_tag.startswith("H"):
+                if (
+                    el_type == "heading"
+                    or el_type.startswith("heading_")
+                    or pdfua_tag and pdfua_tag.startswith("H")
+                ):
                     # heading → text block with text_level
                     block = {
                         "type": "text",
@@ -741,7 +769,18 @@ class OpenDataLoaderParser(Parser):
                         el, output_root, page_idx, working_dir
                     )
                     if table_block:
+                        media_rejected = table_block.pop("_odl_media_rejected", None)
+                        if media_rejected:
+                            prov_entry["media_rejected"] = media_rejected
                         content_list.append(table_block)
+                        if media_rejected:
+                            content_list.append(
+                                {
+                                    "type": "text",
+                                    "text": "[Table image unavailable]",
+                                    "page_idx": page_idx,
+                                }
+                            )
 
                 elif el_type in ("figure", "image"):
                     # Image block
@@ -821,6 +860,7 @@ class OpenDataLoaderParser(Parser):
             ODLValidationError: Artifact validation failed.
             ODLPageCoverageError: Page coverage is incomplete.
         """
+        operation_start = time.monotonic()
         pdf_path = Path(pdf_path).resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError(f"PDF file does not exist: {pdf_path}")
@@ -835,10 +875,9 @@ class OpenDataLoaderParser(Parser):
 
         # 1. Preflight
         self._preflight_pdf(pdf_path)
-        if not self.check_installation():
-            raise ODLPreflightError(
-                "OpenDataLoader requires opendataloader-pdf==2.5.0 and Java 17+"
-            )
+        installation_error = self.installation_error()
+        if installation_error is not None:
+            raise ODLPreflightError(installation_error)
         java_bin = self._find_java()
         if java_bin is None:
             raise ODLPreflightError(
@@ -1007,7 +1046,9 @@ class OpenDataLoaderParser(Parser):
                 coverage,
                 provenance_ref={
                     "schema": "odl-provenance-ref-v1",
-                    "path": sidecar_path.relative_to(run_root).as_posix(),
+                    "relative_path": sidecar_path.relative_to(
+                        base_dir.resolve()
+                    ).as_posix(),
                     "sha256": self._sha256(sidecar_path),
                     "normalized_content_sha256": normalized_identity,
                     "adapter_schema": _ADAPTER_SCHEMA_VERSION,
@@ -1019,6 +1060,16 @@ class OpenDataLoaderParser(Parser):
                 source_pages,
                 len(content_list),
                 len(blank_pages),
+                extra={
+                    "odl_parse_outcome": {
+                        "backend": "opendataloader",
+                        "sdk_version": _PINNED_VERSION,
+                        "page_count": source_pages,
+                        "block_count": len(content_list),
+                        "elapsed_ms": int((time.monotonic() - operation_start) * 1000),
+                        "outcome_category": "success",
+                    }
+                },
             )
             return result
 
@@ -1029,6 +1080,20 @@ class OpenDataLoaderParser(Parser):
             ODLPageCoverageError,
             ODLContainerError,
         ):
+            self.logger.warning(
+                "OpenDataLoader parse failed: category=%s",
+                getattr(sys.exc_info()[1], "failure_code", "odl_error"),
+                extra={
+                    "odl_parse_outcome": {
+                        "backend": "opendataloader",
+                        "sdk_version": _PINNED_VERSION,
+                        "elapsed_ms": int((time.monotonic() - operation_start) * 1000),
+                        "outcome_category": getattr(
+                            sys.exc_info()[1], "failure_code", "odl_error"
+                        ),
+                    }
+                },
+            )
             raise
         except FileNotFoundError:
             raise
@@ -1198,6 +1263,8 @@ def _build_table_block(
         if resolved:
             block["img_path"] = str(resolved)
             attach_public_media_urls(block)
+        else:
+            block["_odl_media_rejected"] = "missing_or_outside_output_root"
 
     return block
 

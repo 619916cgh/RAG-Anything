@@ -152,6 +152,7 @@ class TestInstallationProbes:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         assert parser.check_installation() is False
+        assert "opendataloader-pdf==2.5.0" in parser.installation_error()
 
     def test_missing_java(self, parser, monkeypatch):
         monkeypatch.setattr(
@@ -160,6 +161,7 @@ class TestInstallationProbes:
             staticmethod(lambda: None),
         )
         assert parser.check_installation() is False
+        assert "set JAVA_HOME" in parser.installation_error()
 
     def test_old_java_version(self, parser, monkeypatch):
         monkeypatch.setattr(
@@ -173,6 +175,7 @@ class TestInstallationProbes:
             staticmethod(lambda _: (8, 0, 0)),
         )
         assert parser.check_installation() is False
+        assert "Java 17+" in parser.installation_error()
 
     @patch("subprocess.run")
     def test_java_version_parsing(self, mock_run):
@@ -255,6 +258,18 @@ class TestNegativePaths:
         with pytest.raises(ODLValidationError, match="list"):
             parser._read_and_validate_json(bad_json)
 
+    @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+    def test_json_symlink_is_rejected(self, parser, tmp_path):
+        target = tmp_path / "target.json"
+        target.write_text(json.dumps(_sample_odl_json()), encoding="utf-8")
+        link = tmp_path / "document.json"
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pytest.skip("symlink creation unavailable")
+        with pytest.raises(ODLValidationError):
+            parser._read_and_validate_json(link)
+
     def test_image_path_escape_blocked(self, parser, tmp_path):
         output_root = tmp_path / "odl_out"
         output_root.mkdir()
@@ -268,6 +283,24 @@ class TestNegativePaths:
         resolved = parser._resolve_media_path("nonexistent.png", output_root)
         assert resolved is None
 
+    def test_table_media_escape_is_recorded_and_falls_back(self, parser, tmp_path):
+        kids = [
+            {
+                "type": "table",
+                "page number": 1,
+                "labels": [{"content": "A"}],
+                "cells": [[{"content": "B"}]],
+                "image": "..\\outside.png",
+            }
+        ]
+        content, provenance, _ = parser._flatten_elements(kids, tmp_path, "")
+        assert content[-1] == {
+            "type": "text",
+            "text": "[Table image unavailable]",
+            "page_idx": 0,
+        }
+        assert provenance[0]["media_rejected"] == "missing_or_outside_output_root"
+
     def test_valid_media_resolved(self, parser, tmp_path):
         output_root = tmp_path / "odl_out"
         output_root.mkdir()
@@ -276,6 +309,19 @@ class TestNegativePaths:
         resolved = parser._resolve_media_path("figure.png", output_root)
         assert resolved is not None
         assert resolved.name == "figure.png"
+
+    @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+    def test_media_symlink_escape_is_rejected(self, parser, tmp_path):
+        output_root = tmp_path / "artifacts"
+        output_root.mkdir()
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(b"secret")
+        link = output_root / "figure.png"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlink creation unavailable")
+        assert parser._resolve_media_path("figure.png", output_root) is None
 
     def test_output_size_is_counted_without_following_links(self, parser, tmp_path):
         artifact = tmp_path / "artifact.bin"
@@ -364,6 +410,21 @@ class TestFlattenElements:
         assert content[0]["text_level"] == 1
         assert content[0]["page_idx"] == 0  # 1-based → 0-based
         assert pages == {1}
+
+    def test_numbered_heading_type_becomes_text_with_text_level(self, parser, tmp_path):
+        kids = [
+            {
+                "type": "heading_2",
+                "id": 1,
+                "page number": 1,
+                "content": "Section",
+                "kids": [],
+            }
+        ]
+        content, _, _ = parser._flatten_elements(kids, tmp_path, "")
+        assert content == [
+            {"type": "text", "text": "Section", "page_idx": 0, "text_level": 2}
+        ]
 
     def test_paragraph_keeps_text(self, parser, tmp_path):
         kids = [
@@ -586,6 +647,17 @@ class TestPageCoverageGate:
         with pytest.raises(ValueError, match="overlapping"):
             mixin._validate_pdf_page_coverage(coverage)
 
+    def test_duplicate_success_page_raises(self, mixin):
+        coverage = {
+            "source_total_pages": 2,
+            "successful_pages": [1, 1, 2],
+            "failed_pages": [],
+            "skipped_pages": [],
+            "blank_pages": [],
+        }
+        with pytest.raises(ValueError, match="duplicate successful_pages"):
+            mixin._validate_pdf_page_coverage(coverage)
+
     def test_opendataloader_in_parsers_with_coverage(self, mixin):
         assert mixin._parser_supports_pdf_coverage("opendataloader")
         assert mixin._parser_supports_pdf_coverage("docling")
@@ -671,6 +743,10 @@ def test_real_stack_single_page_coverage(tmp_path, monkeypatch):
 
     sidecars = list((tmp_path / "artifacts").rglob("*_provenance.json"))
     assert len(sidecars) == 1
+    assert content.provenance_ref["relative_path"] == sidecars[0].relative_to(
+        tmp_path / "artifacts"
+    ).as_posix()
+    assert "path" not in content.provenance_ref
     sidecar = json.loads(sidecars[0].read_text(encoding="utf-8"))
     assert sidecar["coverage"] == content.page_coverage
     assert len(sidecar["raw_artifacts"]) == 4

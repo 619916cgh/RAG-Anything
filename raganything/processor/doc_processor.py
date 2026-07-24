@@ -42,6 +42,7 @@ from raganything.utils import (
 )
 from raganything.utils.security import validate_content_list_for_ingestion
 import asyncio
+import os
 
 
 class DocProcessorMixin:
@@ -126,10 +127,23 @@ class DocProcessorMixin:
             raise ValueError("PDF page coverage has no source pages")
 
         expected = set(range(1, total_pages + 1))
-        success = {int(value) for value in page_coverage.get("successful_pages") or []}
-        failed = {int(value) for value in page_coverage.get("failed_pages") or []}
-        skipped = {int(value) for value in page_coverage.get("skipped_pages") or []}
-        blank = {int(value) for value in page_coverage.get("blank_pages") or []}
+
+        def _page_state(name: str) -> set[int]:
+            values = page_coverage.get(name) or []
+            if not isinstance(values, list) or any(
+                not isinstance(value, int) or isinstance(value, bool)
+                for value in values
+            ):
+                raise ValueError(f"PDF page coverage has invalid {name}")
+            page_set = set(values)
+            if len(page_set) != len(values):
+                raise ValueError(f"PDF page coverage contains duplicate {name}")
+            return page_set
+
+        success = _page_state("successful_pages")
+        failed = _page_state("failed_pages")
+        skipped = _page_state("skipped_pages")
+        blank = _page_state("blank_pages")
 
         # blank_pages are acknowledged empty pages — they are covered
         states = (success, failed, skipped, blank)
@@ -179,7 +193,27 @@ class DocProcessorMixin:
             relative_path = sidecar_path.relative_to(artifact_root).as_posix()
             if sidecar_path.is_symlink() or ".." in Path(relative_path).parts:
                 return None
-            sidecar_bytes = sidecar_path.read_bytes()
+            before = sidecar_path.lstat()
+            if sidecar_path.is_symlink() or not sidecar_path.is_file():
+                return None
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(
+                os, "O_NOFOLLOW", 0
+            )
+            fd = os.open(str(sidecar_path), flags)
+            try:
+                opened = os.fstat(fd)
+                if (opened.st_dev, opened.st_ino, opened.st_size) != (
+                    before.st_dev,
+                    before.st_ino,
+                    before.st_size,
+                ):
+                    return None
+                with os.fdopen(fd, "rb") as sidecar_file:
+                    sidecar_bytes = sidecar_file.read()
+                fd = None
+            finally:
+                if fd is not None:
+                    os.close(fd)
             sidecar = json.loads(sidecar_bytes)
         except (OSError, ValueError, json.JSONDecodeError):
             return None
