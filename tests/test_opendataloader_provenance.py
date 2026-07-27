@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -98,6 +99,43 @@ def test_sidecar_reference_is_relative_and_revalidates_from_cache(tmp_path):
         list(content), coverage, provenance_ref=stored_ref
     )
     assert mixin._validated_odl_provenance_ref(cached_content, coverage) == stored_ref
+
+
+def test_dedicated_artifact_root_is_used_for_status_metadata(tmp_path):
+    """doc_status must validate sidecars against ODL_ARTIFACT_ROOT, not OUTPUT_DIR."""
+    artifact_root, content, coverage = _tracked_content(tmp_path)
+    shared_output = tmp_path / "shared-output"
+    shared_output.mkdir()
+    mixin = _mixin(shared_output)
+    mixin.config.odl_artifact_root = str(artifact_root)
+
+    effective_root = mixin._effective_parser_output_dir(
+        tmp_path / "source.pdf", str(shared_output)
+    )
+    metadata = mixin._parser_status_metadata(
+        tmp_path / "source.pdf", content, coverage, effective_root
+    )
+
+    assert Path(effective_root) == artifact_root
+    assert metadata["provenance_ref"]["relative_path"] == (
+        "document_a1b2c3d4/run-12345678/document_provenance.json"
+    )
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "symlink"), reason="symlinks unavailable")
+def test_dedicated_artifact_root_rejects_shared_output_symlink_alias(tmp_path):
+    artifact_root = tmp_path / "odl-artifacts"
+    artifact_root.mkdir()
+    shared_alias = tmp_path / "shared-output"
+    try:
+        shared_alias.symlink_to(artifact_root, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    mixin = _mixin(shared_alias)
+    mixin.config.odl_artifact_root = str(artifact_root)
+
+    with pytest.raises(ValueError, match="separate"):
+        mixin._effective_parser_output_dir(tmp_path / "source.pdf", str(shared_alias))
 
 
 def test_validated_sidecar_registers_only_a_server_owned_odl_run(tmp_path):

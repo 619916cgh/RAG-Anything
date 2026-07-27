@@ -775,17 +775,28 @@ class OpenDataLoaderArtifactLifecycle:
 
     @contextlib.contextmanager
     def _open_root_fd(self) -> Iterator[int]:
-        self._require_destructive_capability()
+        expected_root_identity = self._require_destructive_capability()
         root_fd = os.open(
             self.artifact_root,
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
         )
         try:
+            opened_root = os.fstat(root_fd)
+            if (
+                not stat.S_ISDIR(opened_root.st_mode)
+                or (opened_root.st_dev, opened_root.st_ino) != expected_root_identity
+                or opened_root.st_uid != os.geteuid()
+                or opened_root.st_mode & (stat.S_IRWXG | stat.S_IRWXO)
+            ):
+                raise ArtifactLifecycleCapabilityError(
+                    "controlled artifact root changed or lost its private service-owned identity"
+                )
             yield root_fd
         finally:
             os.close(root_fd)
 
-    def _require_destructive_capability(self) -> None:
+    def _require_destructive_capability(self) -> tuple[int, int]:
+        """Validate the root and return the identity the fd opener must match."""
         if not _is_linux_fd_safe():
             raise ArtifactLifecycleCapabilityError(
                 "automatic OpenDataLoader artifact deletion is supported only on "
@@ -808,11 +819,16 @@ class OpenDataLoaderArtifactLifecycle:
             raise ArtifactLifecycleCapabilityError(
                 "controlled artifact root must not be writable by group or other users"
             )
+        if root_stat.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise ArtifactLifecycleCapabilityError(
+                "controlled artifact root must be private to the worker service identity"
+            )
         if root_stat.st_uid != os.geteuid():
             raise ArtifactLifecycleCapabilityError(
                 "controlled artifact root must be owned by the worker service identity"
             )
         self._assert_secure_registry_file(require_owner=True)
+        return root_stat.st_dev, root_stat.st_ino
 
     def _assert_secure_registry_file(self, *, require_owner: bool) -> None:
         """Reject a registry that is not a private, regular server-owned file."""

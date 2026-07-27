@@ -94,11 +94,37 @@ class DocProcessorMixin:
 
         root_absolute = Path(os.path.abspath(root))
         parser_output_absolute = Path(os.path.abspath(output_dir))
+
+        # Validate the ODL root before resolving either path.  The lifecycle
+        # boundary rejects a link/reparse-point root; resolving afterwards lets
+        # us also catch a shared OUTPUT_DIR that reaches it through a symlink or
+        # junction alias rather than only by matching path strings.
+        from raganything.services.odl_artifact_lifecycle import (
+            OpenDataLoaderArtifactLifecycle,
+        )
+
+        OpenDataLoaderArtifactLifecycle(root_absolute)
+        root_resolved = root_absolute.resolve(strict=True)
+        parser_output_resolved = parser_output_absolute.resolve(strict=False)
+        # A Linux bind mount can expose the same directory through two paths
+        # without a symlink or lexical ancestor relationship.  Compare the
+        # filesystem identity when OUTPUT_DIR already exists so a later legacy
+        # ``rmtree(OUTPUT_DIR)`` can never target the ODL root by alias.
+        if parser_output_absolute.exists():
+            root_identity = root_absolute.stat()
+            output_identity = parser_output_absolute.stat()
+            if (root_identity.st_dev, root_identity.st_ino) == (
+                output_identity.st_dev,
+                output_identity.st_ino,
+            ):
+                raise ValueError(
+                    "ODL_ARTIFACT_ROOT must be separate from the shared parser output root"
+                )
         try:
-            root_absolute.relative_to(parser_output_absolute)
+            root_resolved.relative_to(parser_output_resolved)
         except ValueError:
             try:
-                parser_output_absolute.relative_to(root_absolute)
+                parser_output_resolved.relative_to(root_resolved)
             except ValueError:
                 pass
             else:
@@ -110,14 +136,6 @@ class DocProcessorMixin:
                 "ODL_ARTIFACT_ROOT must be separate from the shared parser output root"
             )
 
-        # The lifecycle constructor rejects a missing root and link/reparse
-        # ancestors; validating here prevents the converter from writing into an
-        # unsafe location even on Windows, where deletion remains fail-closed.
-        from raganything.services.odl_artifact_lifecycle import (
-            OpenDataLoaderArtifactLifecycle,
-        )
-
-        OpenDataLoaderArtifactLifecycle(root_absolute)
         return str(root_absolute)
 
     def _effective_parse_config(
@@ -1230,6 +1248,13 @@ class DocProcessorMixin:
             if display_stats is None:
                 display_stats = self.config.display_content_stats
 
+            # Keep the same validated root through parse, cache, registration,
+            # and doc-status metadata.  Passing the shared output directory at
+            # this point would make an otherwise valid ODL sidecar unresolvable.
+            parser_artifact_root = self._effective_parser_output_dir(
+                Path(file_path), output_dir
+            )
+
             self.logger.info(f"Starting complete document processing: {file_path}")
 
             # Step 1: Parse document
@@ -1266,7 +1291,7 @@ class DocProcessorMixin:
                     error_msg="",
                     chunking_strategy=chunking_strategy,
                     metadata=self._parser_status_metadata(
-                        Path(file_path), content_list, page_coverage, output_dir
+                        Path(file_path), content_list, page_coverage, parser_artifact_root
                     ),
                 )
 
@@ -1323,7 +1348,7 @@ class DocProcessorMixin:
                     error_msg="",
                     chunking_strategy=chunking_strategy,
                     metadata=self._parser_status_metadata(
-                        Path(file_path), content_list, page_coverage, output_dir
+                        Path(file_path), content_list, page_coverage, parser_artifact_root
                     ),
                 )
                 # Register chunk → doc source mappings for citation tracing

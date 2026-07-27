@@ -54,8 +54,10 @@ SMB/NFS/FUSE share, upload directory, or a shared parser-output parent. The
 lifecycle registry binds a document owner to one strict parser run and deletes
 only that registered run through descriptor-relative no-follow traversal.
 At runtime the cleanup gate rejects overlay, 9p/Windows mounts, SMB/NFS,
-FUSE and virtiofs, and rejects a root writable by group or other users. The
-service identity must own the volume root.
+FUSE and virtiofs, and requires the root to be private (`0700`) and owned by
+the worker service identity. The cleanup opener verifies the same root inode
+after opening it, so a replaced root fails closed rather than authorizing a
+second path.
 
 On Windows and any runtime without the required descriptor operations,
 automatic retry overwrite, document deletion cleanup, KB cleanup, and

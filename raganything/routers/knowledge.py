@@ -989,6 +989,7 @@ async def upload_from_url(url: str = QueryParam(...), kb: str = Depends(verify_k
                 str(fp.absolute()),
                 output_dir="./output",
                 chunking_strategy=actual_strategy,
+                odl_owner_kb=kb,
             )
             tag_warnings = await _settle_in_process_upload(
                 kb, [fname], current_user.get("id", 0),
@@ -3251,11 +3252,15 @@ def _cleanup_document_files(
             record = lifecycle.get(owner)
             if record is not None and record.state != "deleted":
                 registered_odl_artifact = True
+                workers_exited = all(
+                    getattr(process, "returncode", None) is not None
+                    for process, _task_id in _kb_worker_procs.get(kb_name, [])
+                )
                 try:
                     lifecycle.delete(
                         owner,
                         expected_generation=record.generation,
-                        worker_exited=True,
+                        worker_exited=workers_exited,
                     )
                     lightrag_logger.info("[CLEANUP] Deleted registered OpenDataLoader artifact")
                 except ArtifactLifecycleCapabilityError:
@@ -4164,11 +4169,15 @@ async def retry_document(doc_id: str, kb: str = Depends(verify_kb_access), _perm
                     409,
                     "OpenDataLoader artifact cleanup is pending; recover it before retrying",
                 )
+            workers_exited = all(
+                getattr(process, "returncode", None) is not None
+                for process, _task_id in _kb_worker_procs.get(kb, [])
+            )
             try:
                 lifecycle.delete(
                     owner,
                     expected_generation=record.generation,
-                    worker_exited=True,
+                    worker_exited=workers_exited,
                 )
             except ArtifactLifecycleCapabilityError as exc:
                 raise HTTPException(
