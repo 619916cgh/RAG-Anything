@@ -35,6 +35,14 @@ class RAGAnythingConfig:
     the global ``parser``.  An empty value preserves the global default
     for all formats."""
 
+    odl_artifact_root: str = field(default=get_env_value("ODL_ARTIFACT_ROOT", "", str))
+    """Required, dedicated absolute root for OpenDataLoader parser artifacts.
+
+    This root is intentionally separate from ``parser_output_dir``.  It is the
+    only location that may contain the OpenDataLoader lifecycle registry and,
+    on supported Linux/Docker/WSL deployments, may be cleaned automatically.
+    """
+
     # Entity Extraction Configuration
     # ---
     entity_types: str = field(default=get_env_value("ENTITY_TYPES", "", str))

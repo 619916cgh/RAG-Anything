@@ -836,6 +836,7 @@ async def process_file(
                     safe_path,
                     output_dir=output_dir,
                     chunking_strategy=strategy,
+                    odl_owner_kb=kb_name,
                 )
                 docling_ok = True
             except Exception as e:

@@ -3218,13 +3218,57 @@ async def download_document(
     )
 
 
-def _cleanup_document_files(kb_name: str, file_path: str, doc_id: str = "") -> None:
+def _cleanup_document_files(
+    kb_name: str, file_path: str, doc_id: str = ""
+) -> dict[str, bool]:
     """Delete uploaded file and parse output for a document.
 
     Called when a document or KB is deleted from the frontend.  Ensures the
     ``uploads/`` directory and per-KB parser output directory stay in sync
     with the knowledge base.
     """
+    lifecycle_result = {"artifact_cleanup_pending": False}
+
+    # OpenDataLoader artifacts are not authorized by a filename prefix or a
+    # doc_status/cache path.  If a server-side registry owns this doc, delete
+    # exactly that registered run; unsupported Windows cleanup is explicitly
+    # reported as pending and never falls through to rmtree().
+    output_base = "./output" if kb_name == "default" else f"./output_{kb_name}"
+    output_dir = Path(output_base)
+    registered_odl_artifact = False
+    legacy_odl_registry_present = (output_dir / ".odl-artifact-registry.sqlite3").is_file()
+    if doc_id:
+        from raganything.services.odl_artifact_lifecycle import (
+            ArtifactLifecycleCapabilityError,
+            ArtifactOwner,
+            OpenDataLoaderArtifactLifecycle,
+            configured_odl_artifact_root,
+        )
+        artifact_root = configured_odl_artifact_root()
+        if artifact_root is not None and artifact_root.is_dir():
+            lifecycle = OpenDataLoaderArtifactLifecycle(artifact_root)
+            owner = ArtifactOwner(kb_name, doc_id)
+            record = lifecycle.get(owner)
+            if record is not None and record.state != "deleted":
+                registered_odl_artifact = True
+                try:
+                    lifecycle.delete(
+                        owner,
+                        expected_generation=record.generation,
+                        worker_exited=True,
+                    )
+                    lightrag_logger.info("[CLEANUP] Deleted registered OpenDataLoader artifact")
+                except ArtifactLifecycleCapabilityError:
+                    lifecycle_result["artifact_cleanup_pending"] = True
+                    lightrag_logger.warning(
+                        "[CLEANUP] OpenDataLoader artifact retained: secure cleanup is unsupported on this runtime"
+                    )
+        # A pre-isolation registry proves this legacy output tree may contain
+        # ODL artifacts.  It is never eligible for prefix deletion, even when
+        # the requested document lacks a registry row.
+        if legacy_odl_registry_present:
+            lifecycle_result["artifact_cleanup_pending"] = True
+
     # 1. Delete the original uploaded file from uploads/
     if file_path:
         real = _find_upload_file(file_path)
@@ -3235,10 +3279,10 @@ def _cleanup_document_files(kb_name: str, file_path: str, doc_id: str = "") -> N
             except (FileNotFoundError, OSError):
                 pass  # 已被并发请求删除或无权限
 
-    # 2. Delete the parser output subdirectory for this document
-    output_base = "./output" if kb_name == "default" else f"./output_{kb_name}"
-    output_dir = Path(output_base)
-    if output_dir.exists():
+    # 2. Legacy parsers retain their historical prefix cleanup.  An ODL run
+    # registered above never uses this path, which would otherwise allow a
+    # filename collision to widen the destructive scope.
+    if output_dir.exists() and not registered_odl_artifact and not legacy_odl_registry_present:
         file_stem = Path(file_path).stem
         for d in output_dir.iterdir():
             if d.is_dir() and d.name.startswith(file_stem):
@@ -3246,20 +3290,29 @@ def _cleanup_document_files(kb_name: str, file_path: str, doc_id: str = "") -> N
                 lightrag_logger.info(f"[CLEANUP] 已删除解析输出: {d}")
                 break  # one document → one output directory
 
-    # 3. Remove parse cache entry for this doc_id
+    # 3. Invalidate only cache entries whose stored document identity matches.
+    # Cache keys are configuration hashes, not doc IDs, so indexing by the
+    # filename or a provenance reference would be both incorrect and unsafe.
     if doc_id:
         cache_path = Path(kb_dir(kb_name)) / "kv_store_parse_cache.json"
         if cache_path.exists():
             try:
                 cache = json.loads(cache_path.read_text("utf-8"))
-                if doc_id in cache:
-                    del cache[doc_id]
+                matching_keys = [
+                    key
+                    for key, value in cache.items()
+                    if isinstance(value, dict) and value.get("doc_id") == doc_id
+                ]
+                if matching_keys:
+                    for key in matching_keys:
+                        del cache[key]
                     cache_path.write_text(
                         json.dumps(cache, ensure_ascii=False, indent=2), "utf-8"
                     )
                     lightrag_logger.info(f"[CLEANUP] 已删除解析缓存: {doc_id[:16]}...")
             except Exception:
                 pass
+    return lifecycle_result
 
 
 async def _cleanup_document_vision_vectors(instance, doc_ids: list[str]) -> None:
@@ -3796,8 +3849,9 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_access), _per
     await add_event("doc_delete", file=file_name, doc_id=full_id, kb=kb, user_id=current_user["id"])
 
     needs_orphan_repair = False
+    cleanup_result = {"artifact_cleanup_pending": False}
     if result.status == "success":
-        _cleanup_document_files(kb, file_name, full_id)
+        cleanup_result = _cleanup_document_files(kb, file_name, full_id) or {}
         # Clean up multimodal status cache entry for this document
         if hasattr(instance, "multimodal_status_cache") and instance.multimodal_status_cache is not None:
             try:
@@ -3837,7 +3891,7 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_access), _per
             except Exception:
                 pass
             # Clean up file system leftovers and multimodal status cache
-            _cleanup_document_files(kb, file_name, full_id)
+            cleanup_result = _cleanup_document_files(kb, file_name, full_id) or {}
             if hasattr(instance, "multimodal_status_cache") and instance.multimodal_status_cache is not None:
                 try:
                     await instance.multimodal_status_cache.delete([full_id])
@@ -3883,6 +3937,8 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_access), _per
                 full_id,
                 exc_info=True,
             )
+    if cleanup_result.get("artifact_cleanup_pending"):
+        _delete_response["artifact_cleanup_pending"] = True
     return _delete_response
 
 
@@ -3903,6 +3959,7 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
 
     deleted_full_ids: list[str] = []  # for multimodal_status_cache batch cleanup
     not_found_full_ids: list[str] = []  # for LightRAG orphan cleanup
+    artifact_cleanup_pending: list[str] = []
 
     for doc_id in req.doc_ids:
         full_id = None
@@ -3940,7 +3997,9 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
                 del doc_status[full_id]
                 deleted.append(doc_id)
                 deleted_full_ids.append(full_id)
-                _cleanup_document_files(kb, file_name, full_id)
+                cleanup_result = _cleanup_document_files(kb, file_name, full_id) or {}
+                if cleanup_result.get("artifact_cleanup_pending"):
+                    artifact_cleanup_pending.append(full_id)
                 await pg_release_upload_for_deleted_document(kb, file_name)
                 await _remove_document_processing_tasks(kb, full_id, file_name)
                 await add_event("doc_delete", file=file_name, doc_id=full_id, kb=kb, user_id=current_user["id"])
@@ -4006,6 +4065,7 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
             )
 
     return {"deleted": deleted, "not_found": not_found, "errors": errors,
+            "artifact_cleanup_pending": artifact_cleanup_pending,
             "total_deleted": len(deleted), "total_failed": len(errors)}
 
 
@@ -4068,6 +4128,53 @@ async def retry_document(doc_id: str, kb: str = Depends(verify_kb_access), _perm
         file_path = Path(file_name) if Path(file_name).exists() else None
     if not file_path or not file_path.exists():
         raise HTTPException(404, f"原始文件不存在: {file_name}")
+
+    # A retry must replace its previous ODL generation through the registry
+    # before it removes the failed doc_status.  This prevents an old retry from
+    # leaving two active runs or deleting a newer run by filename prefix.
+    output_base = "./output" if kb == "default" else f"./output_{kb}"
+    legacy_registry_file = Path(output_base) / ".odl-artifact-registry.sqlite3"
+    from raganything.services.odl_artifact_lifecycle import configured_odl_artifact_root
+
+    artifact_root = configured_odl_artifact_root()
+    registry_file = (
+        artifact_root / ".odl-artifact-registry.sqlite3"
+        if artifact_root is not None
+        else None
+    )
+    if legacy_registry_file.is_file():
+        raise HTTPException(
+            409,
+            "OpenDataLoader legacy artifact root is retained for controlled cleanup; "
+            "retry cannot use filename-based deletion",
+        )
+    if registry_file is not None and registry_file.is_file():
+        from raganything.services.odl_artifact_lifecycle import (
+            ArtifactLifecycleCapabilityError,
+            ArtifactOwner,
+            OpenDataLoaderArtifactLifecycle,
+        )
+
+        lifecycle = OpenDataLoaderArtifactLifecycle(artifact_root)
+        owner = ArtifactOwner(kb, full_id)
+        record = lifecycle.get(owner)
+        if record is not None and record.state != "deleted":
+            if record.state != "active":
+                raise HTTPException(
+                    409,
+                    "OpenDataLoader artifact cleanup is pending; recover it before retrying",
+                )
+            try:
+                lifecycle.delete(
+                    owner,
+                    expected_generation=record.generation,
+                    worker_exited=True,
+                )
+            except ArtifactLifecycleCapabilityError as exc:
+                raise HTTPException(
+                    409,
+                    "odl_artifact_cleanup_unsupported_windows: artifact retained for controlled cleanup",
+                ) from exc
 
     # 删除旧的失败记录 via LightRAG PG (trigger reprocessing)
     try:

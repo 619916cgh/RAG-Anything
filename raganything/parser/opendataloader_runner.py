@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -85,17 +84,6 @@ def _output_size(root: Path) -> int:
         if candidate.is_file():
             total += stat_result.st_size
     return total
-
-
-def _discard_conversion_outputs(root: Path) -> None:
-    """Remove SDK artifacts after a resource-limit failure, retaining protocol files."""
-    for candidate in root.iterdir():
-        if candidate.name in {"runner-request.json", "runner-result.json"}:
-            continue
-        if candidate.is_symlink() or candidate.is_file():
-            candidate.unlink(missing_ok=True)
-        elif candidate.is_dir():
-            shutil.rmtree(candidate)
 
 
 def _find_single_artifact(directory: Path, suffix: str) -> Path:
@@ -197,7 +185,13 @@ def _run(request_path: Path) -> int:
         markdown_path = _find_single_artifact(output_root, ".md")
         _, top_level_elements = _validate_page_json(json_path, page)
         if _output_size(output_root) > max_output_bytes:
-            _discard_conversion_outputs(output_root)
+            # The SDK output is untrusted.  Do not use shutil.rmtree() here:
+            # Windows has no fd-relative/no-follow deletion primitive in the
+            # supported Python runtime, and a converter-created junction could
+            # turn a best-effort cleanup into an arbitrary deletion.  The
+            # parent lifecycle service owns retention cleanup on the approved
+            # Linux controlled volume; unsupported platforms retain these
+            # rejected artifacts for administrator review.
             raise ValueError("conversion output exceeds configured byte limit")
         # A dedicated official pages=<n> conversion plus a valid contained
         # artifact is the proof for an empty page; batch omission is never used.

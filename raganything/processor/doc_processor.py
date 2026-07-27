@@ -68,6 +68,58 @@ class DocProcessorMixin:
             return pdf_override
         return global_parser
 
+    def _effective_parser_output_dir(self, file_path: Path, output_dir: str) -> str:
+        """Return the only output root permitted for the effective parser.
+
+        OpenDataLoader is deliberately not allowed to share the normal parser
+        output tree: its registry is a deletion authority on supported Linux
+        volumes.  Requiring an explicit, absolute, non-overlapping root makes a
+        missing or unsafe deployment configuration fail before the SDK writes
+        any artifacts.
+        """
+        if self._effective_parser_name(file_path) != "opendataloader":
+            return output_dir
+
+        configured_root = str(
+            getattr(self.config, "odl_artifact_root", "")
+        ).strip()
+        if not configured_root:
+            raise ValueError(
+                "OpenDataLoader requires ODL_ARTIFACT_ROOT to be an explicitly "
+                "provisioned dedicated artifact root"
+            )
+        root = Path(configured_root)
+        if not root.is_absolute():
+            raise ValueError("ODL_ARTIFACT_ROOT must be an absolute path")
+
+        root_absolute = Path(os.path.abspath(root))
+        parser_output_absolute = Path(os.path.abspath(output_dir))
+        try:
+            root_absolute.relative_to(parser_output_absolute)
+        except ValueError:
+            try:
+                parser_output_absolute.relative_to(root_absolute)
+            except ValueError:
+                pass
+            else:
+                raise ValueError(
+                    "ODL_ARTIFACT_ROOT must not be a parent of the shared parser output root"
+                )
+        else:
+            raise ValueError(
+                "ODL_ARTIFACT_ROOT must be separate from the shared parser output root"
+            )
+
+        # The lifecycle constructor rejects a missing root and link/reparse
+        # ancestors; validating here prevents the converter from writing into an
+        # unsafe location even on Windows, where deletion remains fail-closed.
+        from raganything.services.odl_artifact_lifecycle import (
+            OpenDataLoaderArtifactLifecycle,
+        )
+
+        OpenDataLoaderArtifactLifecycle(root_absolute)
+        return str(root_absolute)
+
     def _effective_parse_config(
         self, file_path: Path, parse_method: str | None = None, **kwargs: Any
     ) -> Dict[str, Any]:
@@ -167,6 +219,7 @@ class DocProcessorMixin:
         self,
         content_list: List[Dict[str, Any]],
         page_coverage: Dict[str, Any],
+        artifact_root: str | Path | None = None,
     ) -> Dict[str, Any] | None:
         """Return a safe relative OpenDataLoader sidecar reference, if valid."""
         raw_ref = getattr(content_list, "provenance_ref", None)
@@ -176,28 +229,25 @@ class DocProcessorMixin:
         ):
             return None
         try:
-            artifact_root = Path(self.config.parser_output_dir).resolve()
-            raw_path = raw_ref.get("path")
-            if isinstance(raw_path, str) and raw_path:
-                sidecar_path = Path(raw_path).resolve(strict=True)
-            else:
-                relative_path = raw_ref.get("relative_path")
-                if (
-                    not isinstance(relative_path, str)
-                    or not relative_path
-                    or Path(relative_path).is_absolute()
-                    or ".." in Path(relative_path).parts
-                ):
-                    return None
-                sidecar_path = (artifact_root / relative_path).resolve(strict=True)
-            relative_path = sidecar_path.relative_to(artifact_root).as_posix()
+            root = Path(artifact_root or self.config.parser_output_dir).resolve()
+            relative_path = raw_ref.get("relative_path")
+            if (
+                not isinstance(relative_path, str)
+                or not relative_path
+                or "\x00" in relative_path
+                or Path(relative_path).is_absolute()
+                or ".." in Path(relative_path).parts
+            ):
+                return None
+            sidecar_path = (root / relative_path).resolve(strict=True)
+            relative_path = sidecar_path.relative_to(root).as_posix()
             if sidecar_path.is_symlink() or ".." in Path(relative_path).parts:
                 return None
             before = sidecar_path.lstat()
             if sidecar_path.is_symlink() or not sidecar_path.is_file():
                 return None
-            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(
-                os, "O_NOFOLLOW", 0
+            flags = (
+                os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
             )
             fd = os.open(str(sidecar_path), flags)
             try:
@@ -241,7 +291,11 @@ class DocProcessorMixin:
         }
 
     def _parser_status_metadata(
-        self, file_path: Path, content_list: List[Dict[str, Any]], page_coverage: Any
+        self,
+        file_path: Path,
+        content_list: List[Dict[str, Any]],
+        page_coverage: Any,
+        artifact_root: str | Path | None = None,
     ) -> Dict[str, Any] | None:
         """Keep parser metadata lightweight and free of filesystem paths."""
         metadata: Dict[str, Any] = {}
@@ -249,11 +303,69 @@ class DocProcessorMixin:
             metadata["page_coverage"] = page_coverage
         if self._effective_parser_name(file_path) == "opendataloader":
             provenance_ref = self._validated_odl_provenance_ref(
-                content_list, page_coverage
+                content_list, page_coverage, artifact_root
             )
             if provenance_ref is not None:
                 metadata["provenance_ref"] = provenance_ref
         return metadata or None
+
+    def _ensure_odl_artifact_registered(
+        self,
+        *,
+        file_path: Path,
+        content_list: List[Dict[str, Any]],
+        page_coverage: Dict[str, Any],
+        artifact_root: str | Path,
+        kb_id: str | None,
+        doc_id: str,
+    ) -> None:
+        """Bind a validated OpenDataLoader run to its server-side owner.
+
+        The registry deliberately derives the run from the already-validated
+        sidecar reference.  It never lets cache/doc-status metadata authorize
+        a path deletion later in the lifecycle.
+        """
+        if self._effective_parser_name(file_path) != "opendataloader":
+            return
+        provenance_ref = self._validated_odl_provenance_ref(
+            content_list, page_coverage, artifact_root
+        )
+        if provenance_ref is None:
+            raise RuntimeError("OpenDataLoader artifact provenance is invalid")
+
+        from raganything.services.odl_artifact_lifecycle import (
+            ArtifactOwner,
+            ArtifactRegistryConflict,
+            OpenDataLoaderArtifactLifecycle,
+            UnsafeArtifactPath,
+        )
+
+        root = Path(artifact_root).resolve()
+        relative_path = str(provenance_ref["relative_path"])
+        run_relpath = Path(relative_path).parent.as_posix()
+        if not run_relpath or run_relpath == ".":
+            raise UnsafeArtifactPath("OpenDataLoader sidecar is not inside a run directory")
+        owner = ArtifactOwner(kb_id or "standalone", doc_id)
+        lifecycle = OpenDataLoaderArtifactLifecycle(root)
+        existing = lifecycle.get(owner)
+        if existing is not None and existing.state == "active":
+            if (
+                existing.run_relpath != run_relpath
+                or existing.sidecar_sha256 != provenance_ref["sha256"]
+            ):
+                raise ArtifactRegistryConflict(
+                    "active OpenDataLoader artifact owner conflicts with parsed output"
+                )
+            return
+        lifecycle.register(
+            owner,
+            run_relpath=run_relpath,
+            sidecar_relpath=relative_path,
+            sidecar_sha256=str(provenance_ref["sha256"]),
+            expected_generation=(
+                existing.generation if existing is not None and existing.state == "deleted" else None
+            ),
+        )
 
     def _generate_cache_key(
         self, file_path: Path, parse_method: str = None, **kwargs
@@ -491,7 +603,12 @@ class DocProcessorMixin:
         return doc_id
 
     async def _get_cached_result(
-        self, cache_key: str, file_path: Path, parse_method: str = None, **kwargs
+        self,
+        cache_key: str,
+        file_path: Path,
+        parse_method: str = None,
+        artifact_root: str | Path | None = None,
+        **kwargs,
     ) -> tuple[List[Dict[str, Any]], str] | None:
         """
         Get cached parsing result if available and valid
@@ -558,7 +675,7 @@ class DocProcessorMixin:
                         provenance_ref=cached_data.get("provenance_ref"),
                     )
                     provenance_ref = self._validated_odl_provenance_ref(
-                        cached_content, page_coverage
+                        cached_content, page_coverage, artifact_root
                     )
                     if provenance_ref is None:
                         self.logger.debug(
@@ -593,6 +710,7 @@ class DocProcessorMixin:
         doc_id: str,
         file_path: Path,
         parse_method: str = None,
+        artifact_root: str | Path | None = None,
         **kwargs,
     ) -> None:
         """
@@ -625,7 +743,7 @@ class DocProcessorMixin:
             provenance_ref = None
             if effective_parser == "opendataloader":
                 provenance_ref = self._validated_odl_provenance_ref(
-                    content_list, page_coverage
+                    content_list, page_coverage, artifact_root
                 )
                 if provenance_ref is None:
                     self.logger.warning(
@@ -643,7 +761,9 @@ class DocProcessorMixin:
                     "cache_version": (
                         "3.0"
                         if effective_parser == "opendataloader"
-                        else "2.0" if requires_page_coverage else "1.0"
+                        else "2.0"
+                        if requires_page_coverage
+                        else "1.0"
                     ),
                 }
             }
@@ -664,6 +784,8 @@ class DocProcessorMixin:
         output_dir: str = None,
         parse_method: str = None,
         display_stats: bool = None,
+        odl_owner_kb: str | None = None,
+        odl_owner_doc_id: str | None = None,
         **kwargs,
     ) -> tuple[List[Dict[str, Any]], str]:
         """
@@ -693,6 +815,8 @@ class DocProcessorMixin:
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        output_dir = self._effective_parser_output_dir(file_path, output_dir)
+
         callback_file = str(file_path)
         effective_parser = self._effective_parser_name(file_path)
         callback_manager = getattr(self, "callback_manager", None)
@@ -709,11 +833,26 @@ class DocProcessorMixin:
 
         # Check cache first
         cached_result = await self._get_cached_result(
-            cache_key, file_path, parse_method, **kwargs
+            cache_key,
+            file_path,
+            parse_method,
+            artifact_root=output_dir,
+            **kwargs,
         )
         if cached_result is not None:
             content_list, doc_id = cached_result
             validate_content_list_for_ingestion(content_list, doc_id)
+            page_coverage = getattr(content_list, "page_coverage", None)
+            if self._requires_pdf_page_coverage(file_path):
+                page_coverage = self._validate_pdf_page_coverage(page_coverage)
+            self._ensure_odl_artifact_registered(
+                file_path=file_path,
+                content_list=content_list,
+                page_coverage=page_coverage,
+                artifact_root=output_dir,
+                kb_id=odl_owner_kb,
+                doc_id=odl_owner_doc_id or doc_id,
+            )
             self.logger.info(f"Using cached parsing result for: {file_path}")
             if display_stats:
                 self.logger.info(
@@ -994,9 +1133,24 @@ class DocProcessorMixin:
         # content cannot be reused by a later ingestion attempt.
         validate_content_list_for_ingestion(content_list, doc_id)
 
+        self._ensure_odl_artifact_registered(
+            file_path=file_path,
+            content_list=content_list,
+            page_coverage=page_coverage,
+            artifact_root=output_dir,
+            kb_id=odl_owner_kb,
+            doc_id=odl_owner_doc_id or doc_id,
+        )
+
         # Store result in cache
         await self._store_cached_result(
-            cache_key, content_list, doc_id, file_path, parse_method, **kwargs
+            cache_key,
+            content_list,
+            doc_id,
+            file_path,
+            parse_method,
+            artifact_root=output_dir,
+            **kwargs,
         )
 
         # Display content statistics if requested
@@ -1039,6 +1193,7 @@ class DocProcessorMixin:
         doc_id: str | None = None,
         file_name: str | None = None,
         chunking_strategy: str | None = None,
+        odl_owner_kb: str | None = None,
         **kwargs,
     ):
         """
@@ -1079,7 +1234,13 @@ class DocProcessorMixin:
 
             # Step 1: Parse document
             content_list, content_based_doc_id = await self.parse_document(
-                file_path, output_dir, parse_method, display_stats, **kwargs
+                file_path,
+                output_dir,
+                parse_method,
+                display_stats,
+                odl_owner_kb=odl_owner_kb,
+                odl_owner_doc_id=doc_id,
+                **kwargs,
             )
             page_coverage = getattr(content_list, "page_coverage", None)
             if self._requires_pdf_page_coverage(Path(file_path)):
@@ -1105,7 +1266,7 @@ class DocProcessorMixin:
                     error_msg="",
                     chunking_strategy=chunking_strategy,
                     metadata=self._parser_status_metadata(
-                        Path(file_path), content_list, page_coverage
+                        Path(file_path), content_list, page_coverage, output_dir
                     ),
                 )
 
@@ -1162,7 +1323,7 @@ class DocProcessorMixin:
                     error_msg="",
                     chunking_strategy=chunking_strategy,
                     metadata=self._parser_status_metadata(
-                        Path(file_path), content_list, page_coverage
+                        Path(file_path), content_list, page_coverage, output_dir
                     ),
                 )
                 # Register chunk → doc source mappings for citation tracing
@@ -1301,9 +1462,7 @@ class DocProcessorMixin:
         doc_pre_id = f"doc-pre-{file_name}"
         pipeline_status = None
         pipeline_status_lock = None
-        current_doc_status = (
-            {}
-        )  # initialised here so the except block can always unpack it
+        current_doc_status = {}  # initialised here so the except block can always unpack it
 
         async def mark_initialization_failed(error_msg: str) -> None:
             """Persist init failures when LightRAG doc_status is already available."""

@@ -13,7 +13,9 @@ def _wheel(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("opendataloader_pdf/LICENSE", "Apache-2.0")
         archive.writestr("opendataloader_pdf/NOTICE", "notice")
+        archive.writestr("opendataloader_pdf/THIRD_PARTY/THIRD_PARTY_LICENSES.md", "licenses")
         archive.writestr("opendataloader_pdf/THIRD_PARTY/THIRD_PARTY_NOTICES.md", "third party")
+        archive.writestr("opendataloader_pdf/THIRD_PARTY/licenses/MIT.txt", "MIT")
         archive.writestr("opendataloader_pdf/jar/opendataloader-pdf-cli.jar", b"jar")
 
 
@@ -51,6 +53,28 @@ def test_collects_wheel_hash_jar_and_notice_inventory(tmp_path: Path):
     assert value["wheel"]["sha256"]
     assert value["bundled_jars"][0]["path"].endswith(".jar")
     assert (notice_root / "THIRD_PARTY" / "THIRD_PARTY_NOTICES.md").is_file()
+
+
+def test_collect_rejects_non_upstream_immutable_url(tmp_path: Path):
+    wheel = tmp_path / "odl.whl"
+    _wheel(wheel)
+
+    result = _run(
+        "collect",
+        "--wheel",
+        str(wheel),
+        "--notice-root",
+        str(tmp_path / "notices"),
+        "--manifest",
+        str(tmp_path / "manifest.json"),
+        "--source-revision",
+        REVISION,
+        "--source-url",
+        f"https://example.invalid/commit/{REVISION}",
+    )
+
+    assert result.returncode == 2
+    assert "upstream immutable" in result.stderr
 
 
 def test_collect_rejects_non_immutable_source_revision(tmp_path: Path):

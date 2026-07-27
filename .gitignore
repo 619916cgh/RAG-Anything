@@ -72,6 +72,8 @@ tiktoken_cache/
 
 # unit-test files
 test_*
+!tests/test_opendataloader_contract_probe.py
+!tests/test_odl_artifact_lifecycle.py
 !tests/test_chunk_maintenance.py
 !tests/test_upload_tasks.py
 !tests/test_semantic_chunking.py

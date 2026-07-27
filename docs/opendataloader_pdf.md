@@ -34,10 +34,34 @@ Java starts. `ODL_MAX_OUTPUT_BYTES` caps retained JSON, Markdown, images, and
 provenance output. Timeouts terminate the runner
 process tree on Windows and Linux containers.
 
-Parser artifacts and provenance sidecars remain under the parser output root.
+Parser artifacts and provenance sidecars remain under `ODL_ARTIFACT_ROOT`, an
+explicit dedicated artifact root that is separate from the normal parser output
+root. `PDF_PARSER=opendataloader` refuses to start unless this is an existing,
+absolute path. This prevents an artifact registry from authorizing deletion in
+a shared parser tree.
 They contain relative references and hashes, never a public provenance API or
 document text in telemetry. Delete/re-ingest through the supported document or
 knowledge-base lifecycle; do not remove individual sidecars manually.
+
+## Artifact lifecycle volume
+
+Automatic cleanup is deliberately opt-in and is supported only with
+`ODL_ARTIFACT_ROOT=/odl-artifacts` and `ODL_ARTIFACT_CLEANUP_MODE=linux-volume`
+in a dedicated local Linux,
+Docker-named-volume, or WSL ext4 volume. The parser output root must be a
+server-provisioned real directory on that volume, not a Windows bind mount,
+SMB/NFS/FUSE share, upload directory, or a shared parser-output parent. The
+lifecycle registry binds a document owner to one strict parser run and deletes
+only that registered run through descriptor-relative no-follow traversal.
+At runtime the cleanup gate rejects overlay, 9p/Windows mounts, SMB/NFS,
+FUSE and virtiofs, and rejects a root writable by group or other users. The
+service identity must own the volume root.
+
+On Windows and any runtime without the required descriptor operations,
+automatic retry overwrite, document deletion cleanup, KB cleanup, and
+retention cleanup fail closed. Parsing remains available, but artifacts are
+retained for an administrator-controlled cleanup process; callers must report
+cleanup as pending rather than claiming it completed.
 
 ## Isolated Staging Procedure
 

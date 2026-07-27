@@ -167,6 +167,7 @@ async def test_pdf_override_requires_coverage_before_cache(monkeypatch, tmp_path
             "parser": "mineru",
             "pdf_parser": "opendataloader",
             "parser_output_dir": str(tmp_path / "output"),
+            "odl_artifact_root": str(tmp_path / "odl-artifacts"),
             "parse_method": "auto",
             "display_content_stats": False,
             "ocr_quality_check_enabled": False,
@@ -175,6 +176,7 @@ async def test_pdf_override_requires_coverage_before_cache(monkeypatch, tmp_path
     processor.logger = Logger()
     processor.parse_cache = None
     stored = False
+    (tmp_path / "odl-artifacts").mkdir()
 
     async def fake_store(*args, **kwargs):
         nonlocal stored

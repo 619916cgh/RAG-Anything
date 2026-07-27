@@ -2144,7 +2144,50 @@ async def cleanup_kb_resources(name: str) -> None:
 
     # ── 7. Delete output & storage directories ───────────
     output_dir = "./output" if name == "default" else f"./output_{name}"
-    _shutil.rmtree(output_dir, ignore_errors=True)
+    output_path = Path(output_dir)
+    legacy_odl_registry = output_path / ".odl-artifact-registry.sqlite3"
+    odl_registry = None
+    odl_artifact_cleanup_pending = False
+    from raganything.services.odl_artifact_lifecycle import configured_odl_artifact_root
+
+    configured_odl_root = configured_odl_artifact_root()
+    if configured_odl_root is not None:
+        odl_registry = configured_odl_root / ".odl-artifact-registry.sqlite3"
+    if odl_registry is not None and odl_registry.is_file():
+        from raganything.services.odl_artifact_lifecycle import (
+            ArtifactLifecycleCapabilityError,
+            ArtifactLifecycleError,
+            OpenDataLoaderArtifactLifecycle,
+        )
+
+        lifecycle = OpenDataLoaderArtifactLifecycle(configured_odl_root)
+        workers_exited = all(
+            getattr(process, "returncode", None) is not None
+            for process, _task_id in worker_list
+        )
+        try:
+            lifecycle.delete_kb(
+                name,
+                worker_exited=lambda _owner: workers_exited,
+            )
+            # Registry retention is metadata-only: physical runs have already
+            # been deleted through fd-relative traversal above.
+            lifecycle.purge_deleted_registry_records(kb_id=name)
+        except (ArtifactLifecycleCapabilityError, ArtifactLifecycleError) as exc:
+            odl_artifact_cleanup_pending = True
+            kb_logger.warning(
+                "[cleanup] ODL artifacts retained for controlled cleanup (kb=%s): %s",
+                name,
+                type(exc).__name__,
+            )
+
+    # A registered ODL root is never removed wholesale.  Registry-owned runs
+    # are individually tombstoned and deleted above; the root may also contain
+    # control records or unrelated parser output.
+    if not legacy_odl_registry.is_file():
+        _shutil.rmtree(output_dir, ignore_errors=True)
+    elif odl_artifact_cleanup_pending:
+        kb_logger.warning("[cleanup] Parser output root retained because ODL cleanup is pending: %s", output_dir)
     _shutil.rmtree(kb_dir(name), ignore_errors=True)
     kb_logger.info(f"[cleanup] 已删除存储目录: {kb_dir(name)}")
 

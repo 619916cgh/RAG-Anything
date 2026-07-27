@@ -33,7 +33,12 @@ def _mixin(output_root):
 
 def _tracked_content(tmp_path):
     output_root = tmp_path / "output"
-    sidecar_path = output_root / "document" / "run-1" / "document_provenance.json"
+    sidecar_path = (
+        output_root
+        / "document_a1b2c3d4"
+        / "run-12345678"
+        / "document_provenance.json"
+    )
     sidecar_path.parent.mkdir(parents=True)
     blocks = [{"type": "text", "text": "safe", "page_idx": 0}]
     coverage = {
@@ -76,7 +81,9 @@ def test_sidecar_reference_is_relative_and_revalidates_from_cache(tmp_path):
     stored_ref = mixin._validated_odl_provenance_ref(content, coverage)
 
     assert stored_ref is not None
-    assert stored_ref["relative_path"] == "document/run-1/document_provenance.json"
+    assert stored_ref["relative_path"] == (
+        "document_a1b2c3d4/run-12345678/document_provenance.json"
+    )
     assert "path" not in stored_ref
 
     status_metadata = mixin._parser_status_metadata(
@@ -91,6 +98,33 @@ def test_sidecar_reference_is_relative_and_revalidates_from_cache(tmp_path):
         list(content), coverage, provenance_ref=stored_ref
     )
     assert mixin._validated_odl_provenance_ref(cached_content, coverage) == stored_ref
+
+
+def test_validated_sidecar_registers_only_a_server_owned_odl_run(tmp_path):
+    output_root, content, coverage = _tracked_content(tmp_path)
+    mixin = _mixin(output_root)
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"%PDF-1.7\nfixture")
+
+    mixin._ensure_odl_artifact_registered(
+        file_path=source,
+        content_list=content,
+        page_coverage=coverage,
+        artifact_root=output_root,
+        kb_id="staging-kb",
+        doc_id="doc-owned",
+    )
+
+    from raganything.services.odl_artifact_lifecycle import (
+        ArtifactOwner,
+        OpenDataLoaderArtifactLifecycle,
+    )
+
+    record = OpenDataLoaderArtifactLifecycle(output_root).get(
+        ArtifactOwner("staging-kb", "doc-owned")
+    )
+    assert record is not None
+    assert record.run_relpath == "document_a1b2c3d4/run-12345678"
 
 
 def test_sidecar_reference_rejects_content_or_sidecar_tampering(tmp_path):
@@ -142,7 +176,7 @@ async def test_odl_cache_reuses_only_a_validated_identical_identity(tmp_path):
     assert cached_doc_id == "doc-cache"
     assert list(cached_content) == list(content)
     assert cached_content.provenance_ref["relative_path"] == (
-        "document/run-1/document_provenance.json"
+        "document_a1b2c3d4/run-12345678/document_provenance.json"
     )
     assert mixin.parse_cache.upserts == 1
 
