@@ -10,19 +10,26 @@ invalid JSON, traversal escape, unknown types).
 Usage:
     pytest tests/test_opendataloader_parser.py -v
 """
+
 from __future__ import annotations
 
 import json
 import os
 import time
+import hashlib
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import raganything.parser.opendataloader_parser as odl_module
+
 from raganything.parser.opendataloader_parser import (
     OpenDataLoaderParser,
     ODLConversionError,
+    ODLContainerError,
     ODLPreflightError,
     ODLValidationError,
     ODLPageCoverageError,
@@ -35,6 +42,7 @@ from raganything.parser.opendataloader_parser import (
 )
 
 # ── helpers ────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def parser():
@@ -118,21 +126,25 @@ def _sample_odl_json(
 
 # ── 4.1: Registration, installation, discovery ────────────────────────
 
+
 class TestParserRegistration:
     """Parser is registered and discoverable through the public API."""
 
     def test_get_parser_returns_opendataloader(self):
         from raganything.parser import get_parser, get_supported_parsers
+
         assert "opendataloader" in get_supported_parsers()
         p = get_parser("opendataloader")
         assert isinstance(p, OpenDataLoaderParser)
 
     def test_opendataloader_in_supported_parsers(self):
         from raganything.parser import SUPPORTED_PARSERS
+
         assert "opendataloader" in SUPPORTED_PARSERS
 
     def test_fresh_instance_per_get_parser_call(self):
         from raganything.parser import get_parser
+
         p1 = get_parser("opendataloader")
         p2 = get_parser("opendataloader")
         assert p1 is not p2  # fresh instance each time
@@ -143,6 +155,7 @@ class TestInstallationProbes:
 
     def test_missing_python_package(self, parser, monkeypatch):
         import builtins
+
         original_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -204,6 +217,7 @@ class TestInstallationProbes:
 
 # ── 4.2: Negative tests ──────────────────────────────────────────────
 
+
 class TestNegativePaths:
     """Missing Java/package, non-PDF, limits, invalid output, traversal."""
 
@@ -227,6 +241,7 @@ class TestNegativePaths:
     def test_page_limit_exceeded(self, parser, monkeypatch, tmp_path):
         parser._odl_max_pages = 1
         import pypdf
+
         fake_pdf = tmp_path / "many.pdf"
         fake_pdf.write_bytes(b"%PDF-1.4\n")
         reader_mock = MagicMock()
@@ -269,6 +284,22 @@ class TestNegativePaths:
             pytest.skip("symlink creation unavailable")
         with pytest.raises(ODLValidationError):
             parser._read_and_validate_json(link)
+
+    @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+    def test_contained_artifact_symlink_is_rejected_even_inside_root(
+        self, parser, tmp_path
+    ):
+        output_root = tmp_path / "output"
+        output_root.mkdir()
+        target = output_root / "target.json"
+        target.write_text("{}", encoding="utf-8")
+        link = output_root / "artifact.json"
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pytest.skip("symlink creation unavailable")
+        with pytest.raises(ODLContainerError, match="symbolic link"):
+            parser._contained_path(link, output_root)
 
     def test_image_path_escape_blocked(self, parser, tmp_path):
         output_root = tmp_path / "odl_out"
@@ -342,6 +373,7 @@ class TestNegativePaths:
 
 
 # ── 4.1 continued: Normalisation, mapping, coverage ───────────────────
+
 
 class TestBoundingBoxNormalisation:
     """Bounding boxes are normalised to [left, bottom, right, top] in PDF points."""
@@ -495,7 +527,9 @@ class TestFlattenElements:
         assert content[0]["type"] == "text"
         assert content[0]["text"] == "Something"
 
-    def test_unknown_type_without_content_not_silently_discarded(self, parser, tmp_path):
+    def test_unknown_type_without_content_not_silently_discarded(
+        self, parser, tmp_path
+    ):
         kids = [
             {
                 "type": "unknown_no_content",
@@ -515,6 +549,132 @@ class TestFlattenElements:
         ]
         assert len(prov) == 1
         assert prov[0]["odl_type"] == "unknown_no_content"
+
+    def test_table_image_and_formula_use_normalized_contract(
+        self, parser, tmp_path, monkeypatch
+    ):
+        image = tmp_path / "table.png"
+        image.write_bytes(b"\x89PNG\r\n\x1a\n")
+        monkeypatch.setenv(
+            "RAGANYTHING_PUBLIC_ASSET_BASE_URL", "https://assets.example"
+        )
+        monkeypatch.setenv("RAGANYTHING_PUBLIC_ASSET_STRIP_PREFIX", str(tmp_path))
+        kids = [
+            {
+                "type": "table",
+                "page number": 1,
+                "labels": [{"content": "H"}],
+                "cells": [[{"content": "V"}]],
+                "image": "table.png",
+            },
+            {"type": "equation", "page number": 2, "content": "x = y"},
+        ]
+        content, _, _ = parser._flatten_elements(kids, tmp_path, "")
+        assert content[0]["type"] == "table"
+        assert "| H |" in content[0]["table_body"]
+        assert Path(content[0]["img_path"]).is_absolute()
+        assert content[0]["img_path_public_url"] == "https://assets.example/table.png"
+        assert content[1] == {"type": "text", "text": "x = y", "page_idx": 1}
+
+    def test_parse_pdf_attaches_public_url_to_verified_image(
+        self, parser, tmp_path, monkeypatch, caplog
+    ):
+        import pypdf
+
+        source = tmp_path / "source.pdf"
+        writer = pypdf.PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with source.open("wb") as output:
+            writer.write(output)
+        artifacts = tmp_path / "artifacts"
+        caplog.set_level(
+            logging.INFO, logger="raganything.parser.opendataloader_parser"
+        )
+        monkeypatch.setenv(
+            "RAGANYTHING_PUBLIC_ASSET_BASE_URL", "https://assets.example"
+        )
+        monkeypatch.setenv("RAGANYTHING_PUBLIC_ASSET_STRIP_PREFIX", str(artifacts))
+        monkeypatch.setattr(
+            OpenDataLoaderParser, "installation_error", lambda _self: None
+        )
+        monkeypatch.setattr(
+            OpenDataLoaderParser, "_find_java", staticmethod(lambda: tmp_path / "java")
+        )
+        monkeypatch.setattr(
+            OpenDataLoaderParser,
+            "_acquire_cross_process_slot",
+            staticmethod(lambda *_args: SimpleNamespace(release=lambda: None)),
+        )
+
+        def fake_runner(_self, _pdf, page_dir, _total, page, _timeout, _java):
+            page_dir.mkdir(parents=True, exist_ok=False)
+            image = page_dir / "figure.png"
+            image.write_bytes(b"\x89PNG\r\n\x1a\n")
+            payload = {
+                "file name": "source.pdf",
+                "number of pages": 1,
+                "kids": [
+                    {
+                        "type": "image",
+                        "page number": page,
+                        "image": "figure.png",
+                        "caption": "diagram",
+                    }
+                ],
+            }
+            json_path = page_dir / "page.json"
+            markdown_path = page_dir / "page.md"
+            json_path.write_text(json.dumps(payload), encoding="utf-8")
+            markdown_path.write_text("![diagram](figure.png)", encoding="utf-8")
+            return {
+                "page": page,
+                "state": "success",
+                "json_relpath": "page.json",
+                "json_sha256": hashlib.sha256(json_path.read_bytes()).hexdigest(),
+                "markdown_relpath": "page.md",
+                "markdown_sha256": hashlib.sha256(
+                    markdown_path.read_bytes()
+                ).hexdigest(),
+                "output_root": page_dir,
+            }
+
+        monkeypatch.setattr(
+            OpenDataLoaderParser, "_run_single_page_runner", fake_runner
+        )
+        content = parser.parse_pdf(source, output_dir=str(artifacts))
+
+        image_block = content[0]
+        assert image_block["type"] == "image"
+        assert Path(image_block["img_path"]).is_absolute()
+        assert image_block["img_path_public_url"].startswith("https://assets.example/")
+        outcome = next(
+            record.odl_parse_outcome
+            for record in caplog.records
+            if hasattr(record, "odl_parse_outcome")
+        )
+        assert outcome["backend"] == "opendataloader"
+        assert outcome["sdk_version"] == _PINNED_VERSION
+        assert outcome["page_count"] == 1
+        assert outcome["block_count"] == 1
+        assert outcome["outcome_category"] == "success"
+        assert str(source.resolve()) not in json.dumps(outcome)
+
+    def test_preflight_telemetry_excludes_document_path_and_text(
+        self, parser, tmp_path, caplog
+    ):
+        secret_name = "secret-document-body.pdf"
+        source = tmp_path / secret_name
+        with pytest.raises(FileNotFoundError):
+            parser.parse_pdf(source)
+        outcome = next(
+            record.odl_parse_outcome
+            for record in caplog.records
+            if hasattr(record, "odl_parse_outcome")
+        )
+        assert outcome["outcome_category"] == "odl_preflight"
+        assert outcome["page_count"] == 0
+        assert outcome["block_count"] == 0
+        assert secret_name not in json.dumps(outcome)
 
 
 class TestPageCoverage:
@@ -558,11 +718,13 @@ class TestCacheIdentity:
 
 # ── 4.3: Wiring & registry tests ──────────────────────────────────────
 
+
 class TestWiringRegistry:
     """PDF_PARSER override affects only PDFs, defaults preserved."""
 
     def test_unset_pdf_parser_preserves_default(self, monkeypatch, tmp_path):
         from raganything.config import RAGAnythingConfig
+
         config = RAGAnythingConfig(
             parser="docling",
             working_dir=str(tmp_path),
@@ -572,6 +734,7 @@ class TestWiringRegistry:
 
     def test_pdf_parser_set_does_not_change_global(self, monkeypatch, tmp_path):
         from raganything.config import RAGAnythingConfig
+
         config = RAGAnythingConfig(
             parser="docling",
             pdf_parser="opendataloader",
@@ -584,6 +747,7 @@ class TestWiringRegistry:
         """The parser module can be imported even without Java or the SDK."""
         import importlib
         import raganything.parser.opendataloader_parser as odl_mod
+
         importlib.reload(odl_mod)
         # Import succeeds (the module is always importable)
         assert odl_mod.OpenDataLoaderParser is not None
@@ -591,11 +755,13 @@ class TestWiringRegistry:
     def test_get_parser_works_without_optional_deps(self):
         """get_parser('opendataloader') returns instance without checking Java."""
         from raganything.parser import get_parser
+
         p = get_parser("opendataloader")
         assert isinstance(p, OpenDataLoaderParser)
 
 
 # ── 4.4: Page coverage gate generalised ───────────────────────────────
+
 
 class TestPageCoverageGate:
     """The generalised page-coverage gate works for Docling and OpenDataLoader."""
@@ -603,6 +769,7 @@ class TestPageCoverageGate:
     @pytest.fixture
     def mixin(self):
         from raganything.processor.doc_processor import DocProcessorMixin
+
         return DocProcessorMixin()
 
     def test_blank_pages_are_covered(self, mixin):
@@ -667,6 +834,7 @@ class TestPageCoverageGate:
 
 # ── 4.5: Cache identity change tests ──────────────────────────────────
 
+
 class TestParseCacheIdentity:
     """Cache key includes effective parser and package version."""
 
@@ -696,6 +864,7 @@ class TestParseCacheIdentity:
 
 # ── Atomic write ──────────────────────────────────────────────────────
 
+
 class TestAtomicJsonWrite:
     def test_write_atomic_json(self, tmp_path):
         path = tmp_path / "test.json"
@@ -713,6 +882,21 @@ class TestAtomicJsonWrite:
         with open(path, "r", encoding="utf-8") as f:
             assert json.load(f) == {"new": True}
 
+    def test_replace_failure_keeps_existing_file_and_cleans_temp(
+        self, tmp_path, monkeypatch
+    ):
+        path = tmp_path / "test.json"
+        path.write_text('{"old": true}', encoding="utf-8")
+
+        def fail_replace(*_args):
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(odl_module.os, "replace", fail_replace)
+        with pytest.raises(OSError, match="replace failure"):
+            _write_atomic_json(path, {"new": True})
+        assert json.loads(path.read_text(encoding="utf-8")) == {"old": True}
+        assert not list(tmp_path.glob("test_*.json"))
+
 
 @pytest.mark.skipif(
     os.getenv("RUN_OPENDATALOADER_REAL_TESTS") != "1",
@@ -720,7 +904,9 @@ class TestAtomicJsonWrite:
 )
 def test_real_stack_single_page_coverage(tmp_path, monkeypatch):
     """Opt-in smoke test for the pinned SDK and the supervised page runner."""
-    fixture = Path(__file__).parents[1] / "reproduce" / "data" / "contract_spike_test.pdf"
+    fixture = (
+        Path(__file__).parents[1] / "reproduce" / "data" / "contract_spike_test.pdf"
+    )
     monkeypatch.setenv("WORKING_DIR", str(tmp_path / "working"))
     parser = OpenDataLoaderParser(timeout=60)
     if not parser.check_installation():
@@ -743,9 +929,10 @@ def test_real_stack_single_page_coverage(tmp_path, monkeypatch):
 
     sidecars = list((tmp_path / "artifacts").rglob("*_provenance.json"))
     assert len(sidecars) == 1
-    assert content.provenance_ref["relative_path"] == sidecars[0].relative_to(
-        tmp_path / "artifacts"
-    ).as_posix()
+    assert (
+        content.provenance_ref["relative_path"]
+        == sidecars[0].relative_to(tmp_path / "artifacts").as_posix()
+    )
     assert "path" not in content.provenance_ref
     sidecar = json.loads(sidecars[0].read_text(encoding="utf-8"))
     assert sidecar["coverage"] == content.page_coverage

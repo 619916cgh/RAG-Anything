@@ -187,6 +187,31 @@ class OpenDataLoaderParser(Parser):
         )
         self._odl_concurrency = max(1, concurrency or _DEFAULT_CONCURRENCY)
 
+    def _log_parse_outcome(
+        self,
+        outcome_category: str,
+        operation_start: float,
+        *,
+        page_count: int = 0,
+        block_count: int = 0,
+        success: bool = False,
+    ) -> None:
+        """Emit the bounded OpenDataLoader telemetry contract."""
+        fields = {
+            "backend": "opendataloader",
+            "sdk_version": _PINNED_VERSION,
+            "page_count": max(0, int(page_count)),
+            "block_count": max(0, int(block_count)),
+            "elapsed_ms": int(max(0.0, time.monotonic() - operation_start) * 1000),
+            "outcome_category": outcome_category,
+        }
+        log_method = self.logger.info if success else self.logger.warning
+        log_method(
+            "OpenDataLoader parse outcome: category=%s",
+            outcome_category,
+            extra={"odl_parse_outcome": fields},
+        )
+
     # ── identity ────────────────────────────────────────────────────
 
     @staticmethod
@@ -349,8 +374,7 @@ class OpenDataLoaderParser(Parser):
 
         if page_count > self._odl_max_pages:
             raise ODLPreflightError(
-                f"PDF page count {page_count} exceeds limit of "
-                f"{self._odl_max_pages}"
+                f"PDF page count {page_count} exceeds limit of {self._odl_max_pages}"
             )
         if page_count == 0:
             raise ODLPreflightError("PDF has zero pages")
@@ -433,6 +457,11 @@ class OpenDataLoaderParser(Parser):
 
     @staticmethod
     def _contained_path(path: Path, root: Path) -> Path:
+        try:
+            if path.is_symlink():
+                raise ODLContainerError("Parser artifact must not be a symbolic link")
+        except OSError as exc:
+            raise ODLContainerError("Cannot inspect parser artifact") from exc
         resolved = path.resolve(strict=False)
         root_resolved = root.resolve(strict=False)
         try:
@@ -544,7 +573,12 @@ class OpenDataLoaderParser(Parser):
         try:
             with self._open_verified_file(result_path) as result_file:
                 result = json.loads(result_file.read().decode("utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ODLContainerError) as exc:
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ODLContainerError,
+        ) as exc:
             raise ODLValidationError(
                 "OpenDataLoader runner did not produce valid result metadata"
             ) from exc
@@ -623,7 +657,12 @@ class OpenDataLoaderParser(Parser):
         try:
             with OpenDataLoaderParser._open_verified_file(json_path) as f:
                 data = json.loads(f.read().decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError, ODLContainerError) as exc:
+        except (
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+            OSError,
+            ODLContainerError,
+        ) as exc:
             raise ODLValidationError("Failed to read JSON artifact") from exc
 
         if not isinstance(data, dict):
@@ -738,7 +777,8 @@ class OpenDataLoaderParser(Parser):
                 if (
                     el_type == "heading"
                     or el_type.startswith("heading_")
-                    or pdfua_tag and pdfua_tag.startswith("H")
+                    or pdfua_tag
+                    and pdfua_tag.startswith("H")
                 ):
                     # heading → text block with text_level
                     block = {
@@ -794,7 +834,7 @@ class OpenDataLoaderParser(Parser):
                         content_list.append(
                             {
                                 "type": "text",
-                                "text": f"[Image: {el.get('alt','') or el.get('caption','') or 'unnamed'}]",
+                                "text": f"[Image: {el.get('alt', '') or el.get('caption', '') or 'unnamed'}]",
                                 "page_idx": page_idx,
                             }
                         )
@@ -863,10 +903,12 @@ class OpenDataLoaderParser(Parser):
         operation_start = time.monotonic()
         pdf_path = Path(pdf_path).resolve()
         if not pdf_path.is_file():
+            self._log_parse_outcome("odl_preflight", operation_start)
             raise FileNotFoundError(f"PDF file does not exist: {pdf_path}")
 
         # Guard: PDF only
         if pdf_path.suffix.lower() != ".pdf":
+            self._log_parse_outcome("odl_validation", operation_start)
             raise ODLValidationError(
                 f"OpenDataLoader is PDF-only; cannot parse: {pdf_path.suffix}"
             )
@@ -874,15 +916,19 @@ class OpenDataLoaderParser(Parser):
         working_dir = os.getenv("WORKING_DIR", ".")
 
         # 1. Preflight
-        self._preflight_pdf(pdf_path)
-        installation_error = self.installation_error()
-        if installation_error is not None:
-            raise ODLPreflightError(installation_error)
-        java_bin = self._find_java()
-        if java_bin is None:
-            raise ODLPreflightError(
-                "OpenDataLoader Java runtime disappeared after preflight"
-            )
+        try:
+            self._preflight_pdf(pdf_path)
+            installation_error = self.installation_error()
+            if installation_error is not None:
+                raise ODLPreflightError(installation_error)
+            java_bin = self._find_java()
+            if java_bin is None:
+                raise ODLPreflightError(
+                    "OpenDataLoader Java runtime disappeared after preflight"
+                )
+        except ODLPreflightError:
+            self._log_parse_outcome("odl_preflight", operation_start)
+            raise
 
         # 2. Output directory (unique per file path)
         if output_dir:
@@ -897,8 +943,10 @@ class OpenDataLoaderParser(Parser):
         if not _CONVERSION_SEMAPHORE.acquire(
             timeout=max(0, deadline - time.monotonic())
         ):
+            self._log_parse_outcome("odl_conversion", operation_start)
             raise ODLConversionError("OpenDataLoader concurrency limit timed out")
         cross_process_lock: FileLock | None = None
+        source_pages = 0
 
         try:
             cross_process_lock = self._acquire_cross_process_slot(
@@ -1054,22 +1102,12 @@ class OpenDataLoaderParser(Parser):
                     "adapter_schema": _ADAPTER_SCHEMA_VERSION,
                 },
             )
-            self.logger.info(
-                "OpenDataLoader parsed %s: %d pages, %d blocks, %d blank pages",
-                _trim_path_for_log(pdf_path, working_dir),
-                source_pages,
-                len(content_list),
-                len(blank_pages),
-                extra={
-                    "odl_parse_outcome": {
-                        "backend": "opendataloader",
-                        "sdk_version": _PINNED_VERSION,
-                        "page_count": source_pages,
-                        "block_count": len(content_list),
-                        "elapsed_ms": int((time.monotonic() - operation_start) * 1000),
-                        "outcome_category": "success",
-                    }
-                },
+            self._log_parse_outcome(
+                "success",
+                operation_start,
+                page_count=source_pages,
+                block_count=len(content_list),
+                success=True,
             )
             return result
 
@@ -1080,28 +1118,21 @@ class OpenDataLoaderParser(Parser):
             ODLPageCoverageError,
             ODLContainerError,
         ):
-            self.logger.warning(
-                "OpenDataLoader parse failed: category=%s",
+            self._log_parse_outcome(
                 getattr(sys.exc_info()[1], "failure_code", "odl_error"),
-                extra={
-                    "odl_parse_outcome": {
-                        "backend": "opendataloader",
-                        "sdk_version": _PINNED_VERSION,
-                        "elapsed_ms": int((time.monotonic() - operation_start) * 1000),
-                        "outcome_category": getattr(
-                            sys.exc_info()[1], "failure_code", "odl_error"
-                        ),
-                    }
-                },
+                operation_start,
+                page_count=source_pages,
             )
             raise
         except FileNotFoundError:
+            self._log_parse_outcome("odl_validation", operation_start)
             raise
         except Exception as exc:
             self.logger.error(
                 "Unexpected error in OpenDataLoader parse_pdf: type=%s",
                 type(exc).__name__,
             )
+            self._log_parse_outcome("odl_conversion", operation_start)
             raise ODLConversionError("Unexpected parser error") from exc
         finally:
             if cross_process_lock is not None:
@@ -1192,7 +1223,9 @@ def _normalize_bbox(raw_bbox: List[float]) -> List[float]:
             "Bounding box coordinates must be finite numeric values"
         ) from exc
     if not all(math.isfinite(value) for value in bbox):
-        raise ODLValidationError("Bounding box coordinates must be finite numeric values")
+        raise ODLValidationError(
+            "Bounding box coordinates must be finite numeric values"
+        )
     return bbox
 
 
@@ -1288,7 +1321,7 @@ def _build_image_block(
             # Base64 embedded — we cannot use it directly on disk
             return {
                 "type": "text",
-                "text": f"[Embedded Image: {el.get('alt','') or el.get('caption','') or 'unnamed'}]",
+                "text": f"[Embedded Image: {el.get('alt', '') or el.get('caption', '') or 'unnamed'}]",
                 "page_idx": page_idx,
             }
         return None
@@ -1298,7 +1331,7 @@ def _build_image_block(
         # Path escape or missing — safe text fallback
         return {
             "type": "text",
-            "text": f"[Image: {el.get('alt','') or el.get('caption','') or Path(image_ref).name}]",
+            "text": f"[Image: {el.get('alt', '') or el.get('caption', '') or Path(image_ref).name}]",
             "page_idx": page_idx,
         }
 

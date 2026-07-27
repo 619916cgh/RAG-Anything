@@ -13,30 +13,30 @@
 - [x] 2.1 Create `raganything/parser/opendataloader_parser.py` with `OpenDataLoaderParser(Parser)`, PDF-only method boundaries, a stable output-schema version, and a stable cache-identity method/property.
 - [x] 2.2 Implement `check_installation()` with independent Python-package and Java-version checks; return actionable errors for an absent package, missing Java executable, or Java version below the supported minimum without making network calls.
 - [x] 2.3 Implement local fast-mode conversion through the official `opendataloader_pdf.convert()` API only. Use resolved paths and `Parser._unique_output_dir()`, request raw JSON plus page-marked diagnostic Markdown, use JSON as the sole normalization source, preserve upstream safety filters, and prohibit hybrid, remote, or `content_safety_off` options.
-- [ ] 2.4 Enforce preflight PDF byte/page limits, JVM heap/thread limits, parser timeout, and concurrency. Terminate the entire converter process tree on timeout on supported Windows and container deployments, and emit bounded structured parser-stage errors.
-- [ ] 2.5 Discover the expected JSON artifact deterministically, parse it with schema/type validation, reject missing/malformed/ambiguous output, and ensure all output reads are contained within the unique parser output directory.
-- [ ] 2.6 Normalize elements to the existing contract: text with heading depth mapped to `text_level`, tables with `table_body`/compatible data, verified images with safe absolute `img_path`, and equations where representable. Convert one-based pages to zero-based `page_idx` and call the established public-media URL helper.
-- [ ] 2.7 Resolve generated media without following an escape outside the document output root; reject traversal, symlink escape, and missing references, and emit a manifest-recorded text fallback instead of dereferencing unsafe media.
+- [x] 2.4 Enforce preflight PDF byte/page limits, JVM heap/thread limits, parser timeout, and concurrency. Terminate the entire converter process tree on timeout on supported Windows and container deployments, and emit bounded structured parser-stage errors.
+- [x] 2.5 Discover the expected JSON artifact deterministically, parse it with schema/type validation, reject missing/malformed/ambiguous output, and ensure all output reads are contained within the unique parser output directory.
+- [x] 2.6 Normalize elements to the existing contract: text with heading depth mapped to `text_level`, tables with `table_body`/compatible data, verified images with safe absolute `img_path`, and equations where representable. Convert one-based pages to zero-based `page_idx` and call the established public-media URL helper.
+- [x] 2.7 Resolve generated media without following an escape outside the document output root; reject traversal, symlink escape, and missing references, and emit a manifest-recorded text fallback instead of dereferencing unsafe media.
 - [x] 2.8 Define and implement deterministic handling for unsupported/invalid upstream element types: retain a safe text fallback and provenance where possible; otherwise raise a clear validation error. Do not silently discard elements.
 - [ ] 2.9 Atomically retain raw upstream JSON, normalized content identity, coverage, and per-element provenance beneath the parser output root. Normalize bbox as `[left,bottom,right,top]` in PDF points with bottom-left origin, keep `doc_status.metadata` lightweight, and integrate retry overwrite, document deletion, KB deletion, and retention cleanup.
 - [x] 2.10 Build a `PageTrackedContent`-compatible manifest using local `pypdf` source count and trustworthy per-page proof from task 1.6, including blank pages. Never infer complete coverage solely from converter exit success and fail before any persistence with `pdf_page_coverage_incomplete` when proof is absent.
 
 ## 3. Parser Registry, Coverage Gate, Cache, and Worker Integration
 
-- [ ] 3.1 Register `opendataloader` in `raganything/parser/__init__.py` through deterministic worker imports with lazy optional-dependency behavior; update public discovery/help and preserve all parser defaults.
-- [ ] 3.2 Add optional `pdf_parser` configuration in `raganything/config.py` and parser initialization, then pass `PDF_PARSER` explicitly through `process_worker.py` and knowledge-base worker configuration. An unset value must preserve every current behavior.
+- [x] 3.1 Register `opendataloader` in `raganything/parser/__init__.py` through deterministic worker imports with lazy optional-dependency behavior; update public discovery/help and preserve all parser defaults.
+- [x] 3.2 Add optional `pdf_parser` configuration in `raganything/config.py` and parser initialization, then pass `PDF_PARSER` explicitly through `process_worker.py` and knowledge-base worker configuration. An unset value must preserve every current behavior.
 - [x] 3.3 Update `DocProcessorMixin` to select an effective parser by extension: the PDF override for `.pdf` when configured, otherwise the global parser. Ensure DOCX, images, and other inputs continue through their existing parser/fallback paths.
 - [x] 3.4 Generalize PDF coverage enforcement from the literal `parser == 'docling'` check to an effective-parser capability contract. Preserve Docling behavior and reject incomplete OpenDataLoader output before quality checks, cache, `doc_status` success, or storage.
 - [x] 3.5 Extend parse-cache keys and cached metadata with effective parser, package version, fixed fast mode, adapter schema version, and behavior-affecting options; version/mode changes must miss while validated identical output may hit.
 - [x] 3.6 Store only lightweight parser identity, page coverage, and relative sidecar references in cache/`doc_status.metadata`; do not expose arbitrary filesystem paths or add a public provenance API.
 - [ ] 3.7 Integrate structured failure codes, task status, retry behavior, file lock, watchdog, and process-tree cleanup into the worker. Never run conversion in FastAPI request handling and never perform an implicit fallback.
-- [ ] 3.8 Add structured logs/metrics for backend, package version, page/block count, elapsed time, and outcome category without document text, credentials, or disallowed paths.
+- [x] 3.8 Add structured logs/metrics for backend, package version, page/block count, elapsed time, and outcome category without document text, credentials, or disallowed paths.
 - [x] 3.9 Confirm all derived text still enters the existing injection scan and add no bypasses to RBAC, upload validation, locking, audit logging, or background-task draining.
 
 ## 4. Automated Tests
 
 - [x] 4.1 Add isolated `tests/test_opendataloader_parser.py` fixtures for registration, installation probes, deterministic JSON-only mapping, order, duplicate headings, text/table/image/equation output, `text_level`, zero-based pages, normalized bbox, media URL attachment, sidecars, and cache identity.
-- [ ] 4.2 Add negative tests for missing Java/package, old Java, non-PDF input, non-fast options, size/page limits, SDK exception/timeout, process-tree cleanup, invalid JSON/schema, partial/blank/duplicate coverage, unknown types, missing media, traversal/symlink escape, and atomic cleanup.
+- [x] 4.2 Add negative tests for missing Java/package, old Java, non-PDF input, non-fast options, size/page limits, SDK exception/timeout, process-tree cleanup, invalid JSON/schema, partial/blank/duplicate coverage, unknown types, missing media, traversal/symlink escape, and atomic cleanup.
 - [x] 4.3 Extend parser wiring/registry/config tests to prove `PDF_PARSER=opendataloader` affects only PDFs, DOCX/images retain the global parser, an unset override preserves defaults, and module import works without Java or the optional SDK.
 - [x] 4.4 Extend `tests/testparser_kwargs.py` or a focused replacement suite to prove the generic page-coverage gate preserves current Docling coverage behavior and rejects incomplete OpenDataLoader output before cache or insertion.
 - [x] 4.5 Add parse-cache tests proving a package/version/options identity change reparses the document while an unchanged identity reuses only validated output.
@@ -47,7 +47,7 @@
 
 ## 5. Documentation, Evaluation, and Controlled Rollout
 
-- [ ] 5.1 Document the PDF override, Java/extra prerequisites, fast-only security posture, resource controls, artifact/sidecar lifecycle, cache behavior, failure codes, optional build, license evidence path, and exact rollback/re-ingestion procedure; update relevant CLI/batch examples without adding a frontend selector.
+- [x] 5.1 Document the PDF override, Java/extra prerequisites, fast-only security posture, resource controls, artifact/sidecar lifecycle, cache behavior, failure codes, optional build, license evidence path, and exact rollback/re-ingestion procedure; update relevant CLI/batch examples without adding a frontend selector.
 - [ ] 5.2 Prepare an approved 30-50 document corpus outside the source tree covering Chinese digital/scanned PDFs, contracts, multi-column papers, complex tables, images, formulas, tagged/blank/long PDFs, encrypted/malformed PDFs, and injection tests; record page counts and expected notes.
 - [ ] 5.3 Execute an isolated canary comparison against Docling and MinerU using the corpus. Record full-page coverage, text reading order, table usability, image association, injection handling, parser success/failure reason, P50/P95 duration, and peak worker memory.
 - [ ] 5.4 Require written go/no-go evidence: test report, artifact hashes, image digest, SBOM, notice/source hashes, dependency reconciliation, legal approval, zero coverage/partial-ingestion defects, no security regression, and acceptable quality/resource results.
@@ -56,6 +56,6 @@
 
 ## 6. Final Verification
 
-- [ ] 6.1 Run the focused parser, processor, worker, injection-defense, and upload-task test suites; run the repository lint/format/type checks required by the changed modules and record exact commands/results.
+- [x] 6.1 Run the focused parser, processor, worker, injection-defense, and upload-task test suites; run the repository lint/format/type checks required by the changed modules and record exact commands/results.
 - [ ] 6.2 Review the final diff for accidental global/default parser changes, optional dependency leakage into defaults, missing hashes/notices, unsafe command/path/symlink handling, forbidden hybrid/remote options, incomplete process-tree/output cleanup, and public provenance-path exposure.
 - [x] 6.3 Run `openspec validate add-opendataloader-pdf-parser --strict` and resolve every validation failure before requesting implementation review or beginning `/opsx:apply`.

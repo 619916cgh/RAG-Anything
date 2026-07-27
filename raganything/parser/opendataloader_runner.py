@@ -29,6 +29,11 @@ def _atomic_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _contained(path: Path, root: Path) -> Path:
+    try:
+        if path.is_symlink():
+            raise ValueError("runner artifact must not be a symbolic link")
+    except OSError as exc:
+        raise ValueError("runner artifact cannot be inspected") from exc
     resolved = path.resolve(strict=False)
     root_resolved = root.resolve(strict=False)
     try:
@@ -40,10 +45,31 @@ def _contained(path: Path, root: Path) -> Path:
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as source:
+    with _open_verified_file(path) as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _open_verified_file(path: Path):
+    """Open a regular artifact without following a replacement symlink."""
+    before = path.lstat()
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("runner artifact is not a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(path), flags)
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino, opened.st_size) != (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+        ):
+            raise ValueError("runner artifact changed during open")
+        return os.fdopen(fd, "rb")
+    except Exception:
+        os.close(fd)
+        raise
 
 
 def _output_size(root: Path) -> int:
@@ -102,8 +128,9 @@ def _page_numbers(elements: list[Any]) -> set[int]:
 
 def _validate_page_json(json_path: Path, page: int) -> tuple[dict[str, Any], int]:
     try:
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        with _open_verified_file(json_path) as source:
+            data = json.loads(source.read().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError("page JSON is unreadable") from exc
     if not isinstance(data, dict) or not isinstance(data.get("kids"), list):
         raise ValueError("page JSON has no valid kids array")
@@ -116,7 +143,8 @@ def _validate_page_json(json_path: Path, page: int) -> tuple[dict[str, Any], int
 
 
 def _run(request_path: Path) -> int:
-    request = json.loads(request_path.read_text(encoding="utf-8"))
+    with _open_verified_file(request_path) as source:
+        request = json.loads(source.read().decode("utf-8"))
     if request.get("schema_version") != _REQUEST_SCHEMA:
         raise ValueError("unsupported runner request schema")
 
@@ -125,6 +153,8 @@ def _run(request_path: Path) -> int:
     source_pdf = Path(request["source_pdf"]).resolve()
     if not source_pdf.is_file() or source_pdf.suffix.lower() != ".pdf":
         raise ValueError("source PDF is unavailable")
+    if output_root == source_pdf or output_root in source_pdf.parents:
+        raise ValueError("output root must not contain the source PDF")
 
     total_pages = request.get("source_total_pages")
     page = request.get("page")
