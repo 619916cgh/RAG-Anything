@@ -29,7 +29,7 @@
 - [x] 3.4 Generalize PDF coverage enforcement from the literal `parser == 'docling'` check to an effective-parser capability contract. Preserve Docling behavior and reject incomplete OpenDataLoader output before quality checks, cache, `doc_status` success, or storage.
 - [x] 3.5 Extend parse-cache keys and cached metadata with effective parser, package version, fixed fast mode, adapter schema version, and behavior-affecting options; version/mode changes must miss while validated identical output may hit.
 - [x] 3.6 Store only lightweight parser identity, page coverage, and relative sidecar references in cache/`doc_status.metadata`; do not expose arbitrary filesystem paths or add a public provenance API.
-- [ ] 3.7 Integrate structured failure codes, task status, retry behavior, file lock, watchdog, and process-tree cleanup into the worker. Never run conversion in FastAPI request handling and never perform an implicit fallback.
+- [x] 3.7 Integrate structured failure codes, task status, retry behavior, file lock, watchdog, and process-tree cleanup into the worker. Never run conversion in FastAPI request handling and never perform an implicit fallback.
 - [x] 3.8 Add structured logs/metrics for backend, package version, page/block count, elapsed time, and outcome category without document text, credentials, or disallowed paths.
 - [x] 3.9 Confirm all derived text still enters the existing injection scan and add no bypasses to RBAC, upload validation, locking, audit logging, or background-task draining.
 
@@ -40,7 +40,7 @@
 - [x] 4.3 Extend parser wiring/registry/config tests to prove `PDF_PARSER=opendataloader` affects only PDFs, DOCX/images retain the global parser, an unset override preserves defaults, and module import works without Java or the optional SDK.
 - [x] 4.4 Extend `tests/testparser_kwargs.py` or a focused replacement suite to prove the generic page-coverage gate preserves current Docling coverage behavior and rejects incomplete OpenDataLoader output before cache or insertion.
 - [x] 4.5 Add parse-cache tests proving a package/version/options identity change reparses the document while an unchanged identity reuses only validated output.
-- [ ] 4.6 Add new-process worker/task tests proving configuration propagation, conversion/coverage/resource failures become structured parser-stage failures, retry semantics remain, no partial chunks exist, and registered background work is drained.
+- [x] 4.6 Add new-process worker/task tests proving configuration propagation, conversion/coverage/resource failures become structured parser-stage failures, retry semantics remain, no partial chunks exist, and registered background work is drained.
 - [x] 4.7 Add a security regression proving OpenDataLoader-produced text enters the existing ingestion injection-defense path and no document text, secret, or unsafe external path is written to parser telemetry/provenance.
 - [x] 4.8 Add an opt-in, skipped-by-default real-stack test requiring the optional extra, Java, and local sanitized PDFs including a blank page; assert installation, explicit complete coverage, containment, normalized output, and no network/model download.
 - [ ] 4.9 Build both default and opt-in container variants. Assert the default footprint/Docling behavior remains, and the opt-in image has Java 17, pinned SDK, healthy service, non-hybrid dependency posture, and a real PDF CLI/adapter smoke conversion.

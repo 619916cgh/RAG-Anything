@@ -6,6 +6,7 @@ import hashlib
 import json
 import signal
 import subprocess
+from unittest.mock import AsyncMock
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
@@ -15,7 +16,6 @@ import pytest
 import raganything.parser.opendataloader_parser as odl_module
 from raganything.parser.opendataloader_parser import (
     ODLConversionError,
-    ODLValidationError,
     OpenDataLoaderParser,
 )
 
@@ -115,7 +115,9 @@ def test_windows_tree_kill_failure_fails_closed(monkeypatch):
     original_name = odl_module.os.name
     odl_module.os.name = "nt"
     try:
-        with pytest.raises(odl_module.ODLConversionError, match="process-tree termination failed"):
+        with pytest.raises(
+            odl_module.ODLConversionError, match="process-tree termination failed"
+        ):
             OpenDataLoaderParser._terminate_process_tree(process)
     finally:
         odl_module.os.name = original_name
@@ -200,7 +202,9 @@ def test_tampered_runner_artifact_hash_fails_closed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(odl_module.subprocess, "Popen", fake_popen)
 
-    with pytest.raises(odl_module.ODLValidationError, match="artifact identity check failed"):
+    with pytest.raises(
+        odl_module.ODLValidationError, match="artifact identity check failed"
+    ):
         parser._run_single_page_runner(source_pdf, page_dir, 1, 1, 1, java_bin)
 
 
@@ -295,3 +299,61 @@ def test_parent_preserves_terminal_odl_worker_payload():
     assert error.stage == "parsing"
     assert error.failure_code == "odl_conversion"
     assert error.retryable is False
+
+
+def test_parent_worker_process_group_is_platform_specific(monkeypatch):
+    from raganything.services import kb_service
+
+    original_name = kb_service.os.name
+    try:
+        kb_service.os.name = "nt"
+        windows = kb_service._worker_process_group_kwargs()
+        assert windows["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP
+        kb_service.os.name = "posix"
+        assert kb_service._worker_process_group_kwargs() == {"start_new_session": True}
+    finally:
+        kb_service.os.name = original_name
+
+
+@pytest.mark.asyncio
+async def test_parent_windows_watchdog_terminates_process_tree(monkeypatch):
+    from raganything.services import kb_service
+
+    process = MagicMock(pid=4321, returncode=None)
+    process.wait = AsyncMock(return_value=0)
+    run = MagicMock(return_value=MagicMock(returncode=0))
+    monkeypatch.setattr(kb_service.subprocess, "run", run)
+    original_name = kb_service.os.name
+    kb_service.os.name = "nt"
+    try:
+        await kb_service._terminate_worker_process_tree(process)
+    finally:
+        kb_service.os.name = original_name
+
+    run.assert_called_once_with(
+        ["taskkill", "/PID", "4321", "/T", "/F"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+    )
+    process.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_parent_posix_watchdog_terminates_process_group(monkeypatch):
+    from raganything.services import kb_service
+
+    process = MagicMock(pid=1234, returncode=None)
+    process.wait = AsyncMock(return_value=0)
+    killpg = MagicMock()
+    monkeypatch.setattr(kb_service.os, "killpg", killpg, raising=False)
+    original_name = kb_service.os.name
+    kb_service.os.name = "posix"
+    try:
+        await kb_service._terminate_worker_process_tree(process)
+    finally:
+        kb_service.os.name = original_name
+
+    killpg.assert_called_once_with(1234, signal.SIGTERM)
+    process.wait.assert_awaited_once()
