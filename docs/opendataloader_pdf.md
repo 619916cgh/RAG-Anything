@@ -91,6 +91,21 @@ retry through MinerU, Docling, hybrid, or remote parsing.
 
 ## Container
 
+The normal `docker-compose.yml` remains the default image and does not install
+Java or OpenDataLoader. On a Linux Docker host, enable the isolated runtime
+explicitly with the override below. It builds the `opendataloader` target,
+mounts only the named `raganything_odl_artifacts` volume at
+`/odl-artifacts`, creates it with mode `0700`, and leaves `/app/output` as the
+ordinary parser-output bind mount.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.opendataloader.yml up --build -d
+```
+
+Do not replace this named volume with a Windows bind mount, a shared network
+filesystem, or the normal `/app/output` directory. The parser fails closed if
+the runtime cannot prove the mounted root is safe for cleanup.
+
 The default image has no Java or OpenDataLoader dependency. Build the opt-in
 image with `docker build --target opendataloader -t raganything:opendataloader .`.
 It verifies Java and the pinned SDK while building.

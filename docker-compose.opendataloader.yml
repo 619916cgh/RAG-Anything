@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      target: opendataloader
+    environment:
+      PDF_PARSER: opendataloader
+      ODL_ARTIFACT_ROOT: /odl-artifacts
+      ODL_ARTIFACT_CLEANUP_MODE: linux-volume
+      ODL_CONCURRENCY: "1"
+    volumes:
+      - odl_artifacts:/odl-artifacts
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p "$${ODL_ARTIFACT_ROOT}"
+        chmod 700 "$${ODL_ARTIFACT_ROOT}"
+        exec /app/docker-entrypoint.sh
+
+volumes:
+  odl_artifacts:
+    name: raganything_odl_artifacts
