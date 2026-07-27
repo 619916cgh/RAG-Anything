@@ -27,6 +27,7 @@ dependencies = [
     "mineru[core]",
     "pypdf>=3.9.0",
     "prometheus-fastapi-instrumentator<8",
+    "slowapi",
     "rank-bm25",
     "jieba",
     "tqdm",

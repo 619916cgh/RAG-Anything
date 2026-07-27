@@ -166,7 +166,10 @@ def _validate_sidecar_hash(sidecar_sha256: str) -> str:
 
 def _has_reparse_point(file_stat: os.stat_result) -> bool:
     reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-    return bool(reparse and file_stat.st_file_attributes & reparse)
+    # ``st_file_attributes`` exists only on Windows.  A Linux ``stat_result``
+    # must be treated as having no reparse-point attribute rather than raising
+    # while validating a controlled volume.
+    return bool(reparse and getattr(file_stat, "st_file_attributes", 0) & reparse)
 
 
 def _is_linux_fd_safe() -> bool:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 
 import pytest
@@ -19,6 +20,12 @@ from raganything.services.odl_artifact_lifecycle import (
 
 
 _SIDECAR_HASH = hashlib.sha256(b"{}").hexdigest()
+
+
+def test_reparse_point_probe_is_safe_for_non_windows_stat_result(tmp_path):
+    """Linux/WSL stat results do not expose Windows file attributes."""
+
+    assert lifecycle_module._has_reparse_point(os.stat(tmp_path)) is False
 
 
 def _make_run(root, name="report_a1b2c3d4/run-12345678"):

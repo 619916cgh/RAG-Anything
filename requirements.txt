@@ -9,6 +9,7 @@ mineru[core]
 pypdf>=3.9.0
 # Observability: Prometheus metrics endpoint (pinned <8 for starlette 0.x compat)
 prometheus-fastapi-instrumentator<8
+slowapi
 # RRF Hybrid Search: BM25 keyword index + Chinese tokenization
 rank-bm25
 jieba
