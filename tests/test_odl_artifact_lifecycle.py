@@ -318,7 +318,10 @@ def test_document_cleanup_reports_pending_instead_of_prefix_deleting_odl_run(
     output_root = tmp_path / "output_demo"
     output_root.mkdir()
     artifact_root = tmp_path / "odl-artifacts"
-    artifact_root.mkdir()
+    # CI exercises this test under explicit linux-volume mode.  The synthetic
+    # root must satisfy the same private-owner contract as a real volume.
+    artifact_root.mkdir(mode=0o700)
+    artifact_root.chmod(0o700)
     monkeypatch.setenv("ODL_ARTIFACT_ROOT", str(artifact_root))
     service = OpenDataLoaderArtifactLifecycle(artifact_root)
     owner = ArtifactOwner("demo", "doc-1")
