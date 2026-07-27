@@ -3433,6 +3433,20 @@ wheels = [
 ]
 
 [[package]]
+name = "passlib"
+version = "1.7.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/06/9da9ee59a67fae7761aab3ccc84fa4f3f33f125b370f1ccdb915bf967c11/passlib-1.7.4.tar.gz", hash = "sha256:defd50f72b65c5402ab2c573830a6978e5f202ad0d984793c8dde2c4152ebe04", size = 689844, upload-time = "2020-10-08T19:00:52.121Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/a4/ab6b7589382ca3df236e03faa71deac88cae040af60c071a78d254a62172/passlib-1.7.4-py2.py3-none-any.whl", hash = "sha256:aa6bca462b8d8bda89c70b382f0c298a20b5560af6cbfa2dce410c0a2fb669f1", size = 525554, upload-time = "2020-10-08T19:00:49.856Z" },
+]
+
+[package.optional-dependencies]
+bcrypt = [
+    { name = "bcrypt" },
+]
+
+[[package]]
 name = "pathspec"
 version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4050,6 +4064,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3b/81/58d0ac84e1ef3a3843791d6954d94c0b33d526c75eeb1efbce9d0a4c4077/pyjwt-2.13.0.tar.gz", hash = "sha256:41571c89ca91598c79e8ef18a2d07367d4810fbbd6f637794879baf1b7703423", size = 107515, upload-time = "2026-05-21T19:54:36.618Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/5e/ecf12fdb62546d64385c158514e9b2b671f7832108ef2ecd2020ce0af2d1/pyjwt-2.13.0-py3-none-any.whl", hash = "sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728", size = 31274, upload-time = "2026-05-21T19:54:35.362Z" },
+]
+
+[[package]]
 name = "pylatexenc"
 version = "2.10"
 source = { registry = "https://pypi.org/simple" }
@@ -4326,7 +4352,9 @@ dependencies = [
     { name = "jieba" },
     { name = "lightrag-hku" },
     { name = "mineru", extra = ["core"] },
+    { name = "passlib", extra = ["bcrypt"] },
     { name = "prometheus-fastapi-instrumentator" },
+    { name = "pyjwt" },
     { name = "pypdf" },
     { name = "rank-bm25" },
     { name = "slowapi" },
@@ -4387,11 +4415,13 @@ requires-dist = [
     { name = "opendataloader-pdf", marker = "extra == 'opendataloader'", specifier = "==2.5.0" },
     { name = "paddleocr", marker = "extra == 'all'", specifier = ">=2.7.0" },
     { name = "paddleocr", marker = "extra == 'paddleocr'", specifier = ">=2.7.0" },
+    { name = "passlib", extras = ["bcrypt"] },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=10.0.0" },
     { name = "pillow", marker = "extra == 'image'", specifier = ">=10.0.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = "<8" },
     { name = "pygments", marker = "extra == 'all'", specifier = ">=2.10.0" },
     { name = "pygments", marker = "extra == 'markdown'", specifier = ">=2.10.0" },
+    { name = "pyjwt" },
     { name = "pypdf", specifier = ">=3.9.0" },
     { name = "pypdfium2", marker = "extra == 'all'", specifier = ">=4.25.0" },
     { name = "pypdfium2", marker = "extra == 'paddleocr'", specifier = ">=4.25.0" },

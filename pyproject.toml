@@ -23,6 +23,8 @@ classifiers = [
 dependencies = [
     "huggingface_hub",
     "bcrypt<4.1.0",
+    "PyJWT",
+    "passlib[bcrypt]",
     "lightrag-hku<1.5",
     "mineru[core]",
     "pypdf>=3.9.0",
