@@ -1,0 +1,107 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 49,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 4,
+    "page number" : 49,
+    "bounding box" : [ 154.2, 591.2, 464.4, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 5,
+    "page number" : 49,
+    "bounding box" : [ 270.12, 572.09, 346.089, 583.662 ],
+    "linked content id" : 4,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 36 登录失败"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 49,
+    "bounding box" : [ 70.92, 527.304, 524.39, 563.084 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在当用户“123”登录时，若使用了非注册时的密码，系统则会提示用户名或密码 错误，此时用户需要重新核对密码进行登录。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 49,
+    "bounding box" : [ 94.92, 503.114, 352.92, 516.403 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "再次以 123 为用户名注册新用户，如图 37 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 49,
+    "bounding box" : [ 159.72, 335.0, 456.6, 494.48 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 49,
+    "bounding box" : [ 259.559, 315.65, 356.528, 327.222 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 37 已有用户注册"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 49,
+    "bounding box" : [ 70.92, 247.582, 524.4, 306.643 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "此时系统提示用户已存在，无法注册新的名为 123 的用户，用户需要重新选择未创 建过的用户名注册。 7.4.2 单张图像筛查模块测试"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 49,
+    "bounding box" : [ 100.92, 223.395, 346.92, 236.684 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "上传病变的眼底图像进行筛查，如图 38 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 49,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "42"
+  } ]
+}

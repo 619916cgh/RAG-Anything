@@ -1,0 +1,93 @@
+{
+  "file name" : "contract_spike_test.pdf",
+  "number of pages" : 4,
+  "author" : "anonymous",
+  "title" : "untitled",
+  "creation date" : "D:20260724104138+08'00'",
+  "modification date" : "D:20260724104138+08'00'",
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 100.0, 747.3, 220.06, 761.172 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 1,
+    "next list id" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 1,
+      "bounding box" : [ 100.0, 747.3, 220.06, 761.172 ],
+      "font" : "Helvetica",
+      "font size" : 12.0,
+      "text color" : "[0.0]",
+      "content" : "Page 1 - Test Heading",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 100.0, 697.3, 298.78, 711.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "This is a paragraph of text on page 1."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 100.0, 647.3, 170.032, 661.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "Chinese text:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 4,
+    "level" : "1",
+    "page number" : 2,
+    "bounding box" : [ 100.0, 747.3, 224.068, 761.172 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 1,
+    "previous list id" : 1,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 2,
+      "bounding box" : [ 100.0, 747.3, 224.068, 761.172 ],
+      "font" : "Helvetica",
+      "font size" : 12.0,
+      "text color" : "[0.0]",
+      "content" : "Page 2 - Table Content",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 2,
+    "bounding box" : [ 100.0, 647.3, 262.084, 661.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "Page 2 content with more text."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 6,
+    "level" : "Doctitle",
+    "page number" : 4,
+    "bounding box" : [ 100.0, 747.3, 272.104, 761.172 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "Page 4 - Last page with content."
+  } ]
+}

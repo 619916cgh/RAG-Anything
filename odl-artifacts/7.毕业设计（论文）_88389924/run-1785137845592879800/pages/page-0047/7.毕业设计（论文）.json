@@ -1,0 +1,119 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 47,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 47,
+    "bounding box" : [ 70.92, 699.554, 524.4, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "张筛查的实时响应和批量筛查的高吞吐处理两方面的要求，推理速度直接决定系统的临 床实用性与用户体验。本测试重点验证 MobileNetV3 轻量级设计在实际部署硬件上的推 理效率，并量化评估其满足实时筛查需求的能力，推理结果如图 32 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 5,
+    "page number" : 47,
+    "bounding box" : [ 178.68, 460.04, 437.16, 690.92 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 6,
+    "page number" : 47,
+    "bounding box" : [ 259.559, 441.05, 356.528, 452.622 ],
+    "linked content id" : 5,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 32 推理测试结果"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 47,
+    "bounding box" : [ 70.92, 349.583, 524.518, 432.043 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "端到端延迟约为 26ms 表示一张眼底图片从读图到得到结果只需要 0.03s 远远小于 临床上可以接受的一秒钟等待时间。由于使用 MobileNetV3 的深度可分离卷积以及线性 瓶颈结构，在保证 91%分类准确率的基础上使整个模型更小，完全可以满足基层医院大 规模糖尿病视网膜病变初筛的实时性需求。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Doctitle",
+    "page number" : 47,
+    "bounding box" : [ 70.92, 326.304, 197.398, 338.304 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "7.3.3 模型轻量化验证"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 47,
+    "bounding box" : [ 70.92, 255.314, 536.4, 314.904 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "由于基层医疗机构环境资源有限，需对模型进行压缩以保证其具有较小的模型体积、 较低的内存消耗以及良好的边缘设备兼容性，在不需要高性能硬件的情况下也能正常工 作，如图 33 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 10,
+    "page number" : 47,
+    "bounding box" : [ 70.92, 151.52, 523.8, 246.68 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 11,
+    "page number" : 47,
+    "bounding box" : [ 254.4, 137.931, 361.928, 149.503 ],
+    "linked content id" : 10,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 33 模型轻量化分析"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 47,
+    "bounding box" : [ 70.92, 93.144, 524.52, 128.924 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "MobileNetV3 具有轻量化的优势，参数量约为 4.2M，模型大小约 16.2MB，而且也 有不错的推理效果，在糖尿病视网膜病变筛查应用中，既可以保证识别率，也可以在各"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 47,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "40"
+  } ]
+}

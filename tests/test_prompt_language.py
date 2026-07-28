@@ -5,6 +5,7 @@ import raganything.prompt_manager as prompt_manager_module
 
 from raganything.prompt import PROMPTS
 from raganything.prompt_manager import (
+    configure_multimodal_prompt_language_from_env,
     set_prompt_language,
     get_prompt_language,
     reset_prompts,
@@ -45,6 +46,26 @@ class TestSetPromptLanguage:
     def test_case_insensitive(self):
         set_prompt_language("ZH")
         assert get_prompt_language() == "zh"
+
+    def test_multimodal_environment_uses_chinese_chunk_templates(self, monkeypatch):
+        monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "zh-cn")
+
+        assert configure_multimodal_prompt_language_from_env() == "zh"
+        assert "表格分析" in PROMPTS["table_chunk"]
+        assert "图片内容分析" in PROMPTS["image_chunk"]
+        assert "必须使用简体中文" in PROMPTS["table_prompt"]
+
+    def test_multimodal_environment_can_select_english(self, monkeypatch):
+        monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "en")
+
+        assert configure_multimodal_prompt_language_from_env() == "en"
+        assert "Table Analysis" in PROMPTS["table_chunk"]
+
+    def test_invalid_multimodal_prompt_language_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "fr")
+
+        with pytest.raises(ValueError, match="MULTIMODAL_PROMPT_LANGUAGE"):
+            configure_multimodal_prompt_language_from_env()
 
     def test_chinese_prompts_have_all_keys(self):
         """Chinese templates should cover all English keys."""

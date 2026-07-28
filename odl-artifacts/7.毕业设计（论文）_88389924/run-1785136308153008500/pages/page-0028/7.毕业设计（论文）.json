@@ -1,0 +1,125 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 28,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 4,
+    "level" : "Doctitle",
+    "page number" : 28,
+    "bounding box" : [ 70.92, 730.507, 159.229, 746.457 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5 模型优化"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 5,
+    "level" : "Subtitle",
+    "page number" : 28,
+    "bounding box" : [ 70.92, 695.734, 232.57, 709.784 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5.1 数据集收集与预处理"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H3",
+    "id" : 6,
+    "level" : "Subtitle",
+    "page number" : 28,
+    "bounding box" : [ 70.92, 670.823, 209.518, 682.823 ],
+    "heading level" : 3,
+    "font" : "SimHei",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5.1.1 数据集来源与规模"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H4",
+    "id" : 7,
+    "level" : "Subtitle",
+    "page number" : 28,
+    "bounding box" : [ 70.92, 600.743, 524.511, 659.803 ],
+    "heading level" : 4,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本论文采用的是 Kaggle 视网膜病变检测的数据集，包含不同拍摄设备、光照条件 以及病变严重程度的眼底照片，来源丰富、有代表性且具备一定实际意义，如图 14 所 示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 28,
+    "bounding box" : [ 102.36, 387.92, 473.04, 591.2 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 28,
+    "bounding box" : [ 256.2, 368.331, 359.889, 379.903 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图14 Kaggle网站页面"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 28,
+    "bounding box" : [ 70.92, 299.354, 524.4, 359.443 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本数据集共有 4316 个有效样本，根据医学标准进行分类为正常和病变两类图片， 正常图片有 2873 张，无病灶；病变图片有 1443 张，包括微动脉瘤、出血以及渗出等病 灶，如图 15 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 11,
+    "page number" : 28,
+    "bounding box" : [ 187.2, 118.52, 428.4, 290.72 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 12,
+    "page number" : 28,
+    "bounding box" : [ 238.92, 98.81, 343.807, 110.382 ],
+    "linked content id" : 11,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图15 部分眼底数据集"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 28,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "21"
+  } ]
+}

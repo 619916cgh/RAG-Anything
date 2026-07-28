@@ -1,0 +1,107 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 50,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 4,
+    "page number" : 50,
+    "bounding box" : [ 126.6, 558.92, 488.76, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 5,
+    "page number" : 50,
+    "bounding box" : [ 249.12, 540.05, 367.088, 551.622 ],
+    "linked content id" : 4,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 38 筛查单张眼底图像"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 50,
+    "bounding box" : [ 70.92, 471.983, 524.511, 530.663 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "此时系统在后台对用户上传的照片进行识别并返回相应结果，系统对该照片的诊断 结果是糖尿病视网膜病变晚期并且给出了晚期的病变程度以及对检测结果的信心程度 及对于晚期的建议。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 50,
+    "bounding box" : [ 94.92, 447.795, 328.92, 461.084 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "进行对非眼底图像进行筛查，如图 39 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 50,
+    "bounding box" : [ 120.12, 239.12, 475.08, 439.04 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 50,
+    "bounding box" : [ 238.559, 220.25, 377.527, 231.822 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 39 筛查非眼底图像的图片"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 50,
+    "bounding box" : [ 70.92, 128.783, 536.4, 210.862 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "选择使用形状为圆形的大体与眼底图像相似的苹果为例，系统给出了报错的结果， 可见系统并不会错误的将非眼底图像的图片进行误判，进一步确认了系统的性能和稳定 性。 7.4.3 批量图像筛查模块测试"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 50,
+    "bounding box" : [ 94.92, 104.595, 304.92, 117.884 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "批量上传图片进行筛查，如图 40 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 50,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "43"
+  } ]
+}

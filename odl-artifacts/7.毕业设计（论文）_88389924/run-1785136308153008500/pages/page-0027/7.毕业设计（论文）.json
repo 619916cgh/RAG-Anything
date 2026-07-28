@@ -1,0 +1,144 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 27,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 4,
+    "level" : "Subtitle",
+    "page number" : 27,
+    "bounding box" : [ 70.92, 746.234, 442.919, 759.523 ],
+    "heading level" : 2,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "故障排查以及操作审计使用，结构简单明了，易于回溯，如图13所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 5,
+    "page number" : 27,
+    "bounding box" : [ 145.2, 534.92, 449.88, 737.6 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 6,
+    "page number" : 27,
+    "bounding box" : [ 250.44, 521.81, 365.768, 533.382 ],
+    "linked content id" : 5,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图13 用户操作日志存储"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 7,
+    "level" : "Subtitle",
+    "page number" : 27,
+    "bounding box" : [ 94.92, 499.514, 304.92, 512.803 ],
+    "heading level" : 2,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "对应的用户操作日志存储表如表4所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 27,
+    "bounding box" : [ 92.64, 463.561, 418.809, 489.582 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 4 用户操作日志存储表 字段名 数据类型 必填 说明"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 27,
+    "bounding box" : [ 86.52, 434.21, 434.528, 459.822 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "timestamp Datetime 是 日志时间戳 module Varchar(50) 是 来源模块"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 27,
+    "bounding box" : [ 90.6, 406.25, 429.129, 431.743 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "level Varchar(10) 是 日志级别 message Text 是 操作描述"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 27,
+    "bounding box" : [ 85.68, 392.21, 444.968, 403.782 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "user_agent Varchar(255) 否 用户操作上下文"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 12,
+    "level" : "Doctitle",
+    "page number" : 27,
+    "bounding box" : [ 70.92, 367.534, 162.25, 381.584 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "4.4 本章小结"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 27,
+    "bounding box" : [ 70.92, 318.435, 529.919, 355.124 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本章完成整个系统的设计工作，以 B/S 前后端分离的设计方式，分为前端展示层、 后端服务层、模型推理层以及数据存储层四个部分，使用的主要技术有 Python、Flask、"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 27,
+    "bounding box" : [ 70.92, 225.982, 524.423, 308.443 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "PyTorch 等，推理模型选择 MobileNetV3-Large，数据保存采用轻量级的 JSON 和 CSV 文件格式。系统分为用户权限管理、单张或者多张图片检测、结果显示及建议、历史记 录查询以及系统管理六个部分并对其各自的职责进行了详细的描述，这既满足系统的功 能性要求也考虑到了基层部署的轻便性，对接下来的工作开展起到指导作用。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 27,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "20"
+  } ]
+}

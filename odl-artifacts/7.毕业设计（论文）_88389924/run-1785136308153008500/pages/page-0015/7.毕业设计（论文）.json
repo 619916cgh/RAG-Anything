@@ -1,0 +1,289 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 15,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 15,
+    "bounding box" : [ 70.92, 606.195, 524.511, 759.523 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（3） 输出层。作为深度学习中用于解决多分类问题的重要工具，Softmax 实际上 是一种归一化的指数型映射函数，在多个神经元输出的基础上将其转化为一个概率分布 形式的归一化向量以供后续判断使用。它的作用是把一组实数映射到 0 到 1 之间并且它 们的和为 1 的一组实数上，以此来表示每个类别的概率大小。一般情况下就是通过比较 各个类别的概率大小来做出最后的决定。因为它的简洁以及良好的数学性质，在梯度下 降等优化方法当中有着不错的表现所以在很多基于深度学习的网络结构里都有它的身 影，其数学表达式如公式（1）："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 15,
+    "bounding box" : [ 283.51, 588.024, 286.559, 595.646 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "y"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 15,
+    "bounding box" : [ 247.502, 573.844, 363.899, 594.589 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "e p i K"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 15,
+    "bounding box" : [ 286.469, 586.62, 287.852, 592.148 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 4.991,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "i"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 17,
+    "page number" : 15,
+    "bounding box" : [ 259.339, 573.803, 351.006, 588.387 ],
+    "font" : "SymbolMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "  "
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 15,
+    "bounding box" : [ 320.885, 573.844, 354.365, 587.027 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1,2, ,"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 15,
+    "bounding box" : [ 253.233, 571.149, 277.907, 579.458 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "i K"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 18,
+    "page number" : 15,
+    "bounding box" : [ 269.524, 553.777, 282.237, 575.652 ],
+    "font" : "SymbolMT",
+    "font size" : 17.856,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 15,
+    "bounding box" : [ 290.052, 564.492, 293.101, 572.114 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "y"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 15,
+    "bounding box" : [ 283.728, 557.875, 289.001, 571.058 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "e"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 15,
+    "bounding box" : [ 293.167, 563.089, 295.378, 568.617 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 4.991,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "k"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 15,
+    "bounding box" : [ 274.757, 547.563, 278.528, 555.994 ],
+    "font" : "SymbolMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 15,
+    "bounding box" : [ 270.77, 547.586, 273.819, 555.208 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "k"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 15,
+    "bounding box" : [ 278.215, 547.586, 281.656, 555.208 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 19,
+    "page number" : 15,
+    "bounding box" : [ 493.8, 573.844, 524.4, 587.912 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（1）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 20,
+    "page number" : 15,
+    "bounding box" : [ 70.92, 475.823, 526.919, 537.815 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "其中， yi和 yk 表示上一层的输出特征向量， pi 表示输出结果为第i类样本的概率， 其值越大表示属于该类的可能性越大。 2.2.3 激活函数"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 21,
+    "page number" : 15,
+    "bounding box" : [ 70.92, 289.104, 530.4, 464.923 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "作为人工神经网络（ANN）的重要组成部分，激活函数通过增加非线性映射能力使 多层网络具备表示复杂模式的能力，如果没有激活函数，那么多个层次所得到的结果只 能是输入的一种简单的线性变换，这大大降低了模型学习能力和泛化能力。目前常用的 激活函数有多种类型，如 Sigmoid、Tanh 以及 ReLU 等。其中，Sigmoid 将激活值映射 到[0,1]之间，适合用于二分类问题中对概率进行预测；Tanh 将激活值映射到[-1,1]之间， 相比于 Sigmoid 具有更好的中心对称性。而 ReLU 是一种非饱和型激活函数，在正向输 入情况下保持不变，在负向输入下强制置为零，在一定程度上解决了梯度消失问题并且 提高计算速度以及鲁棒性。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 22,
+    "page number" : 15,
+    "bounding box" : [ 70.92, 219.023, 524.4, 277.703 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "通过引入激活函数，神经网络可以提取图像的高语义信息，帮助提升网络的表达能 力。不同的激活函数具有不同的特性，适用于不同的任务和网络结构。因此，在选择激 活函数时，需要根据具体的问题和网络设计来进行权衡和选择。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 23,
+    "page number" : 15,
+    "bounding box" : [ 94.92, 194.835, 428.28, 208.124 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（1） Sigmoid 函数。Sigmoid 函数的数学表达式如公式（2）："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 24,
+    "page number" : 15,
+    "bounding box" : [ 303.925, 156.218, 349.81, 185.367 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 11.52,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "  1 1"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 27,
+    "page number" : 15,
+    "bounding box" : [ 322.3, 165.252, 328.613, 179.365 ],
+    "font" : "SymbolMT",
+    "font size" : 11.52,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 26,
+    "page number" : 15,
+    "bounding box" : [ 296.613, 156.218, 360.219, 178.049 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 11.52,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "f x x e"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 28,
+    "page number" : 15,
+    "bounding box" : [ 338.238, 156.179, 344.551, 170.292 ],
+    "font" : "SymbolMT",
+    "font size" : 11.52,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 29,
+    "page number" : 15,
+    "bounding box" : [ 493.8, 165.484, 524.4, 179.552 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（2）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 30,
+    "page number" : 15,
+    "bounding box" : [ 70.92, 110.354, 524.395, 147.043 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "Sigmoid 函数的输入特征 x 为负无穷到正无穷范围，通过非线性变换将输入特征映 射到(0,1)区间。对其求导可得公式（3）："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 31,
+    "page number" : 15,
+    "bounding box" : [ 280.899, 86.881, 524.4, 102.631 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "f (x)  f (x)*(1 f (x)) （3）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 15,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "8"
+  } ]
+}

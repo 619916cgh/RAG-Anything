@@ -905,6 +905,19 @@ class DocProcessorMixin:
                 self.doc_parser = doc_parser
                 self._cached_parser_name = effective_parser
 
+            if effective_parser == "opendataloader":
+                installation_error = doc_parser.installation_error()
+                if installation_error:
+                    raise RuntimeError(
+                        "OpenDataLoader runtime prerequisite check failed: "
+                        f"{installation_error}"
+                    )
+            elif not doc_parser.check_installation():
+                raise RuntimeError(
+                    f"Parser '{effective_parser}' is not properly installed. "
+                    "Please install it using pip install or uv pip install."
+                )
+
             # Log parser and method information
             self.logger.info(
                 f"Using {effective_parser} parser with method: {parse_method}"

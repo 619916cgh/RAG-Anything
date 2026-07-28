@@ -1,0 +1,119 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 41,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 41,
+    "bounding box" : [ 70.92, 677.063, 524.423, 759.523 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "批量图像筛查模块是在单张筛查流水线上增加了循环处理以及统计聚合功能。CSV 文件读写使用 file_lock 互斥锁防止并发冲突，一次最多允许上传 50 张图片防止服务超 载，而且具有容错性，一张图片识别失败不影响其他图片处理。批量结果包括每个图片 单独诊断结果及综合统计数据，在大量筛查情况下可以提供全局视图。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 41,
+    "bounding box" : [ 70.92, 490.343, 530.4, 666.163 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "批量筛查时，先校验登录状态并获取文件列表，判断是否为空以及数量是否超过 50 张，之后初始化存储每张图的结果、诊断类别和病灶级别的字典以及一个错误的文件列 表，在文件锁保护下读取最新的 ID 作为写入的位置开始。然后一张一张地进行：忽略 空文件，检查类型，合法就生成唯一的文件名保存，调用 p1 函数进行推理，合并诊断 标签并给出相应的建议，把结果存入列表并且更新字典，如果出现错误就把错误的信息 记录到错误列表中但是不影响后面的文件，最后所有文件都处理完成后把信息写入 csv 文件中，返回 json 格式的结果包括每张图片的信息、诊断类别的分布、病灶级别的分布、 出错的文件、总共的数量和成功的数量，给前端显示。"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 9,
+    "level" : "1",
+    "page number" : 41,
+    "bounding box" : [ 70.92, 97.104, 536.4, 472.784 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 41,
+      "bounding box" : [ 70.92, 433.823, 524.4, 472.784 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "6.4 结果展示与建议模块 结果展示与建议模块是用户直接获取筛查结论的最终输出环节，其作用是将模型推",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 41,
+        "bounding box" : [ 70.92, 410.423, 418.92, 422.423 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "理得到的预测结果转化为清晰、易读的诊断信息和医学指导建议。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 41,
+        "bounding box" : [ 70.92, 293.663, 524.513, 399.144 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "系统依据模型给出的结果以及病变程度，自动生成完整的诊断名称，然后通过已定 义好的医学建议字典（DR_SEVERITY_INFO）找到相应的建议信息。此模块会把诊断 结果、置信度、病变程度及医学建议这四个重要部分汇总后以 json 形式返回给前端显示 给用户看，让用户清楚看到检查结果以及注意事项等。而且所有的结果都会保存在筛查 记录中以便日后查阅或供医生查阅使用，使整个系统更实用更专业化。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 41,
+        "bounding box" : [ 70.92, 152.835, 524.4, 282.763 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "系统启动时加载 DR_SEVERITY_INFO 字典，该字典中包含正常以及各种程度病变 对应的就诊意见，在模型进行预测之后，如果判断为病变，则将疾病名称加上其严重程 度作为标签，如果不是病变，则只用疾病名称作为标签，在此之后以此标签为键在字典 中查找，找到就返回相应的就诊意见，找不到就返回“建议您去医院进一步咨询”，最 后把疾病标签、置信度、病变严重程度和就诊意见一起以 JSON 形式传送给前端并同时 保存到 CSV 文件中以便后续查阅。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 41,
+      "bounding box" : [ 70.92, 97.104, 536.4, 136.065 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "6.5 历史记录管理模块 历史记录管理模块负责持久化存储每一次眼底图像筛查的结果，并为用户提供查询、",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 41,
+    "bounding box" : [ 70.92, 72.914, 529.68, 86.203 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "追溯与管理功能。该模块采用 CSV 文件作为轻量级数据库，记录每条筛查的唯一 ID、"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 41,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "34"
+  } ]
+}

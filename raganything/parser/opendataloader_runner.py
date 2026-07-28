@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,24 @@ from typing import Any
 _REQUEST_SCHEMA = "opendataloader-runner-request-v1"
 _RESULT_SCHEMA = "opendataloader-runner-result-v1"
 _HEAP_RE = re.compile(r"-Xmx[1-9][0-9]*[mMgG]")
+
+
+def _failure_diagnostic(exc: Exception) -> tuple[str, int | None]:
+    """Return bounded, non-content diagnostic fields for a failed run."""
+    if isinstance(exc, subprocess.CalledProcessError):
+        return_code = exc.returncode
+        if isinstance(return_code, int) and not isinstance(return_code, bool):
+            return "upstream_process_failed", return_code
+        return "upstream_process_failed", None
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "upstream_timeout", None
+    if isinstance(exc, FileNotFoundError):
+        return "runtime_not_found", None
+    if isinstance(exc, ValueError):
+        return "artifact_validation_failed", None
+    if isinstance(exc, OSError):
+        return "runner_io_failed", None
+    return "runner_exception", None
 
 
 def _atomic_json(path: Path, data: dict[str, Any]) -> None:
@@ -207,9 +226,16 @@ def _run(request_path: Path) -> int:
             }
         )
     except Exception as exc:
-        result["pages"].append(
-            {"page": page, "state": "failed", "failure": type(exc).__name__}
-        )
+        failure_category, upstream_exit_code = _failure_diagnostic(exc)
+        failure: dict[str, Any] = {
+            "page": page,
+            "state": "failed",
+            "failure_category": failure_category,
+            "failure_type": type(exc).__name__,
+        }
+        if upstream_exit_code is not None:
+            failure["upstream_exit_code"] = upstream_exit_code
+        result["pages"].append(failure)
         _atomic_json(result_path, result)
         return 1
 

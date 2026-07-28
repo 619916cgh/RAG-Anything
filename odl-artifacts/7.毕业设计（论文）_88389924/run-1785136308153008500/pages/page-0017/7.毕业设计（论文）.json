@@ -1,0 +1,231 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 17,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 17,
+    "bounding box" : [ 288.101, 734.721, 414.448, 760.832 ],
+    "font" : "SymbolMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "    "
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 17,
+    "bounding box" : [ 262.628, 736.86, 405.163, 759.428 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "x x f x x"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 17,
+    "bounding box" : [ 269.88, 727.52, 422.969, 759.428 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "  max0,  0 0 0"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 17,
+    "bounding box" : [ 357.266, 724.618, 414.077, 742.532 ],
+    "font" : "SymbolMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : " "
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 17,
+    "bounding box" : [ 399.348, 727.52, 404.792, 741.128 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "x"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 17,
+    "bounding box" : [ 94.92, 679.514, 400.92, 715.704 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "取输入值与 0 中的较大值，分段形式简单，无指数运算。 对式（6）求导得："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 18,
+    "page number" : 17,
+    "bounding box" : [ 94.92, 612.795, 252.6, 626.084 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "Relu 函数曲线图如图 6 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 17,
+    "bounding box" : [ 319.598, 654.824, 374.95, 670.832 ],
+    "font" : "SymbolMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : " "
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 17,
+    "bounding box" : [ 284.028, 646.86, 365.568, 669.428 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "x f x"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 17,
+    "bounding box" : [ 292.873, 646.86, 383.582, 669.428 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1 0 ( )"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "level" : "1",
+    "page number" : 17,
+    "bounding box" : [ 290.05, 634.618, 377.02, 662.571 ],
+    "font" : "SymbolMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "    "
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 17,
+    "bounding box" : [ 325.683, 637.52, 385.652, 651.128 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "0 0"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 17,
+    "bounding box" : [ 362.194, 637.52, 367.638, 651.128 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 12.288,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "x"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 19,
+    "page number" : 17,
+    "bounding box" : [ 185.16, 431.0, 409.56, 604.04 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 20,
+    "page number" : 17,
+    "bounding box" : [ 258.84, 411.29, 357.368, 422.862 ],
+    "linked content id" : 19,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图6 Relu函数曲线图"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 17,
+    "bounding box" : [ 497.64, 737.028, 524.409, 749.28 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（6）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 17,
+    "page number" : 17,
+    "bounding box" : [ 497.64, 646.908, 524.409, 659.16 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（7）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 21,
+    "page number" : 17,
+    "bounding box" : [ 70.92, 319.823, 524.4, 402.284 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "可以看到，ReLU 函数在 x≤0 时输出恒为 0，在 x>0 时则与输入值 x 相等，呈现为 一条斜率为 1 的直线；其导数在 x>0 时恒为 1，在 x≤0 时恒为 0，这一个性质既使得正 向区间梯度保持一致，从而较好地解决梯度消失问题，又在负向区间取值为 0，起到稀 疏激活的作用，大大减少了计算量以及避免过拟合的风险。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 22,
+    "level" : "Doctitle",
+    "page number" : 17,
+    "bounding box" : [ 70.92, 296.423, 221.518, 308.423 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2.2.4 卷积神经网络的训练"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 23,
+    "page number" : 17,
+    "bounding box" : [ 70.92, 225.554, 526.919, 285.144 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "卷积神经网络是一个有监督的学习过程。它的训练实际上是一个对权重和偏置等参 数进行评估，通过调整权重和偏置等参数的值来实现输入和输出的最佳映射的过程。神 经网络的训练流程图如图 7 所示。神经网络的训练包括前向传播和后向传播两个过程。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 17,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "10"
+  } ]
+}

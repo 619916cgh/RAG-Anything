@@ -1,0 +1,253 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 63,
+    "bounding box" : [ 213.6, 781.921, 381.485, 792.371 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Doctitle",
+    "page number" : 63,
+    "bounding box" : [ 70.92, 755.4, 128.768, 765.85 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "3 运行说明"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 6,
+    "level" : "1",
+    "page number" : 63,
+    "bounding box" : [ 91.92, 574.61, 522.125, 749.622 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 12,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 738.05, 186.009, 749.622 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(1) 启动 Web 服务。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 724.49, 324.49, 736.062 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(2) 在命令行终端执行：python model_analysis.py。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 710.81, 414.009, 722.382 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(3) 服务启动后，在浏览器中访问 http://localhost:8000 访问系统首页。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 697.25, 401.29, 708.822 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(4) 首次使用可点击\"注册\"创建账户，或使用默认管理员账户登录。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 683.57, 306.85, 695.142 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(5) 输入用户名和密码，点击\"登录\"进入系统。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 669.89, 506.29, 681.462 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(6) 点击左侧菜单\"单张检测\"，点击上传区域选择眼底照片（支持 jpg、jpeg、png 格式）。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 656.331, 350.77, 667.903 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(7) 等待系统分析，显示诊断结果、置信度和健康建议。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 642.77, 522.125, 654.342 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(8) 点击左侧菜单\"批量检测\"，选择多张眼底照片（最多 50 张）系统逐一分析并展示批量检测",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 629.09, 233.29, 640.662 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(9) 点击左侧菜单\"历史记录\"。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 615.531, 282.49, 627.103 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(10) 查看所有检测记录，支持删除操作。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 601.85, 282.25, 613.422 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(11) 管理员可查看所有用户的检测记录。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 574.61, 413.647, 599.862 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(12) 在命令行终端执行：python model_analysis.py，分析报告将保存到 results/model_analysis_report.txt。",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 7,
+    "level" : "Doctitle",
+    "page number" : 63,
+    "bounding box" : [ 70.92, 555.84, 128.768, 566.29 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "4 疑难解答"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 8,
+    "level" : "1",
+    "page number" : 63,
+    "bounding box" : [ 91.92, 429.531, 529.69, 549.942 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 6,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 525.6, 520.449, 549.942 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(1) 问题 1：启动服务时提示缺少依赖库。解决方案：运行 pip install -r requirements.txt 安装所 有依赖。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 497.571, 524.288, 522.822 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(2) 问题 2：上传图片后无法识别。解决方案：确保图片格式为 jpg、jpeg 或 png，文件大小不超 过 16MB。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 483.89, 529.69, 495.462 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(3) 问题 3：检测结果置信度较低。解决方案：确保上传的眼底照片清晰，光线充足，瞳孔居中。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 456.65, 521.65, 481.903 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(4) 问题 4：GPU 加速未生效。解决方案：检查 CUDA 环境是否正确配置，确保 PyTorch 支持 CUDA。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 443.09, 524.412, 454.662 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(5) 问题 5：登录失败。解决方案：确认用户名和密码正确，首次使用可使用默认账户 root/root",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 63,
+      "bounding box" : [ 91.92, 429.531, 444.965, 441.103 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.122, 0.137, 0.161]",
+      "content" : "(6) 错误日志。系统运行日志保存在 app.log 文件中，可查看详细错误信息。",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 63,
+    "bounding box" : [ 293.159, 36.003, 302.218, 45.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "56"
+  } ]
+}

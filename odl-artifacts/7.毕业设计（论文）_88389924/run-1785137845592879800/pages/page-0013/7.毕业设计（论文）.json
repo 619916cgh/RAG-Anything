@@ -1,0 +1,210 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 13,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 7,
+    "level" : "1",
+    "page number" : 13,
+    "bounding box" : [ 94.92, 606.195, 524.4, 759.523 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 13,
+      "bounding box" : [ 94.92, 746.234, 524.4, 759.523 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（3） 特征提取。从预处理后的图像中提取有用的特征。在深度学习出现之前，这",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 13,
+        "bounding box" : [ 70.92, 722.954, 511.559, 736.243 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "通常需要手动设计特征，如 SIFT、HOG 等。深度学习使得自动特征提取成为可能。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 13,
+      "bounding box" : [ 94.92, 699.554, 524.4, 712.843 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（4） 模型训练。使用提取的特征来训练分类器。这可以是一个传统的机器学习算",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 13,
+        "bounding box" : [ 70.92, 677.063, 490.92, 689.063 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "法，如支持向量机或随机森林，也可以是一个深度学习模型，如卷积神经网络。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 13,
+      "bounding box" : [ 94.92, 652.874, 524.4, 666.163 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（5） 模型评估。通过在未见过的图像上测试模型的性能来评估其准确性。常用的",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 13,
+        "bounding box" : [ 70.92, 629.595, 341.52, 642.884 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "评估指标包括准确率、召回率、精确率和 F1 分数。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 13,
+      "bounding box" : [ 94.92, 606.195, 524.4, 619.484 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（6） 模型部署。将训练好的模型部署到实际应用中，用于对实时或新的图像进行",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 13,
+    "bounding box" : [ 70.92, 583.704, 106.92, 595.704 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "分类。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 13,
+    "bounding box" : [ 70.92, 512.835, 536.4, 572.803 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "深度学习的出现极大地推动了图像分类技术的发展。特别是卷积神经网络即 CNN 在图像分类任务中取得了显著的成功。CNN 能够自动学习图像的层次化特征表示，从 而提高了分类的准确性。一些著名的 CNN 架构，如 AlexNet、VGG、GoogLeNet（Inception）、"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 13,
+    "bounding box" : [ 70.92, 443.663, 524.4, 502.843 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "MobileNetV3 和 DenseNet，都在图像分类任务中取得了突破性的成果。图像分类是一个 不断发展的领域，随着技术的进步和数据的积累，图像分类系统将更加准确、鲁棒和可 靠。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 11,
+    "level" : "Doctitle",
+    "page number" : 13,
+    "bounding box" : [ 70.92, 420.263, 209.52, 432.263 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2.2.2 卷积神经网络结构"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 13,
+    "bounding box" : [ 70.92, 327.023, 530.4, 408.983 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "卷积神经网络是一种结构化的深度学习模型，它巧妙地融合了卷积层、池化层和输 出层，以实现对图像原始像素的高效处理。这种网络架构通过逐层提取和抽象图像特征， 最终将高维的视觉信息映射到具体的输出类别上。卷积神经网络的一般结构图如图 1 所 示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 13,
+    "page number" : 13,
+    "bounding box" : [ 104.88, 221.96, 490.44, 317.36 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 14,
+    "page number" : 13,
+    "bounding box" : [ 237.24, 203.09, 378.966, 214.662 ],
+    "linked content id" : 13,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图1 卷积神经网络的基本结构"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 13,
+    "bounding box" : [ 70.92, 158.423, 524.4, 193.703 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "该图给出了卷积神经网络的基本结构：输入图像经多层卷积层提取特征、池化层降 维后，由全连接层输出分类结果，实现了端到端的自动图像分类。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 13,
+    "bounding box" : [ 94.92, 134.114, 530.4, 147.403 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（1） 卷积层。在 CNN 中，卷积层扮演着至关重要的角色，它是特征提取的引擎。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 17,
+    "page number" : 13,
+    "bounding box" : [ 70.92, 88.343, 524.4, 123.622 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "卷积层通过一系列卷积运算，将输入图像与多个学习得到的卷积核进行交互，从而捕捉 到图像中的各种特征模式。这些特征可能包括边缘、角点、纹理等低级视觉特征，也可"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 13,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "6"
+  } ]
+}

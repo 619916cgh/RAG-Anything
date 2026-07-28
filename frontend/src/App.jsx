@@ -5,6 +5,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import { api } from './utils/api'
+import {
+  readKnowledgeDetailSnapshot,
+  refreshKnowledgeDetailSnapshot,
+  subscribeKnowledgeDetailSnapshot,
+} from './utils/knowledgeDetailCache'
 
 // ---- 路由级代码拆分 ----
 const KnowledgePage               = lazy(() => import('./pages/KnowledgePage'))
@@ -171,6 +176,7 @@ const getRouteMeta = (pathname) =>
   }
 
 const formatStatValue = (value) => {
+  if (value === null || value === undefined) return '...'
   const n = Number(value || 0)
   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
 }
@@ -361,6 +367,12 @@ export default function App() {
   const navigate = useNavigate()
   const { token, user, isAdmin, roleName: authRoleName, hasPermission, logout, loading: authLoading } = useAuth()
   const [stats, setStats] = useState({ documents: 0, entities: 0, relations: 0 })
+  const routeKBMatch = location.pathname.match(/^\/knowledge\/([^/]+)/)
+  let routeKBName = null
+  if (routeKBMatch) {
+    try { routeKBName = decodeURIComponent(routeKBMatch[1]) } catch { routeKBName = routeKBMatch[1] }
+  }
+  const [routeKBStats, setRouteKBStats] = useState(null)
   const [toast, setToast] = useState(null)
   const toastTimerRef = useRef(null)
   const [dark, setDark] = useState(() => {
@@ -386,7 +398,21 @@ export default function App() {
   const loadStats = useCallback(() => {
     api.getStats().then(setStats).catch(err => console.error(err))
   }, [])
-  useEffect(() => { if (token) loadStats() }, [location.pathname, token])
+  useEffect(() => {
+    if (token && !routeKBName) loadStats()
+  }, [loadStats, routeKBName, token])
+
+  useEffect(() => {
+    if (!token || !user?.id || !routeKBName) {
+      setRouteKBStats(null)
+      return undefined
+    }
+    const update = () => setRouteKBStats(readKnowledgeDetailSnapshot(user.id, routeKBName)?.stats || null)
+    update()
+    const unsubscribe = subscribeKnowledgeDetailSnapshot(user.id, routeKBName, update)
+    void refreshKnowledgeDetailSnapshot(user.id, routeKBName)
+    return unsubscribe
+  }, [routeKBName, token, user?.id])
 
   const showToast = (msg, type = 'info') => {
     if (toastTimerRef.current) {
@@ -456,7 +482,7 @@ export default function App() {
     .filter(group => group.items.length > 0)
 
   const routeMeta = getRouteMeta(location.pathname)
-  const cockpitStats = getCockpitStats(location.pathname, stats, hasPermission)
+  const cockpitStats = getCockpitStats(location.pathname, routeKBName ? (routeKBStats || {}) : stats, hasPermission)
 
   // ---- 主布局 ----
   return (
@@ -646,7 +672,7 @@ export default function App() {
                   <Route path="/agents" element={<ProtectedRoute requiredPermission="agent:read"><AgentsPage onToast={showToast} /></ProtectedRoute>} />
                   <Route path="/agents/:id" element={<ProtectedRoute requiredPermission="agent:read"><AgentChatPage onToast={showToast} /></ProtectedRoute>} />
                   <Route path="/knowledge" element={<ProtectedRoute><KnowledgePage /></ProtectedRoute>} />
-                  <Route path="/knowledge/:kbName" element={<ProtectedRoute><KnowledgeDetailPage /></ProtectedRoute>} />
+                  <Route path="/knowledge/:kbName" element={<ProtectedRoute><KnowledgeDetailPage key={location.pathname} /></ProtectedRoute>} />
                   <Route path="/knowledge/:kbName/documents/:docId/chunks" element={<ProtectedRoute><DocumentChunksPage /></ProtectedRoute>} />
                   <Route path="/knowledge/:kbName/documents/:docId/chunks/:chunkId" element={<ProtectedRoute><DocumentChunkDetailPage /></ProtectedRoute>} />
                   <Route path="/workflow" element={<ProtectedRoute requiredPermission="workflow:read"><WorkflowPage /></ProtectedRoute>} />

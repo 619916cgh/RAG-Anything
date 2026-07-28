@@ -1,0 +1,419 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "table",
+    "pdfua_tag" : "Table",
+    "id" : 5,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 403.31, 720.72, 535.14, 756.5 ],
+    "number of rows" : 2,
+    "number of columns" : 2,
+    "rows" : [ {
+      "type" : "table row",
+      "row number" : 1,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 403.55, 739.86, 459.7, 756.26 ],
+        "row number" : 1,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 1,
+          "page number" : 1,
+          "bounding box" : [ 408.959, 742.821, 440.408, 753.271 ],
+          "font" : "SimHei",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "分类号"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 459.7, 739.86, 534.9, 756.26 ],
+        "row number" : 1,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 2,
+          "page number" : 1,
+          "bounding box" : [ 471.359, 742.031, 523.144, 753.603 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2026 - JX16"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 2,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 403.55, 721.2, 459.7, 739.86 ],
+        "row number" : 2,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 3,
+          "page number" : 1,
+          "bounding box" : [ 408.959, 725.18, 450.848, 735.63 ],
+          "font" : "SimHei",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "专业代码"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 459.7, 721.2, 534.9, 739.86 ],
+        "row number" : 2,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 4,
+          "page number" : 1,
+          "bounding box" : [ 478.319, 724.39, 516.251, 735.962 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "080717T"
+        } ]
+      } ]
+    } ]
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 112.68, 587.14, 218.88, 684.22 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 7,
+    "page number" : 1,
+    "bounding box" : [ 240.72, 607.06, 519.0, 663.7 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 167.159, 497.628, 428.167, 523.678 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 26.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 157.44, 431.439, 446.758, 480.639 ],
+    "font" : "SimHei",
+    "font size" : 18.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "基于 MobileNetV3 的眼底图像糖尿病 视网膜病变快速筛查工具"
+  }, {
+    "type" : "table",
+    "pdfua_tag" : "Table",
+    "id" : 8,
+    "level" : "2",
+    "page number" : 1,
+    "bounding box" : [ 144.56, 178.62, 479.39, 387.5 ],
+    "number of rows" : 6,
+    "number of columns" : 2,
+    "rows" : [ {
+      "type" : "table row",
+      "row number" : 1,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 146.0, 351.86, 237.15, 385.88 ],
+        "row number" : 1,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 5,
+          "page number" : 1,
+          "bounding box" : [ 159.48, 360.807, 223.55, 376.757 ],
+          "font" : "SimHei",
+          "font size" : 15.95,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "学 院"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 237.15, 351.86, 477.95, 385.88 ],
+        "row number" : 1,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 6,
+          "page number" : 1,
+          "bounding box" : [ 282.24, 361.422, 432.718, 376.422 ],
+          "font" : "KaiTi",
+          "font size" : 15.0,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "大数据与人工智能学院"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 2,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 146.0, 317.66, 237.15, 351.86 ],
+        "row number" : 2,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 7,
+          "page number" : 1,
+          "bounding box" : [ 159.48, 326.607, 223.55, 342.557 ],
+          "font" : "SimHei",
+          "font size" : 15.95,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "专 业"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 237.15, 317.66, 477.95, 351.86 ],
+        "row number" : 2,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 8,
+          "page number" : 1,
+          "bounding box" : [ 327.359, 327.222, 387.479, 342.222 ],
+          "font" : "KaiTi",
+          "font size" : 15.0,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "人工智能"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 3,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 146.0, 283.46, 237.15, 317.66 ],
+        "row number" : 3,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 9,
+          "page number" : 1,
+          "bounding box" : [ 159.48, 292.407, 223.55, 308.357 ],
+          "font" : "SimHei",
+          "font size" : 15.95,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "学 号"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 237.15, 283.46, 477.95, 317.66 ],
+        "row number" : 3,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 10,
+          "page number" : 1,
+          "bounding box" : [ 308.4, 293.022, 406.613, 308.022 ],
+          "font" : "KaiTi",
+          "font size" : 15.0,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2022010940231"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 4,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 146.0, 249.26, 237.15, 283.46 ],
+        "row number" : 4,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 11,
+          "page number" : 1,
+          "bounding box" : [ 159.48, 258.207, 223.669, 274.157 ],
+          "font" : "SimHei",
+          "font size" : 15.95,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "学生姓名"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 237.15, 249.26, 477.95, 283.46 ],
+        "row number" : 4,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 12,
+          "page number" : 1,
+          "bounding box" : [ 334.92, 258.822, 380.04, 273.822 ],
+          "font" : "KaiTi",
+          "font size" : 15.0,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "程国鸿"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 5,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 146.0, 215.06, 237.15, 249.26 ],
+        "row number" : 5,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 13,
+          "page number" : 1,
+          "bounding box" : [ 159.48, 224.007, 223.669, 239.957 ],
+          "font" : "SimHei",
+          "font size" : 15.95,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "指导教师"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 237.15, 215.06, 477.95, 249.26 ],
+        "row number" : 5,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 14,
+          "page number" : 1,
+          "bounding box" : [ 334.92, 224.622, 380.04, 239.622 ],
+          "font" : "KaiTi",
+          "font size" : 15.0,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "邱保志"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 6,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 146.0, 180.24, 237.15, 215.06 ],
+        "row number" : 6,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 15,
+          "page number" : 1,
+          "bounding box" : [ 159.48, 189.448, 223.669, 205.398 ],
+          "font" : "SimHei",
+          "font size" : 15.95,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "完成日期"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "page number" : 1,
+        "bounding box" : [ 237.15, 180.24, 477.95, 215.06 ],
+        "row number" : 6,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 16,
+          "page number" : 1,
+          "bounding box" : [ 300.959, 189.941, 414.0, 204.941 ],
+          "font" : "KaiTi",
+          "font size" : 15.0,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2026 年 6 月 5 日"
+        } ]
+      } ]
+    } ]
+  } ]
+}

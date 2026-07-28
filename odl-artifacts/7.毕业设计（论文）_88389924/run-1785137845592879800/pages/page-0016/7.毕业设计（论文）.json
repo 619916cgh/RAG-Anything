@@ -1,0 +1,217 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 16,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 16,
+    "bounding box" : [ 94.92, 722.954, 430.92, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "导数可由原函数直接推导，形式简洁，便于网络反向传播计算。 （2） Tanh 函数。Tanh 函数的数学表达式如公式（4）："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 16,
+    "bounding box" : [ 386.156, 704.594, 389.927, 713.025 ],
+    "font" : "SymbolMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 16,
+    "bounding box" : [ 254.25, 690.553, 378.523, 712.699 ],
+    "font" : "SymbolMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "   "
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 16,
+    "bounding box" : [ 365.531, 704.617, 393.69, 712.239 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "x x"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 16,
+    "bounding box" : [ 228.562, 690.594, 385.543, 711.339 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "e e f x sigmoid x"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 16,
+    "bounding box" : [ 235.875, 688.868, 346.953, 707.971 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "  2 2  1"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 16,
+    "bounding box" : [ 386.25, 687.657, 390.021, 696.088 ],
+    "font" : "SymbolMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 16,
+    "bounding box" : [ 371.906, 681.178, 378.429, 695.762 ],
+    "font" : "SymbolMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : ""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 16,
+    "bounding box" : [ 365.438, 687.68, 393.783, 695.302 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 6.882,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "x x"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 16,
+    "bounding box" : [ 359.438, 681.219, 385.636, 694.402 ],
+    "font" : "TimesNewRomanPS-ItalicMT",
+    "font size" : 11.904,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "e e"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 16,
+    "bounding box" : [ 94.92, 635.474, 388.919, 672.213 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "函数依托双曲正切运算，把输入值映射至(−1,1)区间内。 对公式（4）求导可得公式（5）："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 16,
+    "bounding box" : [ 493.8, 690.604, 524.4, 704.672 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（4）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 17,
+    "page number" : 16,
+    "bounding box" : [ 94.92, 562.995, 524.4, 626.324 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "f (x) 1 f (x)2 （5） 导数仅与原函数取值相关，计算逻辑简单，适用于梯度求解。 Tanh 函数如图 4 所示。从图中可以看出，其输出趋势同 sigmoid 函数相似，同样存"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 18,
+    "page number" : 16,
+    "bounding box" : [ 70.92, 540.504, 178.92, 552.504 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在梯度弥散的风险。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 19,
+    "page number" : 16,
+    "bounding box" : [ 187.32, 356.96, 413.16, 530.96 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 20,
+    "page number" : 16,
+    "bounding box" : [ 249.359, 337.131, 354.007, 348.703 ],
+    "linked content id" : 19,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 4 Tanh 函数曲线图"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 21,
+    "page number" : 16,
+    "bounding box" : [ 187.68, 160.52, 407.04, 329.48 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 22,
+    "page number" : 16,
+    "bounding box" : [ 251.04, 141.65, 365.288, 153.222 ],
+    "linked content id" : 21,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图5 Sigmoid函数曲线图"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 23,
+    "page number" : 16,
+    "bounding box" : [ 70.92, 73.582, 524.516, 132.643 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（3） ReLU 函数。ReLU 函数的数学表达式如公式（6）所示。由 ReLU 的函数表 达式可以看出 ReLU 函数的计算量比 Sigmoid 函数和 Tanh 函数小，大大提升了计算效 率。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 16,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "9"
+  } ]
+}

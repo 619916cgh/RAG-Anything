@@ -25,10 +25,10 @@ function formatNumber(value) {
 function detectChunkType(chunk) {
   if (chunk.original_type) return String(chunk.original_type).toLowerCase()
   const content = String(chunk.content || '').toLowerCase()
-  if (content.includes('image content analysis')) return 'image'
-  if (content.includes('table analysis')) return 'table'
-  if (content.includes('mathematical equation analysis')) return 'equation'
-  if (content.includes('video content analysis')) return 'video'
+  if (content.includes('image content analysis') || content.includes('图片内容分析')) return 'image'
+  if (content.includes('table analysis') || content.includes('表格分析')) return 'table'
+  if (content.includes('mathematical equation analysis') || content.includes('数学公式分析')) return 'equation'
+  if (content.includes('video content analysis') || content.includes('视频内容分析')) return 'video'
   return ''
 }
 

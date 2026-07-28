@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 import hashlib
 import logging
@@ -25,6 +26,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import raganything.parser.opendataloader_parser as odl_module
+import raganything.parser.opendataloader_runner as odl_runner
 
 from raganything.parser.opendataloader_parser import (
     OpenDataLoaderParser,
@@ -148,6 +150,92 @@ class TestParserRegistration:
         p1 = get_parser("opendataloader")
         p2 = get_parser("opendataloader")
         assert p1 is not p2  # fresh instance each time
+
+
+class TestRunnerFailureDiagnostics:
+    def test_runner_persists_only_bounded_upstream_failure_details(
+        self, tmp_path, monkeypatch
+    ):
+        import opendataloader_pdf
+
+        source = tmp_path / "source.pdf"
+        source.write_bytes(b"%PDF-1.7\n")
+        output_root = tmp_path / "output"
+        output_root.mkdir()
+        request_path = output_root / "runner-request.json"
+        request_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "opendataloader-runner-request-v1",
+                    "source_pdf": str(source),
+                    "output_root": str(output_root),
+                    "source_total_pages": 1,
+                    "page": 1,
+                    "java_heap": "-Xmx2g",
+                    "max_output_bytes": 1024,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def fail_convert(**_kwargs):
+            raise subprocess.CalledProcessError(
+                23, ["java", "-jar", "private-document.pdf"], stderr="secret body"
+            )
+
+        monkeypatch.setattr(opendataloader_pdf, "convert", fail_convert)
+
+        assert odl_runner._run(request_path) == 1
+        result = json.loads((output_root / "runner-result.json").read_text("utf-8"))
+        entry = result["pages"][0]
+        assert entry == {
+            "page": 1,
+            "state": "failed",
+            "failure_category": "upstream_process_failed",
+            "failure_type": "CalledProcessError",
+            "upstream_exit_code": 23,
+        }
+        assert "secret" not in json.dumps(result)
+        assert "private-document" not in json.dumps(result)
+
+    def test_parent_surfaces_only_validated_failure_diagnostic(
+        self, parser, tmp_path, monkeypatch
+    ):
+        source = tmp_path / "source.pdf"
+        source.write_bytes(b"%PDF-1.7\n")
+        page_dir = tmp_path / "page-0001"
+
+        class FailedRunner:
+            def wait(self, timeout):
+                (page_dir / "runner-result.json").write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "opendataloader-runner-result-v1",
+                            "source_total_pages": 3,
+                            "pages": [
+                                {
+                                    "page": 1,
+                                    "state": "failed",
+                                    "failure_category": "upstream_process_failed",
+                                    "failure_type": "CalledProcessError",
+                                    "upstream_exit_code": 7,
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return 1
+
+        monkeypatch.setattr(odl_module.subprocess, "Popen", lambda *_a, **_kw: FailedRunner())
+
+        with pytest.raises(
+            ODLPageCoverageError,
+            match=r"category=upstream_process_failed, upstream_exit_code=7",
+        ):
+            parser._run_single_page_runner(
+                source, page_dir, source_pages=3, page=1, timeout=1, java_bin=tmp_path / "java"
+            )
 
 
 class TestInstallationProbes:
@@ -617,7 +705,7 @@ class TestFlattenElements:
                     {
                         "type": "image",
                         "page number": page,
-                        "image": "figure.png",
+                        "source": "figure.png",
                         "caption": "diagram",
                     }
                 ],
@@ -727,6 +815,7 @@ class TestWiringRegistry:
 
         config = RAGAnythingConfig(
             parser="docling",
+            pdf_parser="",
             working_dir=str(tmp_path),
         )
         assert config.pdf_parser == ""

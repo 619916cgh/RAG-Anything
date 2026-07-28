@@ -3,10 +3,12 @@ import { Plus, Layers, Trash2, Clock, Database, FileText, CircleDot, X, Search, 
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { api, setCurrentKB, getCurrentKB } from '../utils/api'
+import { refreshKnowledgeDetailSnapshot, seedKnowledgeDetailStats } from '../utils/knowledgeDetailCache'
 import Pagination from '../components/Pagination'
 import ResourceSortControl from '../components/ResourceSortControl'
 import { sortKnowledgeBases } from '../utils/kbSorting'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
+import { useAuth } from '../context/AuthContext'
 
 const PAGE_SIZE_STORAGE_KEY = 'raganything:pagination:knowledge-bases'
 const KB_GRID_ROWS = 3
@@ -80,7 +82,7 @@ function shouldReplaceStats(currentStats, incomingStats) {
 }
 
 // ====================== 知识库选择器（卡片网格） ======================
-function KBSelector({ kbs, kbStats, onSwitch, onDelete, deletingKB, gridRef, reserveRows = false }) {
+function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, deletingKB, gridRef, reserveRows = false }) {
   const [showDelete, setShowDelete] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const gridClassName = reserveRows
@@ -130,6 +132,8 @@ function KBSelector({ kbs, kbStats, onSwitch, onDelete, deletingKB, gridRef, res
               type="button"
               className="resource-card-kb-hitarea"
               onClick={() => onSwitch(kb.name)}
+              onMouseEnter={() => onPrefetch(kb.name)}
+              onFocus={() => onPrefetch(kb.name)}
               aria-label={`打开知识库 ${kb.label || kb.name}`}
             />
 
@@ -235,6 +239,8 @@ function KBSelector({ kbs, kbStats, onSwitch, onDelete, deletingKB, gridRef, res
 // ====================== 主页面 ======================
 export default function KnowledgePage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const cacheUserId = user?.id
   const initialCachedKBListRef = useRef(readCachedKBList())
   const initialCachedStatsRef = useRef(readCachedKBStats())
   const [kbs, setKBs] = useState(() => initialCachedKBListRef.current)
@@ -405,10 +411,16 @@ export default function KnowledgePage() {
   useEffect(() => { loadKBs() }, [loadKBs])
 
   // 跳转到知识库详情页
+  const prefetchKBDetail = useCallback((name) => {
+    if (!cacheUserId || !name) return
+    void refreshKnowledgeDetailSnapshot(cacheUserId, name)
+  }, [cacheUserId])
+
   const switchKB = useCallback((name) => {
     setCurrentKB(name)
+    seedKnowledgeDetailStats(cacheUserId, name, kbStats[name])
     navigate(`/knowledge/${name}`)
-  }, [navigate])
+  }, [cacheUserId, kbStats, navigate])
 
   // 创建知识库
   const createKB = useCallback(async (name) => {
@@ -549,6 +561,7 @@ export default function KnowledgePage() {
           kbs={paginatedKBs}
           kbStats={kbStats}
           onSwitch={switchKB}
+          onPrefetch={prefetchKBDetail}
           onDelete={deleteKB}
           deletingKB={deletingKB}
           gridRef={gridRef}

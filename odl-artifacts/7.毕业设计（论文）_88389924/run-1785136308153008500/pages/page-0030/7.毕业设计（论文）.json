@@ -1,0 +1,160 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 30,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 30,
+    "bounding box" : [ 125.16, 617.0, 471.72, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 30,
+    "bounding box" : [ 238.92, 596.45, 343.807, 608.022 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图16 数据预处理流程"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 30,
+    "bounding box" : [ 70.92, 551.663, 524.4, 586.943 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "如图是糖尿病视网膜病变眼底图像输入模型前的标准预处理流程图，完整展示了从 原始图像到模型输入的标准化处理过程。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 11,
+    "level" : "Doctitle",
+    "page number" : 30,
+    "bounding box" : [ 70.92, 519.934, 162.25, 533.984 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5.2 模型选型"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 30,
+    "bounding box" : [ 70.92, 470.835, 524.4, 507.524 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在除本系统所用的 MobileNetV3 模型以外，EfficientNet 模型也比较适配本系统，所 以选择使用相同的模型参数将 MobileNetV3 与 EfficientNet 分别进行模型训练。"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 13,
+    "level" : "1",
+    "page number" : 30,
+    "bounding box" : [ 70.92, 113.954, 530.4, 460.344 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 30,
+      "bounding box" : [ 70.92, 424.154, 421.559, 460.344 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "5.2.1 技术原理对比 EfficientNet 模型与 MobileNetV3 模型技术上的对比如表 6 所示。",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 30,
+        "bounding box" : [ 99.24, 339.771, 515.408, 414.222 ],
+        "font" : "SimSun",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "表 6 两种模型技术对比表 技术特性 EfficientNet MobileNetV3 网络设计 复合缩放策略 深度可分离卷积 + 反转残差结构 激活函数 Swish h-swish"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 30,
+        "bounding box" : [ 94.08, 297.361, 517.567, 329.743 ],
+        "font" : "SimSun",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "注意力机制 SE 模块 SE 模块 + 更轻量级的注意力设计 计算复杂度 高 低"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 30,
+        "bounding box" : [ 88.8, 275.761, 444.49, 286.211 ],
+        "font" : "SimSun",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "内存访问成本 高 低"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 30,
+        "bounding box" : [ 70.92, 161.544, 524.4, 267.284 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "从上表可以看出，EfficientNet 和 MobileNetV3 在设计理念上存在较大差异， EfficientNet 是以复合缩放为基础的思想，在增加网络宽度、深度以及输入尺寸的同时提 高模型的效果，但是这样也会导致更大的计算量以及更高的内存需求；而 MobileNetV3 则是利用深度可分离卷积以及倒残差结构，运用 h-swish 等高效激活函数以及轻量化注 意力机制，虽然牺牲一部分特征学习的能力但是极大地减少了参数量以及计算量。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 30,
+      "bounding box" : [ 70.92, 113.954, 530.4, 150.144 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "5.2.2 模型训练与结果对比分析 本研究基于MobileNetV3-Large作为基础网络，同时选取EfficientNet模型作为对比，",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 30,
+    "bounding box" : [ 70.92, 91.462, 524.4, 103.462 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "使用低秩适应性微调方法对糖尿病视网膜病变眼底图像进行二分类任务训练，在少量医"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 30,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "23"
+  } ]
+}

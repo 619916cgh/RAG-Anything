@@ -1,0 +1,130 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 33,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 4,
+    "page number" : 33,
+    "bounding box" : [ 175.68, 575.24, 440.16, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 5,
+    "page number" : 33,
+    "bounding box" : [ 94.92, 509.714, 448.559, 568.363 ],
+    "linked content id" : 4,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 20 EfficientNet 损失变化曲线 EfficientNet 模型的训练验证损失最低为在 Epoch68 轮时的 0.2475。 两种模型的各类指标对比如表 8 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 33,
+    "bounding box" : [ 235.8, 488.21, 359.409, 499.782 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 8 模型训练指标对比表"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 33,
+    "bounding box" : [ 144.24, 425.45, 437.105, 480.703 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "评估指标 MobileNetV3 EfficientNet 差异 最终准确率 69.62% 66.54% 3.08% 最佳准确率 78.09% 73.22% 4.87%"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 33,
+    "bounding box" : [ 153.48, 382.25, 437.105, 415.422 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "召回率 76.00% 72.80% 3.20% F1 分数 77.50% 73.20% 4.30%"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 33,
+    "bounding box" : [ 138.959, 318.89, 438.063, 372.822 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "mAP@0.5 77.00% 72.50% 4.50% 最终训练损失 0.1820 0.2003 0.0183 最终验证损失 0.2150 0.2615 0.0465"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 33,
+    "bounding box" : [ 70.92, 182.063, 524.4, 311.203 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "综合对比 MobileNetV3 与 EfficientNet 两个模型的实验结果可以看出，MobileNetV3 最优验证准确率 78.09%高于 EfficientNet 的 73.22%，且前者最低验证损失 0.2061 低于 后者的 0.2475；训练过程中 MobileNetV3 的训练、验证准确率与损失曲线贴合度高，全 程无明显过拟合，收敛平稳、泛化性能更优，EfficientNet 在收敛稳定性与模型泛化能力 方面均逊色于 MobileNetV3，综合各项指标，基于该实验参数下 MobileNetV3 更适用于 本次眼底图像分类任务。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 11,
+    "level" : "Doctitle",
+    "page number" : 33,
+    "bounding box" : [ 70.92, 150.334, 162.25, 164.384 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5.3 模型微调"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 33,
+    "bounding box" : [ 70.92, 102.144, 524.4, 137.423 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "虽然模型的各方面都显示出优秀的效果，但是仍有调整空间。认为可以进行以下两 种调整："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 33,
+    "bounding box" : [ 94.92, 77.954, 524.4, 91.243 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（1） 提高 LoRA 秩。较小的 LoRA 秩使得模型参数较少，不能很好地表示数据中"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 33,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "26"
+  } ]
+}

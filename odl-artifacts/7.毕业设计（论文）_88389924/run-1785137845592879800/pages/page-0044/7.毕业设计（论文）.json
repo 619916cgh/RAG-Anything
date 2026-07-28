@@ -1,0 +1,90 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 44,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 4,
+    "page number" : 44,
+    "bounding box" : [ 91.92, 574.04, 508.2, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 5,
+    "page number" : 44,
+    "bounding box" : [ 259.559, 555.05, 356.528, 566.622 ],
+    "linked content id" : 4,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 29 用户管理页面"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 44,
+    "bounding box" : [ 70.92, 463.704, 530.4, 545.663 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "系统管理模块是供管理员使用的后台管理系统，包含用户、数据以及系统的相关操 作，在路由方面以/admin 开头，由 Flask 蓝图进行管理，在安全性方面使用@login_required 认证以及 is_admin 授权双重保障，避免权限越权的问题。管理页面使用单独的模板文件， 与普通用户的页面分离，减少权限配置错误的风险。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 44,
+    "bounding box" : [ 70.92, 300.263, 524.4, 452.803 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "管理员登录/admin/users 访问用户管理页面，在 is_admin 权限检查之后显示用户信 息，可以添加、编辑、删除用户并且会保存到 users.json 文件中，在历史记录页面，管 理员可以看到所有筛查情况，可以根据用户名、时间范围以及诊断结果等多种方式进行 查找并可以直接删除某一条记录同时也会删除相应 CSV 文件以及图片文件，此外还可 以对 users.json、results.csv 以及 uploads 进行统一处理如清理超出一定天数文件、导出统 计数据、备份还原等，所有的操作都会经过权限判断以及异常处理，重要环节会有日志 记录以便追踪问题和保证系统的正常运行。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Doctitle",
+    "page number" : 44,
+    "bounding box" : [ 70.92, 268.534, 162.25, 282.584 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "6.7 本章小结"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 44,
+    "bounding box" : [ 70.92, 150.263, 524.52, 256.124 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本章完成了糖尿病视网膜病变快速筛查系统的前后端功能实现，基于 Flask 框架开 发了 B/S 架构系统，加入了用户权限控制、单张与批量图像筛查、结果解读、历史记录 管理以及系统后台管理等功能模块，使整个过程完全自动化并且便于操作。该系统部署 简便、运行良好、识别精度高、安全性强，可以较好地服务于基层医疗机构中的快速筛 查及辅助诊断。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 44,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "37"
+  } ]
+}

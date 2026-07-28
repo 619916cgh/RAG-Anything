@@ -57,6 +57,16 @@ _DEFAULT_MAX_OUTPUT_BYTES = int(
 _DEFAULT_CONCURRENCY = max(1, int(os.getenv("ODL_CONCURRENCY", "1")))
 _JAVA_HEAP_RE = re.compile(r"-Xmx[1-9][0-9]*[mMgG]")
 _RUNNER_RESULT_SCHEMA = "opendataloader-runner-result-v1"
+_RUNNER_FAILURE_CATEGORIES = frozenset(
+    {
+        "upstream_process_failed",
+        "upstream_timeout",
+        "runtime_not_found",
+        "artifact_validation_failed",
+        "runner_io_failed",
+        "runner_exception",
+    }
+)
 _CONVERSION_SEMAPHORE = threading.BoundedSemaphore(_DEFAULT_CONCURRENCY)
 
 # The runner executes a third-party Python package and its JVM.  Do not pass
@@ -593,8 +603,19 @@ class OpenDataLoaderParser(Parser):
         if not isinstance(entry, dict) or entry.get("page") != page:
             raise ODLPageCoverageError("OpenDataLoader runner returned the wrong page")
         if return_code != 0:
+            category = entry.get("failure_category")
+            if category not in _RUNNER_FAILURE_CATEGORIES:
+                category = "invalid_runner_diagnostic"
+            upstream_exit_code = entry.get("upstream_exit_code")
+            if not isinstance(upstream_exit_code, int) or isinstance(
+                upstream_exit_code, bool
+            ):
+                upstream_exit_code = None
+            diagnostic = f"category={category}"
+            if upstream_exit_code is not None:
+                diagnostic += f", upstream_exit_code={upstream_exit_code}"
             raise ODLPageCoverageError(
-                f"OpenDataLoader runner failed to prove page {page}",
+                f"OpenDataLoader runner failed to prove page {page} ({diagnostic})",
                 coverage={
                     "source_total_pages": source_pages,
                     "successful_pages": [],
@@ -1313,7 +1334,15 @@ def _build_image_block(
     Resolves the image path safely within the output root.  Returns ``None``
     on unsafe or missing references.
     """
-    image_ref = el.get("image") or el.get("img_path") or el.get("src") or ""
+    # OpenDataLoader 2.5.0 writes exported figure paths in ``source``.
+    # Keep all candidate paths behind the same containment check below.
+    image_ref = (
+        el.get("image")
+        or el.get("img_path")
+        or el.get("src")
+        or el.get("source")
+        or ""
+    )
     if not image_ref:
         # Check for embedded Base64 data URI
         content = el.get("content") or ""

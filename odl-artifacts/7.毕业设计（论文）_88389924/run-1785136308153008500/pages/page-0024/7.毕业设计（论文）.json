@@ -1,0 +1,188 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 24,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 9,
+    "page number" : 24,
+    "bounding box" : [ 163.68, 580.28, 431.64, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 10,
+    "page number" : 24,
+    "bounding box" : [ 268.8, 561.05, 347.528, 572.622 ],
+    "linked content id" : 9,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图9 功能模块图"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 24,
+    "bounding box" : [ 70.92, 469.704, 524.4, 551.663 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "如图展示了该系统一共所包含的用户权限管理模块、单张眼底图像筛查模块、批量 眼底图像筛查模块、筛查结果展示与建议模块，以及历史记录管理模块和系统管理模块 六大模块。 4.2.2 功能模块说明"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 12,
+    "level" : "1",
+    "page number" : 24,
+    "bounding box" : [ 94.92, 96.144, 530.4, 458.304 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 6,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 24,
+      "bounding box" : [ 94.92, 446.304, 530.4, 458.304 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（1） 用户权限管理模块。系统具有用户注册、登录、注销以及密码加密校验功能。",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 24,
+        "bounding box" : [ 70.92, 399.623, 524.4, 435.023 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "其中角色有两种：普通用户和管理员，普通用户只能对自己相关数据进行操作，而管理 员可以对所有用户以及验证信息进行管理以保证安全性。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 24,
+      "bounding box" : [ 94.92, 375.435, 524.4, 388.724 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2） 单张图像筛查模块。支持 JPG、JPEG、PNG 格式眼底图上传，后台自动调",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 24,
+        "bounding box" : [ 70.92, 329.543, 524.512, 365.324 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "用 MobileNetV3 模型推理图片，推理后实时返回诊断结果、置信度、病变等级、医学 建议。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 24,
+      "bounding box" : [ 94.92, 305.354, 524.395, 318.643 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（3） 批量图像筛查模块。支持单次上传最多 50 张眼底照片，自动进行批量检测",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 24,
+        "bounding box" : [ 70.92, 259.583, 524.4, 294.862 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "并计算出正常的数量以及病变的数量及其程度等信息，最后出具一份总的筛查结果，提 高基层筛查的工作效率。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 24,
+      "bounding box" : [ 94.92, 236.183, 530.4, 248.183 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（4） 结果展示与建议模块。结果展示与建议模块。筛查结果分为正常和病变两类，",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 24,
+        "bounding box" : [ 70.92, 189.504, 524.4, 224.904 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "病变进一步细分为初期、中期、后期三个等级，根据等级给出相应的就医建议和健康指 导。结果呈现直观易懂，非专业人员也能快速判断。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 24,
+      "bounding box" : [ 94.92, 166.222, 524.4, 178.222 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（5） 历史记录管理模块。自动保存每一张被筛查图片、结果、时间以及置信度等",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 24,
+        "bounding box" : [ 70.92, 119.423, 524.4, 154.823 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "信息。可以查看、删除、回溯历史记录。一般用户只能查看自己记录，管理员可以查看 所有用户记录。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 24,
+      "bounding box" : [ 94.92, 96.144, 524.4, 108.144 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（6） 系统管理模块。管理员可以进行用户管理，即添加、编辑、删除以及分配角",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 24,
+    "bounding box" : [ 70.92, 72.862, 526.919, 84.862 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "色，还可以进行筛查记录管理，查看所有筛查信息并且可以对这些信息进行分析统计，"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 24,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "17"
+  } ]
+}

@@ -1,0 +1,101 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 56,
+    "bounding box" : [ 213.6, 781.921, 381.485, 792.371 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 4,
+    "level" : "Doctitle",
+    "page number" : 56,
+    "bounding box" : [ 70.92, 737.107, 102.95, 753.057 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "致谢"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 56,
+    "bounding box" : [ 94.92, 704.543, 524.4, 716.543 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "时间如白驹过隙，转眼间，四年的大学生活即将结束，当我在完成整个系统的设计"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 56,
+    "bounding box" : [ 70.92, 657.863, 530.4, 693.263 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "与论文的编写，回望这篇毕业设计的整个过程，从选题时的迷茫，到研究中遇到的问题， 再到最后形成一个完整的体系，这一切，都离不开老师、同学们以及家人的帮助和支持。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 56,
+    "bounding box" : [ 70.92, 564.504, 527.519, 646.463 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "首先，我要真诚地向我的导师邱保志教授表示感谢，在选题、方案制定以及论文写 作的过程中，导师都给了我很大的帮助和支持，在我遇到 MobileNetV3 模型优化问题、 Flask 系统架构设计或者代码调试困难时，导师都会及时给我指明方向并给予鼓励，让 我茅塞顿开，勇往直前，这都是我永远难忘的。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 56,
+    "bounding box" : [ 70.92, 494.423, 530.4, 553.223 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "其次，感谢身边同学和朋友。论文撰写以及系统实现过程中，我得到了很大的支持。 遇到问题时，同学之间沟通启发我思考，也帮助我解决一些有关数据集以及 Web 系统 部署方面问题。大学四年，因有你们而精彩，也有了许多美好记忆。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 20,
+    "page number" : 56,
+    "bounding box" : [ 70.92, 447.744, 524.4, 483.144 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "也特别感谢我的家人，你们一直是我坚实的后盾，在我遇到困难时给予我理解、支 持及无私的帮助使我安心的学习。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 23,
+    "page number" : 56,
+    "bounding box" : [ 94.92, 424.463, 526.919, 436.463 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "最后，对一直以来关心、支持我的师长、同事、朋友们以及家人们表示衷心感谢。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 56,
+    "bounding box" : [ 293.159, 36.003, 302.218, 45.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "49"
+  } ]
+}

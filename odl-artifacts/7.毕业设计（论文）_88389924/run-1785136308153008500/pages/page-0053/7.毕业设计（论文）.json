@@ -1,0 +1,99 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 53,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 4,
+    "page number" : 53,
+    "bounding box" : [ 126.6, 567.2, 468.6, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 5,
+    "page number" : 53,
+    "bounding box" : [ 259.559, 548.09, 356.528, 559.662 ],
+    "linked content id" : 4,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 44 管理使用记录"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 53,
+    "bounding box" : [ 70.92, 503.304, 524.4, 538.704 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "当管理员进入历史记录页面后，可以看到所有用户的详细的检测记录，同时也可以 对记录进行删除操作。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 53,
+    "bounding box" : [ 94.92, 479.114, 316.92, 492.403 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "管理员可管理所有的账号，如图 45 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 53,
+    "bounding box" : [ 128.64, 257.48, 486.96, 470.48 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 53,
+    "bounding box" : [ 259.559, 236.81, 356.528, 248.382 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 45 用户管理功能"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 10,
+    "level" : "Doctitle",
+    "page number" : 53,
+    "bounding box" : [ 70.92, 191.235, 524.4, 227.423 ],
+    "heading level" : 1,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "管理员可以对所有用户更改权限，包括将普通用户设置为管理员，也可以将管理员 退回至普通用户，并且可以新增或删除用户，如图 46 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 53,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "46"
+  } ]
+}

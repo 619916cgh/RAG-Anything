@@ -14,6 +14,7 @@ import re as _re_valid
 import unicodedata
 import hashlib
 import logging
+import os
 import time
 import uuid
 from collections.abc import Iterator
@@ -31,6 +32,8 @@ _ZERO_WIDTH_RE = _re_valid.compile(
 )
 
 _security_logger = logging.getLogger("rag_server.security")
+
+_DOCUMENT_CONTENT_SAFETY_MODES = frozenset({"block", "audit", "off"})
 
 
 # ── Prompt Injection Detection Patterns ────────────────────
@@ -75,6 +78,24 @@ def _normalize_input(text: str) -> str:
     text = _ZERO_WIDTH_RE.sub('', text)
     text = unicodedata.normalize('NFKC', text)
     return text
+
+
+def _document_content_safety_mode() -> str:
+    """Return the deployment-level document ingestion safety policy.
+
+    Unknown values fail closed so a misspelled setting never silently weakens
+    document ingestion protections. This setting intentionally does not affect
+    query validation.
+    """
+    mode = os.getenv("DOCUMENT_CONTENT_SAFETY_MODE", "block").strip().lower()
+    if mode in _DOCUMENT_CONTENT_SAFETY_MODES:
+        return mode
+
+    _security_logger.warning(
+        "DOCUMENT_CONTENT_SAFETY_MODE_INVALID | action=block",
+        extra={"security_event": "document_content_safety_mode_invalid"},
+    )
+    return "block"
 
 
 class DocumentContentSafetyError(RuntimeError):
@@ -148,12 +169,18 @@ def _iter_text_values(value: Any) -> Iterator[str]:
 def validate_content_list_for_ingestion(
     content_list: list[dict[str, Any]], document_id: str | None = None
 ) -> None:
-    """Fail closed when parsed document text matches an injection rule.
+    """Apply the configured policy when parsed text matches an injection rule.
 
     Parser output is untrusted input and must be checked before it is cached,
-    used as VLM context, or sent to LightRAG. Audit logs contain only block
+    used as VLM context, or sent to LightRAG. ``block`` (the default) rejects
+    a match, ``audit`` records a redacted event and continues, and ``off``
+    skips document-content scanning only. Audit logs contain only block
     metadata and a digest, never document text.
     """
+    mode = _document_content_safety_mode()
+    if mode == "off":
+        return
+
     for block_index, item in enumerate(content_list):
         if not isinstance(item, dict):
             continue
@@ -174,10 +201,21 @@ def validate_content_list_for_ingestion(
                     content_hash = hashlib.sha256(
                         text_value.encode("utf-8", errors="replace")
                     ).hexdigest()
+                    event_name = (
+                        "DOCUMENT_PROMPT_INJECTION_BLOCKED"
+                        if mode == "block"
+                        else "DOCUMENT_PROMPT_INJECTION_AUDITED"
+                    )
+                    event_key = (
+                        "document_prompt_injection_blocked"
+                        if mode == "block"
+                        else "document_prompt_injection_audited"
+                    )
                     _security_logger.warning(
-                        "DOCUMENT_PROMPT_INJECTION_BLOCKED | rule=%d | "
+                        "%s | rule=%d | "
                         "block_type=%s | page_idx=%s | field=%s | "
                         "content_sha256=%s | content_length=%d",
+                        event_name,
                         rule_index,
                         block_type,
                         page_idx,
@@ -185,7 +223,7 @@ def validate_content_list_for_ingestion(
                         content_hash,
                         len(text_value),
                         extra={
-                            "security_event": "document_prompt_injection_blocked",
+                            "security_event": event_key,
                             "rule_index": rule_index,
                             "block_index": block_index,
                             "block_type": block_type,
@@ -195,6 +233,8 @@ def validate_content_list_for_ingestion(
                             "content_length": len(text_value),
                         },
                     )
+                    if mode == "audit":
+                        return
                     raise DocumentContentSafetyError(
                         rule_index, block_type, page_idx, document_id
                     )

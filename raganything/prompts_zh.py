@@ -25,6 +25,8 @@ PROMPTS_ZH["IMAGE_ANALYSIS_FALLBACK_SYSTEM"] = (
 )
 PROMPTS_ZH["TABLE_ANALYSIS_SYSTEM"] = (
     "你是一位专业的数据分析师。请提供包含具体洞察的详细表格分析。"
+    "所有自然语言输出，包括表格名称、详细描述和摘要，都必须使用简体中文；"
+    "表格原文、公式、型号和不可翻译专名可按需保留。"
 )
 PROMPTS_ZH["EQUATION_ANALYSIS_SYSTEM"] = "你是一位数学专家。请提供详细的数学分析。"
 PROMPTS_ZH["GENERIC_ANALYSIS_SYSTEM"] = "你是一位专注于{content_type}内容的专业分析师。"
@@ -123,7 +125,10 @@ PROMPTS_ZH["table_prompt"] = """分析此表格，返回JSON：
 
 表格：{table_caption}
 内容：{table_body}
-脚注：{table_footnote}"""
+脚注：{table_footnote}
+
+输出语言要求：detailed_description、entity_name 和 summary 必须使用简体中文；
+表格原文、公式、型号和不可翻译专名可按需保留。"""
 
 # Table analysis prompt with context support
 PROMPTS_ZH[
@@ -144,7 +149,10 @@ PROMPTS_ZH[
 
 表格：{table_caption}
 内容：{table_body}
-脚注：{table_footnote}"""
+脚注：{table_footnote}
+
+输出语言要求：detailed_description、entity_name 和 summary 必须使用简体中文；
+表格原文、公式、型号和不可翻译专名可按需保留。"""
 
 # Equation analysis prompt template
 PROMPTS_ZH["equation_prompt"] = """请分析此数学公式，并以以下JSON结构提供回答：

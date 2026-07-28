@@ -1,0 +1,181 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 11,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 9,
+    "level" : "1",
+    "page number" : 11,
+    "bounding box" : [ 94.92, 442.754, 524.4, 759.523 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 6,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 11,
+      "bounding box" : [ 94.92, 746.234, 524.4, 759.523 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 3 章需求分析，从功能需求和性能需求两个维度明确系统设计目标；从技术、经",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 11,
+        "bounding box" : [ 70.92, 723.863, 442.92, 735.863 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "济、操作三个方面论证系统开发的可行性；介绍开发环境与工具选型。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 11,
+      "bounding box" : [ 94.92, 699.554, 524.4, 712.843 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 4 章系统设计，介绍了系统的总统功能结构以及技术栈选型，说明了系统包含的",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 11,
+        "bounding box" : [ 70.92, 677.063, 226.92, 689.063 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "六大模块以及数据库的设计。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 11,
+      "bounding box" : [ 94.92, 652.874, 524.364, 666.163 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 5 章模型优化，对数据集构建、预处理和扩充方法进行了说明，将其与 EfficientNet",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 11,
+        "bounding box" : [ 70.92, 607.103, 524.4, 642.382 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "进行比较分析，介绍了模型训练相关配置信息、超参数设置以及优化手段；并通过对比 实验验证模型效果，最终确定最优方案。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 11,
+      "bounding box" : [ 94.92, 582.914, 524.4, 596.203 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 6 章系统实现，详细描述用户的权限控制、单张/批量照片筛查、显示及建议、历",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 11,
+        "bounding box" : [ 70.92, 560.423, 346.92, 572.423 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "史记录管理、系统后台管理等功能的具体实现方法。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 11,
+      "bounding box" : [ 94.92, 536.235, 524.4, 549.524 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 7 章系统测试，在系统上进行系统的功能测试及性能测试，包括模型在独立测试",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 11,
+        "bounding box" : [ 70.92, 467.063, 524.4, 525.744 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "集上的准确率测试、推理速度测试以及轻量化等方面的测试，还包括各个功能模块所对 应的测试用例如及相应的测试结果，保证系统的正常运行并达到预期目标以及临床上的 应用要求。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 11,
+      "bounding box" : [ 94.92, 442.754, 524.4, 456.043 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 8 章总结与展望，归纳全文的研究成果与主要贡献，分析研究存在的局限性，并",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 11,
+    "bounding box" : [ 70.92, 420.263, 214.92, 432.263 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "对未来研究方向进行展望。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 11,
+    "level" : "Doctitle",
+    "page number" : 11,
+    "bounding box" : [ 70.92, 388.654, 162.25, 402.704 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1.4 本章小结"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 11,
+    "bounding box" : [ 70.92, 293.663, 530.4, 375.744 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本章对糖尿病视网膜病变筛查的相关研究进行概述，阐述了传统人工筛查所遇到的 问题；总结了国内外相关研究进展，在模型效率、部署可行性和应用价值上均存在缺陷， 确定了基于 MobileNetV3 开发一个轻量级 Web 系统的思路；并简要介绍了本文的整体 结构。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 11,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "4"
+  } ]
+}

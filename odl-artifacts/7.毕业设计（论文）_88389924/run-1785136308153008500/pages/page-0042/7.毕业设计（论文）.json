@@ -1,0 +1,126 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 42,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 42,
+    "bounding box" : [ 70.92, 746.234, 401.52, 759.523 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "所属用户 ID、图像存储路径、诊断结果、置信度及筛查时间。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 42,
+    "bounding box" : [ 70.92, 699.554, 524.398, 736.243 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在数据写入方面，每当完成一次图像筛查，系统会自动调用 save_record 函数，将 当前用户 ID 与筛查结果追加至 CSV 文件。"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 8,
+    "page number" : 42,
+    "bounding box" : [ 70.92, 606.195, 524.4, 689.563 ],
+    "linked content id" : 9,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "当用户点击“历史记录”，系统根据当前会话中的 user_id 读取 CSV 文件，获取并 显示此用户的全部信息；而管理员拥有相应权限可以读取所有的筛查记录，在整个系统 中进行管理，此外还可以删除指定的历史记录以便用户清理数据，保证数据管理的灵活 性，普通用户的记录如图 27 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 9,
+    "page number" : 42,
+    "bounding box" : [ 136.68, 403.4, 479.04, 597.44 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 10,
+    "level" : "1",
+    "page number" : 42,
+    "bounding box" : [ 238.559, 123.65, 356.528, 395.262 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 42,
+      "bounding box" : [ 238.559, 383.69, 356.528, 395.262 ],
+      "font" : "SimSun",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "图 27 普通用户历史记录",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 42,
+        "bounding box" : [ 118.92, 368.235, 280.92, 381.524 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "管理员历史记录如图 28 所示。"
+      }, {
+        "type" : "image",
+        "pdfua_tag" : "Figure",
+        "id" : 2,
+        "page number" : 42,
+        "bounding box" : [ 146.16, 143.24, 490.44, 359.48 ],
+        "alt_source" : "missing",
+        "source" : "7.毕业设计（论文）_images/imageFile2.png"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 42,
+      "bounding box" : [ 238.559, 123.65, 356.528, 135.222 ],
+      "font" : "SimSun",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "图 28 管理员的历史记录",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 42,
+    "bounding box" : [ 70.92, 85.703, 524.4, 121.484 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "历史记录管理模块采用 CSV 文件进行轻量化的持久化存储，尽量降低对外部系统 的依赖程度，在设计时坚持“写入即时性、查询安全性、删除安全性”的设计理念：筛"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 42,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "35"
+  } ]
+}

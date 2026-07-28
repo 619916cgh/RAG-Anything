@@ -1,0 +1,201 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 20,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 11,
+    "level" : "Doctitle",
+    "page number" : 20,
+    "bounding box" : [ 70.92, 730.507, 159.229, 746.457 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "3 需求分析"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 12,
+    "level" : "1",
+    "page number" : 20,
+    "bounding box" : [ 70.92, 404.063, 524.4, 709.784 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 20,
+      "bounding box" : [ 70.92, 669.914, 524.4, 709.784 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "3.1 功能需求分析 本系统旨在为医疗机构及个人用户提供便捷的 DR 筛查服务，以轻量化、高效率易",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 647.423, 418.92, 659.423 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "操作为核心目标，功能需求围绕用户使用全流程展开，具体如下："
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 600.743, 524.4, 636.143 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "用户权限管理功能。支持用户注册、登录、密码修改，区分管理员与普通用户两种 角色。管理员可查看并管理全部用户信息及筛查记录，普通用户仅能操作个人账号。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 553.154, 524.398, 589.843 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "眼底图像筛查功能。支持单张眼底图像上传筛查，兼容 JPG、JPEG、PNG 常见格 式。支持批量眼底图像上传筛查，单次最大处理量不低于 50 张，满足批量筛查场景。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 6,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 507.383, 524.4, 543.163 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "筛查结果展示功能。输出二分类结果（正常眼底/糖尿病视网膜病变），显示模型预 测置信度，并基于置信度完成病变程度分级，分为正常、轻度、中度、晚期。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 7,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 459.795, 529.2, 495.983 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "历史记录管理功能。每次筛查记录自动保存，包含图像信息、诊断结果、置信度、 筛查时间。支持历史记录查询、追溯及导出（CSV 格式），方便数据统计与复诊参考。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 20,
+      "bounding box" : [ 70.92, 404.063, 524.4, 443.024 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "3.2 性能需求分析 在构建这套糖尿病视网膜病变筛查系统时，推理速度、资源占用和运行稳定性是衡",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 20,
+    "bounding box" : [ 70.92, 357.383, 524.4, 392.783 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "量其临床实用价值的三项核心性能指标。结合眼底医学影像分析的特点以及基层医疗机 构硬件条件有限的实际情况，系统需要满足以下性能要求："
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 14,
+    "level" : "2",
+    "page number" : 20,
+    "bounding box" : [ 94.92, 169.754, 524.4, 346.484 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 20,
+      "bounding box" : [ 94.92, 333.195, 524.4, 346.484 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（1） 推理速度。实时性直接影响基层筛查效率，在社区义诊、基层门诊或者移动",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 263.235, 524.4, 322.703 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "筛查车上，系统需在较短的时间内完成一张眼底照片从上传到给出诊断的过程，对性能 的要求是：每张眼底图平均推理时间不超过 30ms，每张端到端响应时间（包括预处理 以及后处理）不超过 3s。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 20,
+      "bounding box" : [ 94.92, 239.835, 524.4, 253.124 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2） 资源占用。由于大部分基层医疗机构硬件条件较差，模型需尽量小，以便于",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 20,
+        "bounding box" : [ 70.92, 193.154, 524.399, 229.843 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "部署，对模型的要求是，模型参数量不超过 5M，模型文件大小不超过 20MB，在无独 立显卡普通 PC 或者嵌入式设备上可以进行推理，做到低成本、易部署的轻量化运行。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 20,
+      "bounding box" : [ 94.92, 169.754, 524.4, 183.043 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（3） 运行稳定性。稳定性是系统稳定运行的前提条件，在不同环境中都能正常工",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 20,
+    "bounding box" : [ 70.92, 77.303, 524.511, 159.263 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "作而不会因为内存泄露或者程序出错而导致服务终止。如果传入模糊眼底图、非眼底干 扰图或者是由于硬件原因引起的问题，则应能平滑降级并且给出相应的错误信息而非直 接失败；另外还需要有对所有重要操作如登录、上传、识别、管理等进行日志记录的功 能以便于管理员监控系统的运行情况并能迅速发现故障从而保证识别服务始终在线以"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 20,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "13"
+  } ]
+}

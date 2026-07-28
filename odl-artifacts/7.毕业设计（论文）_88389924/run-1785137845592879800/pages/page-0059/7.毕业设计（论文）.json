@@ -1,0 +1,209 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 59,
+    "bounding box" : [ 213.6, 781.921, 381.485, 792.371 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 59,
+    "bounding box" : [ 91.92, 630.05, 211.518, 767.022 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "file_lock = threading.Lock() # 用户数据文件路径 USERS_JSON = 'users.json' # 角色定义 ROLE_ADMIN = 'admin' ROLE_USER = 'user' # 初始化用户数据文件 def init_users_file():"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 59,
+    "bounding box" : [ 112.92, 604.37, 442.983, 628.782 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "\"\"\"初始化用户数据文件，如果不存在则创建，并创建默认管理员账户\"\"\" if not os.path.exists(USERS_JSON):"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 59,
+    "bounding box" : [ 133.92, 578.69, 238.806, 603.103 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 创建默认管理员账户 default_admin = {"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 59,
+    "bounding box" : [ 154.92, 516.77, 429.614, 578.143 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "'id': 1, 'username': 'root', 'password': generate_password_hash('root'), # 默认密码：root 'role': ROLE_ADMIN, 'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 59,
+    "bounding box" : [ 133.92, 492.65, 356.414, 516.222 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "} with open(USERS_JSON, 'w', encoding='utf-8') as f:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 59,
+    "bounding box" : [ 133.92, 467.69, 410.157, 492.103 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "json.dump([default_admin], f, ensure_ascii=False, indent=4) logger.info(\"已创建默认管理员账户: root/root\")"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 59,
+    "bounding box" : [ 112.92, 454.85, 132.133, 466.422 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "else:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 59,
+    "bounding box" : [ 133.92, 429.171, 448.798, 453.582 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 检查现有用户是否有角色字段，如果没有则添加（默认普通用户） try:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 59,
+    "bounding box" : [ 154.92, 392.931, 239.516, 428.622 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "users = read_users() updated = False for user in users:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 59,
+    "bounding box" : [ 175.92, 356.69, 311.996, 392.382 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "if 'role' not in user: user['role'] = ROLE_USER updated = True"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 59,
+    "bounding box" : [ 154.92, 318.89, 448.437, 355.422 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 检查是否存在管理员账户，如果没有则创建默认管理员 has_admin = any(user.get('role') == ROLE_ADMIN for user in users) if not has_admin:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 59,
+    "bounding box" : [ 175.92, 294.771, 418.505, 318.462 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "max_id = max([u.get('id', 0) for u in users]) if users else 0 default_admin = {"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 59,
+    "bounding box" : [ 196.92, 234.41, 469.556, 294.343 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "'id': max_id + 1, 'username': 'root', 'password': generate_password_hash('root'), 'role': ROLE_ADMIN, 'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 17,
+    "page number" : 59,
+    "bounding box" : [ 175.92, 185.45, 384.356, 233.862 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "} users.append(default_admin) updated = True logger.info(\"已添加默认管理员账户: root/root\")"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 18,
+    "page number" : 59,
+    "bounding box" : [ 154.92, 160.49, 200.052, 172.062 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "if updated:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 19,
+    "page number" : 59,
+    "bounding box" : [ 133.92, 136.25, 249.955, 159.942 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "save_users(users) except Exception as e:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 20,
+    "page number" : 59,
+    "bounding box" : [ 154.92, 123.41, 355.437, 134.982 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "logger.error(f\"初始化用户角色失败: {str(e)}\")"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 21,
+    "page number" : 59,
+    "bounding box" : [ 112.92, 72.89, 524.368, 110.143 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "if 'user_id' in session: session.permanent = True # 设置会话为永久，使用配置的过期时间 return render_template('index.html', error='', is_admin=is_admin(),"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 59,
+    "bounding box" : [ 293.159, 36.003, 302.218, 45.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "52"
+  } ]
+}

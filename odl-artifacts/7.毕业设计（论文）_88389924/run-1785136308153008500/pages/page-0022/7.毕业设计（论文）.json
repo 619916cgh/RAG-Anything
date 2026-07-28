@@ -1,0 +1,92 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 22,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 4,
+    "level" : "Doctitle",
+    "page number" : 22,
+    "bounding box" : [ 70.92, 730.507, 159.229, 746.457 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "4 系统设计"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 5,
+    "level" : "Subtitle",
+    "page number" : 22,
+    "bounding box" : [ 70.92, 695.734, 190.329, 709.784 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "4.1 系统开发框架"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 22,
+    "bounding box" : [ 70.92, 624.143, 524.4, 682.823 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本系统采用浏览器连接服务器架构，前后端分离设计，整体技术栈轻量高效，适合 基层医疗机构快速部署。 4.1.1 整体架构分层"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 22,
+    "bounding box" : [ 70.92, 576.554, 524.4, 612.743 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本系统采用分层架构设计，整体分为四层：前端层、后端服务层、模型推理层、数 据存储层，对应的系统四层架构图如图 8 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 22,
+    "bounding box" : [ 91.92, 97.64, 483.96, 567.8 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 22,
+    "bounding box" : [ 268.8, 78.05, 347.528, 89.622 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图8 系统架构图"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 22,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "15"
+  } ]
+}

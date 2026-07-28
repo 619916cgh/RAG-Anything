@@ -1,0 +1,182 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 31,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 31,
+    "bounding box" : [ 70.92, 700.463, 524.4, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "疗样本情况下获得较高准确率；同时保证模型具有较快推理速度以及较小参数量，符合 工程化应用要求；并通过损失收敛情况以及各项指标衡量微调效果及鲁棒性。模型训练 会经过以下四步："
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 6,
+    "level" : "1",
+    "page number" : 31,
+    "bounding box" : [ 94.92, 536.235, 524.4, 689.063 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 31,
+      "bounding box" : [ 94.92, 677.063, 382.919, 689.063 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（1） 模型初始化。加载模型，修改输出层为二分类。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 31,
+      "bounding box" : [ 94.92, 653.783, 382.919, 665.783 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2） 数据加载。使用自定义数据集类和数据加载器。",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 31,
+      "bounding box" : [ 94.92, 630.382, 524.4, 642.382 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（3） 训练循环。首先进行前向传播，将输入图像送入模型获得预测结果，然后使",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 31,
+        "bounding box" : [ 70.92, 583.704, 524.4, 619.484 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "用 CrossEntropyLoss 计算预测值与真实标签之间的损失，在此基础上进行反向传播求解 梯度并对模型参数进行优化，在一轮迭代之后在验证集上对模型进行评估。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 31,
+      "bounding box" : [ 94.92, 536.235, 502.919, 572.423 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（4） 模型保存。保存验证准确率最高的模型。 为平衡模型收敛速度、精度与资源消耗，设置如下核心超参数，如表 7 所示。",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 31,
+    "bounding box" : [ 246.24, 514.731, 348.846, 526.303 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 7 模型训练参数表"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 11,
+    "level" : "Subtitle",
+    "page number" : 31,
+    "bounding box" : [ 201.0, 468.65, 360.848, 501.971 ],
+    "heading level" : 2,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "参数名称 参数取值 分辨率 224×224"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 31,
+    "bounding box" : [ 201.12, 447.05, 345.064, 458.622 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "批次大小 16"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 31,
+    "bounding box" : [ 201.12, 382.25, 354.184, 437.022 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "学习率 0.0002 训练轮数 80 LoRA 秩 4"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 31,
+    "bounding box" : [ 190.559, 318.121, 397.448, 372.103 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "优化器 SGD 损失函数 CrossEntropyLoss 数据增强策略 随机翻转/裁剪/颜色抖动"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Doctitle",
+    "page number" : 31,
+    "bounding box" : [ 94.92, 281.714, 485.52, 295.003 ],
+    "heading level" : 1,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在此参数上进行训练，得到的 MobileNetV3 模型准确率曲线如图 17 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 9,
+    "page number" : 31,
+    "bounding box" : [ 170.64, 94.04, 434.76, 272.96 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 10,
+    "page number" : 31,
+    "bounding box" : [ 238.92, 75.171, 322.807, 86.743 ],
+    "linked content id" : 9,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图17 准确率曲线"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 31,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "24"
+  } ]
+}

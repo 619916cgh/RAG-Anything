@@ -10,6 +10,7 @@ services:
     env_file:
       - .env
     environment:
+      - PORT=8000
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - REDIS_URI=redis://redis:6379
@@ -18,6 +19,7 @@ services:
       - ./uploads:/app/uploads
       - ./output:/app/output
       - ./auth.db:/app/auth.db
+      - frontend_dist:/shared_frontend
     depends_on:
       postgres:
         condition: service_healthy

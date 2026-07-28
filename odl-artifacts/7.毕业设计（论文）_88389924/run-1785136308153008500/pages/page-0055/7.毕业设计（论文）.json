@@ -1,0 +1,91 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 55,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Doctitle",
+    "page number" : 55,
+    "bounding box" : [ 70.92, 736.507, 175.188, 752.457 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "8 总结与展望"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 6,
+    "level" : "1",
+    "page number" : 55,
+    "bounding box" : [ 70.92, 270.023, 524.4, 715.784 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 55,
+      "bounding box" : [ 70.92, 675.914, 524.4, 715.784 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "8.1 总结 本文从糖尿病视网膜病变（Diabetic Retinopathy，DR）临床筛查过程中人工判读效",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 55,
+        "bounding box" : [ 70.92, 326.663, 536.4, 665.423 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "率低下、误诊率高以及基层医院缺乏相关设备等问题出发，为了解决这些问题，本文利 用当前深度学习的最新进展提出一种基于轻量化网络结构的 DR 智能筛查系统设计思路。 该系统可以有效提高筛查准确性和便捷性的同时还能减少硬件需求满足更多场合的需 求。为了训练出良好的模型，研究人员收集了一共 4481 张眼底照片并且使用数据扩增 增加数据集多样性。在模型的设计上采用 MobileNetV3-Large 做为基础网络并结合迁移 学习的思想来提取特征。经过多次调优之后得到了一个能够较好地区分 DR 各种类型的 病灶。实验结果表明，在准确率、模型大小以及推理速度上相比目前最流行的 EfficientNetbaseline 模型有着明显的优势。基于 PyTorch 和 Flask 开发了一个可以在网页 上使用的前端界面，包括登录注册、上传照片、判断病情级别、给出诊断结果以及查看 历史记录的功能。实验证明该系统在测试集上取得 81.44%准确率，每张图片处理时间 为 26 毫秒，参数量仅为 4.2MB，充分体现了该系统的高效性和易用性。本课题组的研 究成果极大地缓解了传统的 DR 筛查所面临的问题，也促进了轻量化深度学习技术应用 于医疗图像分析的发展趋势，对于提高我国基层医疗服务水平具有重要的现实意义。未 来还可以进一步扩大应用范围并且探索与其他智能硬件或者软件相结合的可能性，从而 更好地服务于人们的健康生活。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 55,
+      "bounding box" : [ 70.92, 270.023, 524.4, 308.984 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "8.2 展望 未来可围绕数据集扩充、模型性能升级、系统功能完善、多模态融合和临床合规化",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 55,
+    "bounding box" : [ 70.92, 83.303, 530.4, 258.744 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "五个方向持续深化研究，以进一步提升系统的实用性、可靠性与可推广性。数据层面， 计划扩大数据规模，纳入多设备、多中心、多人种样本，将二分类任务升级为 DR 五级 精准分期，并尝试借助半监督、弱监督学习降低标注依赖；模型层面，可通过量化、剪 枝和知识蒸馏进一步轻量化，系统层面，可进一步完善患者管理、自动报告、远程随访 和多终端适配等功能，对接 HIS/LIS 医院信息系统，实现 PC 端、移动端及小程序的全 场景覆盖；临床应用层面，将推动多中心临床验证，完善测试报告、风险评估和数据安 全等文档，逐步向医疗器械注册方向推进，促使系统从实验室原型走向规模化临床应用， 为基层糖尿病视网膜病变早筛早诊提供更加稳定、高效且可信的智能化工具"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 55,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "48"
+  } ]
+}

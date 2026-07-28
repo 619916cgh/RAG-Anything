@@ -114,6 +114,24 @@ async def test_pg_doc_status_summary_read_does_not_hydrate_chunk_lists(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_pg_doc_status_summary_supports_current_lightrag_attribute_name(monkeypatch):
+    store = _PagedDocStatus([("doc-1", _document_status("processed"))])
+    instance = SimpleNamespace(
+        lightrag=SimpleNamespace(doc_status_storage=store),
+    )
+
+    monkeypatch.setattr(kb_service, "kb_instances", _Cache({"demo": instance}))
+    monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: True)
+
+    result = await kb_service._load_doc_status_summaries("demo")
+
+    assert result["doc-1"]["file_path"] == "manual.pdf"
+    assert store.calls == [
+        {"status_filter": None, "page": 1, "page_size": 200}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_pg_doc_status_read_hydrates_chunks_omitted_from_page_summary(monkeypatch):
     summary = _document_status("processed", chunks_list=[])
     full = _record_from_status(_document_status("processed"))

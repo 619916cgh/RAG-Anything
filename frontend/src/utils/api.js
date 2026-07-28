@@ -38,9 +38,9 @@ function _uploadErrorMsg(status, detail) {
   return detail || `上传失败 (HTTP ${status})`
 }
 
-function kbUrl(path) {
+function kbUrl(path, kb = currentKB) {
   const sep = path.includes('?') ? '&' : '?'
-  return `${path}${sep}kb=${currentKB}`
+  return `${path}${sep}kb=${encodeURIComponent(kb)}`
 }
 
 function clearKBListCache() {
@@ -112,14 +112,15 @@ async function listAllKnowledgeTags({ kb, query = '', signal } = {}) {
 }
 
 async function request(url, options = {}) {
-  if (!currentKB) {
+  const { kb = currentKB, ...requestOptions } = options
+  if (!kb) {
     console.warn(`[api] 跳过请求 ${url}：currentKB 未初始化`)
     return {}
   }
-  const res = await fetch(`${API_BASE}${kbUrl(url)}`, {
-    headers: authHeaders({ 'Content-Type': 'application/json', ...(options.headers || {}) }),
-    ...options,
-    headers: authHeaders({ 'Content-Type': 'application/json', ...(options.headers || {}) }),
+  const res = await fetch(`${API_BASE}${kbUrl(url, kb)}`, {
+    headers: authHeaders({ 'Content-Type': 'application/json', ...(requestOptions.headers || {}) }),
+    ...requestOptions,
+    headers: authHeaders({ 'Content-Type': 'application/json', ...(requestOptions.headers || {}) }),
   })
   if (res.status === 401) { handleAuthError(); throw new Error('登录已过期，请重新登录') }
   if (!res.ok) {
@@ -309,16 +310,16 @@ export const api = {
   },
 
   // 知识相关接口
-  getDocuments: () => request('/knowledge/documents'),
-  getStats: () => request('/knowledge/stats'),
-  getStatsForKB: (kbName) => fetchJson(`/knowledge/stats?kb=${encodeURIComponent(kbName)}`),
+  getDocuments: ({ kb, signal } = {}) => request('/knowledge/documents', { kb, signal }),
+  getStats: ({ kb, signal } = {}) => request('/knowledge/stats', { kb, signal }),
+  getStatsForKB: (kbName, { signal } = {}) => fetchJson(`/knowledge/stats?kb=${encodeURIComponent(kbName)}`, { signal }),
   getStatsBatchForKBs: (kbNames) => fetchJson('/knowledge/stats/batch', {
     method: 'POST',
     body: JSON.stringify({ kb_names: kbNames }),
     timeoutMs: KB_STATS_TIMEOUT_MS,
   }),
-  getEntities: (limit = 50) => request(`/knowledge/entities?limit=${limit}`),
-  getGraph: () => request('/knowledge/graph'),
+  getEntities: (limit = 50, { kb, signal } = {}) => request(`/knowledge/entities?limit=${limit}`, { kb, signal }),
+  getGraph: ({ kb, signal } = {}) => request('/knowledge/graph', { kb, signal }),
   getGraphNode: (name) => request(`/knowledge/graph/nodes/${encodeURIComponent(name)}`),
   createGraphNode: (data) => request('/knowledge/graph/nodes', { method: 'POST', body: JSON.stringify(data) }),
   renameGraphNode: (name, newName) => request(`/knowledge/graph/nodes/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ new_name: newName }) }),

@@ -1,0 +1,80 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 54,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 4,
+    "page number" : 54,
+    "bounding box" : [ 131.64, 560.24, 483.96, 760.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 5,
+    "page number" : 54,
+    "bounding box" : [ 259.559, 540.29, 356.528, 551.862 ],
+    "linked content id" : 4,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 46 修改用户数据"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 54,
+    "bounding box" : [ 94.92, 518.114, 295.2, 531.403 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "删除了用户 878 并新增管理员用户 a。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 7,
+    "level" : "Doctitle",
+    "page number" : 54,
+    "bounding box" : [ 70.92, 487.174, 162.25, 501.224 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "7.5 本章小结"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 54,
+    "bounding box" : [ 70.92, 369.023, 524.4, 474.763 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本章对系统进行一系列测试以及验证工作，模型在测试集上取得 81.44%准确率， 在单张图片上进行推理所需时间为 26 毫秒，参数量为 4.2M，符合基层部署要求，对于 各个功能如用户管理、图像筛查、历史记录等都进行了测试，权限隔离以及异常处理也 均正常。由此可见，该系统从准确率、速度以及功能性上都可以满足需求，可应用于大 规模筛查中。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 54,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "47"
+  } ]
+}

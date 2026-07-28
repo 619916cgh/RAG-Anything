@@ -17,6 +17,7 @@ const MODE_LABELS = { rrf: '融合', hybrid: '混合', local: '精确', global: 
 const AGENT_MODE_LABELS = { none: '普通', react: 'ReAct', cot: 'CoT' }
 const AGENT_MODE_ICONS = { none: MessageSquare, react: Brain, cot: Layers }
 const AGENT_GRID_ROWS = 2
+const AGENT_SKELETON_COUNT = 4
 const PAGE_SIZE_STORAGE_KEY = 'raganything:pagination:agents'
 const AGENT_SORT_OPTIONS = [
   { value: 'updated', label: '更新时间', Icon: Clock, type: 'time' },
@@ -85,6 +86,7 @@ export default function AgentsPage({ onToast }) {
   const navigate = useNavigate()
   const { hasPermission } = useAuth()
   const [agents, setAgents] = useState([])
+  const [agentsLoadStatus, setAgentsLoadStatus] = useState('loading')
   const [templates, setTemplates] = useState([])
   const [kbs, setKBs] = useState([])
   const [showModal, setShowModal] = useState(false)
@@ -104,24 +106,38 @@ export default function AgentsPage({ onToast }) {
   const canWrite = hasPermission('agent:write')
   const canDelete = hasPermission('agent:delete')
 
-  const loadData = useCallback(async () => {
-    const [agentsResponse, templatesResponse, kbResponse] = await Promise.all([
-      api.listAgents(),
-      api.getAgentTemplates(),
-      api.listKBs(),
-    ])
+  const loadData = useCallback(async ({ showAgentsLoading = false } = {}) => {
+    if (showAgentsLoading) setAgentsLoadStatus('loading')
+
+    const templatesRequest = api.getAgentTemplates()
+    const kbRequest = api.listKBs()
+
+    let agentsResponse
+    try {
+      agentsResponse = await api.listAgents()
+    } catch (error) {
+      if (showAgentsLoading) setAgentsLoadStatus('error')
+      await Promise.allSettled([templatesRequest, kbRequest])
+      throw error
+    }
+
     setAgents(agentsResponse.agents || [])
+    setAgentsLoadStatus('ready')
+
+    const [templatesResponse, kbResponse] = await Promise.all([templatesRequest, kbRequest])
     setTemplates(templatesResponse.templates || [])
     setKBs(kbResponse.knowledge_bases || [])
     return [agentsResponse, templatesResponse, kbResponse]
   }, [])
 
+  const reportLoadError = useCallback((err) => {
+    console.error(err)
+    onToast?.(err.message || '加载智能体数据失败', 'error')
+  }, [onToast])
+
   useEffect(() => {
-    loadData().catch(err => {
-      console.error(err)
-      onToast?.(err.message || '加载智能体数据失败', 'error')
-    })
-  }, [loadData, onToast])
+    loadData({ showAgentsLoading: true }).catch(reportLoadError)
+  }, [loadData, reportLoadError])
   useEffect(() => { setPage(1) }, [search])
   useLayoutEffect(() => {
     const grid = gridRef.current
@@ -348,13 +364,16 @@ export default function AgentsPage({ onToast }) {
   const totalPages = getTotalPages(sortedAgents.length, pageSize)
   const currentPage = clampPage(page, totalPages)
   const paginatedAgents = sortedAgents.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const agentGridRows = paginatedAgents.length > 0
-    ? Math.max(AGENT_GRID_ROWS, Math.ceil(paginatedAgents.length / Math.max(1, gridColumns)))
+  const displayedAgentCount = agentsLoadStatus === 'loading'
+    ? AGENT_SKELETON_COUNT
+    : paginatedAgents.length
+  const agentGridRows = displayedAgentCount > 0
+    ? Math.max(AGENT_GRID_ROWS, Math.ceil(displayedAgentCount / Math.max(1, gridColumns)))
     : AGENT_GRID_ROWS
-  const agentGridClassName = paginatedAgents.length > 0
+  const agentGridClassName = displayedAgentCount > 0
     ? 'resource-grid resource-grid-agents resource-grid-agents-fixed-rows'
     : 'resource-grid resource-grid-agents'
-  const agentGridStyle = paginatedAgents.length > 0
+  const agentGridStyle = displayedAgentCount > 0
     ? { '--agent-grid-rows': agentGridRows, '--agent-grid-row-gaps': agentGridRows - 1 }
     : undefined
 
@@ -368,6 +387,10 @@ export default function AgentsPage({ onToast }) {
     const next = storePageSize(PAGE_SIZE_STORAGE_KEY, value)
     setPageSize(next)
     setPage(1)
+  }
+
+  const retryAgentLoad = () => {
+    loadData({ showAgentsLoading: true }).catch(reportLoadError)
   }
 
 
@@ -426,7 +449,7 @@ export default function AgentsPage({ onToast }) {
               ariaLabel="智能体排序"
             />
             <div className="resource-count">
-              共 {agents.length} 个智能体
+              {agentsLoadStatus === 'loading' ? '智能体加载中...' : `共 ${agents.length} 个智能体`}
               {normalizedSearch ? `，匹配到 ${filteredAgents.length} 个结果` : ''}
             </div>
           </div>
@@ -434,7 +457,32 @@ export default function AgentsPage({ onToast }) {
 
         {/* 智能体卡片 */}
         <div ref={gridRef} className={agentGridClassName} style={agentGridStyle}>
-          {paginatedAgents.map(agent => (
+          {agentsLoadStatus === 'loading' && Array.from({ length: AGENT_SKELETON_COUNT }, (_, index) => (
+            <div
+              key={`agent-skeleton-${index}`}
+              className="directory-card resource-card resource-card-agent pointer-events-none"
+              aria-hidden="true"
+            >
+              <div className="flex items-start gap-3">
+                <div className="skeleton h-10 w-10 shrink-0 rounded-xl" />
+                <div className="min-w-0 flex-1 space-y-2 pt-1">
+                  <div className="skeleton h-4 w-2/5" />
+                  <div className="skeleton h-3 w-3/5" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="skeleton h-3 w-full" />
+                <div className="skeleton h-3 w-4/5" />
+              </div>
+              <div className="flex gap-2">
+                <div className="skeleton h-5 w-16" />
+                <div className="skeleton h-5 w-20" />
+                <div className="skeleton h-5 w-14" />
+              </div>
+              <div className="skeleton mt-auto h-8 w-full" />
+            </div>
+          ))}
+          {agentsLoadStatus !== 'loading' && paginatedAgents.map(agent => (
             <div
               key={agent.id}
               className="directory-card resource-card resource-card-agent group cursor-pointer"
@@ -509,7 +557,7 @@ export default function AgentsPage({ onToast }) {
           />
         )}
 
-        {agents.length === 0 && (
+        {agentsLoadStatus === 'ready' && agents.length === 0 && (
           <div className="empty-state resource-empty-state">
             <div className="empty-state-icon"><Bot size={48} className="text-cloud-400" /></div>
             <p className="empty-state-title">这里还没有智能体</p>
@@ -524,7 +572,18 @@ export default function AgentsPage({ onToast }) {
           </div>
         )}
 
-        {agents.length > 0 && filteredAgents.length === 0 && (
+        {agentsLoadStatus === 'error' && (
+          <div className="empty-state resource-empty-state" role="alert">
+            <div className="empty-state-icon"><Bot size={48} className="text-cloud-400" /></div>
+            <p className="empty-state-title">智能体列表加载失败</p>
+            <p className="empty-state-desc">请确认服务正常后重新加载。</p>
+            <button type="button" onClick={retryAgentLoad} className="btn-secondary mt-6">
+              重新加载
+            </button>
+          </div>
+        )}
+
+        {agentsLoadStatus === 'ready' && agents.length > 0 && filteredAgents.length === 0 && (
           <div className="empty-state resource-empty-state">
             <div className="empty-state-icon"><Search size={40} className="text-cloud-400" /></div>
             <p className="empty-state-title">没有找到匹配的智能体</p>

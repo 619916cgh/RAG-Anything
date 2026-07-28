@@ -1,0 +1,176 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 26,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 4,
+    "level" : "Doctitle",
+    "page number" : 26,
+    "bounding box" : [ 94.92, 746.234, 304.92, 759.523 ],
+    "heading level" : 1,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "对应的结构字段说明用户表如表2所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 26,
+    "bounding box" : [ 95.88, 709.8, 408.129, 736.422 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 2 用户表 字段名 数据类型 必填 说明"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 26,
+    "bounding box" : [ 90.0, 634.731, 441.248, 704.982 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "id Int 是 用户 ID，自增主键 username Varchar(50) 是 用户名 password Varchar(255) 是 登录密码 role Varchar(10) 是 角色 created_at Datetime 是 注册时间"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 26,
+    "bounding box" : [ 70.92, 523.754, 524.4, 630.403 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（2） 筛查记录表。采用了CSV文件形式存储，用于保存眼底图像的筛查结果与相 关信息。表中包含记录唯一标识id、所属用户user_id、图像存储路径image_path、诊断 结果diagnosis、模型置信度confidence、病变等级severity_level、医学建议recommendation 及筛查时间created_at，可实现筛查记录的存储、查询、统计与权限隔离，结构规范、便 于维护和导出。如图12所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 26,
+    "bounding box" : [ 133.68, 321.8, 461.28, 515.0 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 26,
+    "bounding box" : [ 245.159, 302.09, 371.047, 313.662 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图12 筛查结果表内部结构"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 10,
+    "level" : "Subtitle",
+    "page number" : 26,
+    "bounding box" : [ 94.92, 279.914, 256.92, 293.203 ],
+    "heading level" : 1,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "对应的筛查记录表如表3所示。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 11,
+    "level" : "Subtitle",
+    "page number" : 26,
+    "bounding box" : [ 95.88, 244.08, 408.129, 269.982 ],
+    "heading level" : 2,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 3 筛查记录表 字段名 数据类型 必填 说明"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 26,
+    "bounding box" : [ 107.52, 229.131, 430.689, 240.703 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "id Int 是 记录 ID，自增"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 26,
+    "bounding box" : [ 87.12, 201.89, 455.286, 227.143 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "user_id Int 是 关联用户表，标识操作者 image_path Varchar(255) 是 上传的眼底图像文件路径"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 26,
+    "bounding box" : [ 91.8, 188.331, 484.09, 199.903 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "diagnosis Varchar(50) 是 诊断结果：糖尿病视网膜病变 / 正常"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 26,
+    "bounding box" : [ 82.2, 161.09, 469.983, 186.222 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "confidence Float 是 模型置信度（0~1），如 0.9015 severity_level Varchar(10) 是 病变等级：初期/中期/晚期/无"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 26,
+    "bounding box" : [ 76.32, 133.85, 429.008, 158.982 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "recommendation Varchar(255) 是 就医建议文本 created_at Datetime 是 筛查时间"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 17,
+    "level" : "Subtitle",
+    "page number" : 26,
+    "bounding box" : [ 70.92, 94.343, 530.4, 130.124 ],
+    "heading level" : 1,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（3） 用户操作日志存储。日志是以文本的形式存储，用来记录系统的运行情况以 及用户的操作行为。其内容包括时间戳、模块名、日志级别和事件等，可以供系统监控、"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 26,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "19"
+  } ]
+}

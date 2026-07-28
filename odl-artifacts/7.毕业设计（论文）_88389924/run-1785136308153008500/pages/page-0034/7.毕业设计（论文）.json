@@ -1,0 +1,159 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 34,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 34,
+    "bounding box" : [ 70.92, 700.463, 524.4, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "的细节信息，泛化能力较弱，在眼底图像中小细节病灶处的学习就需要更高秩来学习更 多的样例，因此将 LoRA 秩从 4 增加到 8。增大 LoRA 秩可以大幅提高模型拟合度，尤 其是对于复杂样本的区分上更加明显。"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 6,
+    "level" : "1",
+    "page number" : 34,
+    "bounding box" : [ 94.92, 606.195, 530.4, 689.563 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 34,
+      "bounding box" : [ 94.92, 676.274, 530.4, 689.563 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2） 更换优化器。Adam 优化器采用自适应学习率，结合了动量和自适应学习率，",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 34,
+        "bounding box" : [ 70.92, 629.595, 524.4, 666.163 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "可以减少训练波动。Adam 在泛化性能上也通常优于 SGD，尤其是在微调场景下，因此 选择将优化器选择更换为 Adam 优化器。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 34,
+      "bounding box" : [ 94.92, 606.195, 524.4, 619.484 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（3） 下调初始学习率。原学习率 0.0002 步长偏大，模型在训练后期参数更新幅度",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 34,
+    "bounding box" : [ 70.92, 513.744, 530.4, 595.704 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "较高，容易在最优权重附近震荡、难以收敛到极小损失点，眼底病灶细微特征易出现拟 合不精细问题；降低学习率至 0.0001 后，参数迭代更新步长缩小，训练后期能够对病灶 纹理、微小病变等细粒度特征进行精细化微调，有效缓解验证集准确率过早回落的现象， 进一步提升模型在小病灶样本上的识别精度与整体泛化性能。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 34,
+    "bounding box" : [ 94.92, 489.554, 298.92, 502.843 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "最终做完调整的各项参数如表 9 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 34,
+    "bounding box" : [ 246.24, 468.05, 348.848, 479.622 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 9 微调后的参数表"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 34,
+    "bounding box" : [ 198.84, 421.97, 358.687, 455.29 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "参数名称 参数取值 分辨率 224×224"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 34,
+    "bounding box" : [ 198.84, 400.37, 342.905, 411.942 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "批次大小 16"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 34,
+    "bounding box" : [ 198.84, 335.45, 352.022, 390.222 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "学习率 0.0001 训练轮数 80 LoRA 秩 8"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 34,
+    "bounding box" : [ 188.4, 271.44, 400.448, 325.422 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "优化器 Adam 损失函数 CrossEntropyLoss 数据增强策略 随机翻转 /裁剪/ 颜色抖动"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 34,
+    "bounding box" : [ 94.92, 242.954, 292.92, 256.243 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "微调完成的准确率曲线如图 21 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 34,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "27"
+  } ]
+}

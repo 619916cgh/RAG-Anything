@@ -20,6 +20,12 @@ import {
 import SideDrawer from '../components/SideDrawer'
 import TagRelationsPanel from '../components/TagRelationsPanel'
 import { useAuth } from '../context/AuthContext'
+import {
+  invalidateKnowledgeDetailSnapshot,
+  readKnowledgeDetailSnapshot,
+  refreshKnowledgeDetailSnapshot,
+  subscribeKnowledgeDetailSnapshot,
+} from '../utils/knowledgeDetailCache'
 
 const STATUS = {
   queued: 'badge-info',
@@ -875,11 +881,19 @@ export default function KnowledgeDetailPage() {
   const { kbName } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
+  const cacheUserId = user?.id
 
-  const [docs, setDocs] = useState([])
+  const [docs, setDocs] = useState(() => readKnowledgeDetailSnapshot(cacheUserId, kbName)?.docs || [])
   const [entities, setEntities] = useState([])
-  const [stats, setStats] = useState({})
+  const [stats, setStats] = useState(() => readKnowledgeDetailSnapshot(cacheUserId, kbName)?.stats || null)
+  const [docsLoadState, setDocsLoadState] = useState(() => (
+    Array.isArray(readKnowledgeDetailSnapshot(cacheUserId, kbName)?.docs) ? 'ready' : 'loading'
+  ))
+  const [statsLoadState, setStatsLoadState] = useState(() => (
+    readKnowledgeDetailSnapshot(cacheUserId, kbName)?.stats ? 'ready' : 'loading'
+  ))
+  const [detailLoadError, setDetailLoadError] = useState('')
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
   const [filter, setFilter] = useState('')
   const [graphSearch, setGraphSearch] = useState('')
@@ -918,10 +932,23 @@ export default function KnowledgeDetailPage() {
   const zoomRef = useRef(null)
   const prevGraphFingerprint = useRef('')
   const prevGraphSearch = useRef('')
-  const genRef = useRef(0)
+  const documentGenRef = useRef(0)
+  const graphGenRef = useRef(0)
   const selectedNodeRef = useRef(null)
   selectedNodeRef.current = selectedNode
   const simRef = useRef(null)
+
+  // The router retains this component between knowledge-base URLs. Clear the
+  // previous base before the next request can update the view.
+  useEffect(() => {
+    const snapshot = readKnowledgeDetailSnapshot(cacheUserId, kbName)
+    setDocs(snapshot?.docs || [])
+    setStats(snapshot?.stats || null)
+    setDocsLoadState(Array.isArray(snapshot?.docs) ? 'ready' : 'loading')
+    setStatsLoadState(snapshot?.stats ? 'ready' : 'loading')
+    setDetailLoadError('')
+    setSelectedIds(new Set())
+  }, [cacheUserId, kbName])
 
   useEffect(() => {
     const requested = searchParams.get('tab')
@@ -1036,14 +1063,37 @@ export default function KnowledgeDetailPage() {
     }).catch(() => {})
   }, [])
 
-  // 加载当前知识库数据，图谱数据加载完成后 Promise resolve
-  const loadKBData = useCallback(() => {
-    const gen = ++genRef.current
-    api.getDocuments().then(r => { if (gen === genRef.current) setDocs(r.documents || []) }).catch(err => console.error(err))
-    api.getStats().then(r => { if (gen === genRef.current) setStats(r) }).catch(err => console.error(err))
-    api.getEntities(200).then(r => { if (gen === genRef.current) setEntities(r.entities || []) }).catch(err => console.error(err))
-    return api.getGraph().then(r => {
-      if (gen !== genRef.current) return
+  const loadDocumentData = useCallback(async () => {
+    const gen = ++documentGenRef.current
+    const cached = readKnowledgeDetailSnapshot(cacheUserId, kbName)
+    if (cached?.docs === null) setDocsLoadState('loading')
+    if (!cached?.stats) setStatsLoadState('loading')
+
+    const result = await refreshKnowledgeDetailSnapshot(cacheUserId, kbName)
+    if (gen !== documentGenRef.current) return result
+
+    if (result.docs !== null) {
+      setDocs(result.docs)
+      setDocsLoadState('ready')
+    } else {
+      setDocsLoadState('error')
+    }
+    if (result.stats) {
+      setStats(result.stats)
+      setStatsLoadState('ready')
+    } else {
+      setStatsLoadState('error')
+    }
+    setDetailLoadError(result.docsError?.message || result.statsError?.message || '')
+    return result
+  }, [cacheUserId, kbName])
+
+  const loadGraphData = useCallback(() => {
+    const gen = ++graphGenRef.current
+    const options = { kb: kbName }
+    api.getEntities(200, options).then(r => { if (gen === graphGenRef.current) setEntities(r.entities || []) }).catch(err => console.error(err))
+    return api.getGraph(options).then(r => {
+      if (gen !== graphGenRef.current) return
       const degree = {}
       ;(r.edges || []).forEach(e => {
         degree[e.source] = (degree[e.source] || 0) + 1
@@ -1054,7 +1104,16 @@ export default function KnowledgeDetailPage() {
         edges: r.edges || [],
       })
     }).catch(err => console.error(err))
-  }, [])
+  }, [kbName])
+
+  const loadKBData = useCallback(() => loadDocumentData(), [loadDocumentData])
+
+  const refreshAfterDocumentMutation = useCallback(async () => {
+    invalidateKnowledgeDetailSnapshot(cacheUserId, kbName)
+    setDocsLoadState('loading')
+    setStatsLoadState('loading')
+    return loadDocumentData()
+  }, [cacheUserId, kbName, loadDocumentData])
 
   // 合并实体名称列表，用于创建边时自动补全（对 graph.nodes 与 entities 去重）
   const allEntityNames = useMemo(() => {
@@ -1064,13 +1123,35 @@ export default function KnowledgeDetailPage() {
     return [...nameSet].sort()
   }, [entities, graph.nodes])
 
-  // 挂载时加载数据并轮询
   useEffect(() => {
-    if (!kbName) return
-    loadKBData()
-    const interval = setInterval(loadKBData, 8000)
+    if (!cacheUserId || !kbName) return undefined
+    return subscribeKnowledgeDetailSnapshot(cacheUserId, kbName, () => {
+      const snapshot = readKnowledgeDetailSnapshot(cacheUserId, kbName)
+      if (snapshot?.docs !== null) {
+        setDocs(snapshot.docs)
+        setDocsLoadState('ready')
+      }
+      if (snapshot?.stats) {
+        setStats(snapshot.stats)
+        setStatsLoadState('ready')
+      }
+    })
+  }, [cacheUserId, kbName])
+
+  // 挂载时加载文档与统计，并在后台刷新。
+  useEffect(() => {
+    if (!kbName || !cacheUserId) return undefined
+    void loadDocumentData()
+    const interval = setInterval(loadDocumentData, 8000)
     return () => clearInterval(interval)
-  }, [kbName, loadKBData])
+  }, [cacheUserId, kbName, loadDocumentData])
+
+  useEffect(() => {
+    if (activeTab !== 'graph' || !kbName) return undefined
+    void loadGraphData()
+    const interval = setInterval(loadGraphData, 8000)
+    return () => clearInterval(interval)
+  }, [activeTab, kbName, loadGraphData])
 
   // D3 图谱
   const drawGraph = useCallback(() => {
@@ -1270,7 +1351,7 @@ export default function KnowledgeDetailPage() {
         getDocumentHealth(doc) === 'degraded' ? '图谱补偿已提交' : '文档重试已提交',
         'success',
       )
-      await loadKBData()
+      await refreshAfterDocumentMutation()
     } catch (e) {
       showToast('提交重试失败: ' + e.message, 'error')
     } finally {
@@ -1298,12 +1379,12 @@ export default function KnowledgeDetailPage() {
       await api.deleteDocument(documentToDelete.id)
       removeDocumentFromList()
       showToast(`${documentToDelete.file} 已从列表移除`, 'success')
-      await loadKBData()
+      await refreshAfterDocumentMutation()
     } catch (e) {
       if (e?.status === 404) {
         removeDocumentFromList()
         showToast(`${documentToDelete.file} 已不存在，已从列表移除`, 'info')
-        await loadKBData()
+        await refreshAfterDocumentMutation()
         return
       }
       showToast('删除失败: ' + e.message, 'error')
@@ -1323,7 +1404,7 @@ export default function KnowledgeDetailPage() {
     setBatchDeleting(true)
     try {
       const res = await api.deleteDocuments([...selectedIds])
-      setSelectedIds(new Set()); loadKBData()
+      setSelectedIds(new Set()); await refreshAfterDocumentMutation()
       showToast(`已删除 ${res.total_deleted} 个文档`, 'success')
     } catch(e) { showToast('批量删除失败: ' + e.message, 'error') }
     setBatchDeleting(false)
@@ -1335,7 +1416,7 @@ export default function KnowledgeDetailPage() {
     try {
       const result = await api.reprocessMultimodal(kbName)
       showToast(result.message || '多模态补处理已提交', result.status === 'ok' ? 'success' : 'info')
-      loadKBData()
+      await refreshAfterDocumentMutation()
     } catch (e) {
       showToast('多模态补处理失败: ' + e.message, 'error')
     } finally {
@@ -1382,14 +1463,16 @@ export default function KnowledgeDetailPage() {
       {/* 当前知识库统计 */}
       <div className="grid grid-cols-4 gap-5">
         {[
-          { label: '文档总数', val: stats.documents || 0, color: 'text-sky-500' },
-          { label: '实体总数', val: stats.entities || 0, color: 'text-sage-500' },
-          { label: '关系总数', val: stats.relations || 0, color: 'text-amber-500' },
-          { label: '分块总数', val: stats.chunks || 0, color: 'text-sky-500' },
+          { label: '文档总数', val: stats?.documents, color: 'text-sky-500' },
+          { label: '实体总数', val: stats?.entities, color: 'text-sage-500' },
+          { label: '关系总数', val: stats?.relations, color: 'text-amber-500' },
+          { label: '分块总数', val: stats?.chunks, color: 'text-sky-500' },
         ].map(({ label, val, color }) => (
           <div key={label} className="stat-card">
             <p className="stat-label">{label}</p>
-            <p className={`stat-value stat-value-number ${color}`}>{val.toLocaleString()}</p>
+            <p className={`stat-value stat-value-number ${color}`}>
+              {statsLoadState === 'ready' ? Number(val || 0).toLocaleString() : <span className="skeleton inline-block h-7 w-14 align-middle" />}
+            </p>
           </div>
         ))}
       </div>
@@ -1422,7 +1505,7 @@ export default function KnowledgeDetailPage() {
             chunkingStrategy={chunkingStrategy}
             setChunkingStrategy={setChunkingStrategy}
             strategies={strategies}
-            onUploaded={loadKBData}
+            onUploaded={refreshAfterDocumentMutation}
             multimodal={multimodal}
             setMultimodal={setMultimodal}
           />
@@ -1450,7 +1533,9 @@ export default function KnowledgeDetailPage() {
         <div className="card p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <h3 className="text-sm font-semibold text-ink-body">文档列表 ({filteredDocs.length})</h3>
+              <h3 className="text-sm font-semibold text-ink-body">
+                文档列表 {docsLoadState === 'loading' ? <span className="skeleton ml-2 inline-block h-4 w-8 align-middle" /> : `(${filteredDocs.length})`}
+              </h3>
               {selectedIds.size > 0 && (
                 <button className="btn-danger text-xs py-1.5 px-3" onClick={handleBatchDelete} disabled={batchDeleting}>
                   <Trash2 size={12} />
@@ -1481,7 +1566,18 @@ export default function KnowledgeDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDocs.map(doc => {
+                {docsLoadState === 'loading' && Array.from({ length: 4 }, (_, index) => (
+                  <tr key={`document-skeleton-${index}`} aria-hidden="true" className="border-b border-cloud-200">
+                    <td className="py-3"><span className="skeleton block h-3.5 w-3.5" /></td>
+                    <td className="py-3"><span className="skeleton block h-4 w-4/5" /></td>
+                    <td className="py-3"><span className="skeleton block h-5 w-16" /></td>
+                    <td className="py-3"><span className="skeleton block h-4 w-10" /></td>
+                    <td className="py-3"><span className="skeleton block h-4 w-12" /></td>
+                    <td className="py-3"><span className="skeleton block h-4 w-20" /></td>
+                    <td className="py-3"><span className="skeleton block h-6 w-16" /></td>
+                  </tr>
+                ))}
+                {docsLoadState !== 'loading' && filteredDocs.map(doc => {
                   const health = getDocumentHealth(doc)
                   const tagPresentation = getDocumentTagPresentation(doc)
                   const canRetry = health === 'degraded' || (health === 'failed' && doc.retryable !== false)
@@ -1575,11 +1671,17 @@ export default function KnowledgeDetailPage() {
                 })}
               </tbody>
             </table>
-            {filteredDocs.length === 0 && (
+            {docsLoadState === 'ready' && filteredDocs.length === 0 && (
               <div className="py-10 text-center">
                 <FileText size={36} className="mx-auto mb-3 text-cloud-400" />
                 <p className="text-sm text-ink-muted">暂无文档</p>
                 <p className="text-xs text-ink-muted mt-1">上传文档或导入内容以开始构建知识库</p>
+              </div>
+            )}
+            {detailLoadError && (
+              <div role="status" className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <span>刷新失败，当前保留已加载的数据。</span>
+                <button type="button" className="btn-secondary px-2 py-1 text-xs" onClick={loadDocumentData}>重试</button>
               </div>
             )}
           </div>

@@ -1,0 +1,451 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 10,
+    "level" : "Doctitle",
+    "page number" : 5,
+    "bounding box" : [ 273.6, 752.707, 321.59, 768.657 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "目 录"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 11,
+    "level" : "1",
+    "page number" : 5,
+    "bounding box" : [ 70.92, 175.731, 524.465, 738.822 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 5,
+      "bounding box" : [ 70.92, 727.25, 524.465, 738.822 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "1 绪 论......................................................................................................................................................... 1",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 6,
+        "level" : "2",
+        "page number" : 5,
+        "bounding box" : [ 91.92, 584.21, 524.465, 718.303 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 4,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 706.731, 524.465, 718.303 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "1.1 研究背景与意义..............................................................................................................................1",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 686.331, 524.465, 697.903 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "1.2 国内外研究现状..............................................................................................................................2",
+          "kids" : [ {
+            "type" : "list",
+            "pdfua_tag" : "L",
+            "id" : 5,
+            "level" : "3",
+            "page number" : 5,
+            "bounding box" : [ 112.92, 625.01, 524.465, 677.503 ],
+            "numbering style" : "arabic numbers",
+            "number of list items" : 3,
+            "list items" : [ {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 665.931, 524.465, 677.503 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "1.2.1 传统机器学习方法的局限...................................................................................................2",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 645.531, 524.465, 657.103 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "1.2.2 深度学习方法的发展与瓶颈...............................................................................................2",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 625.01, 524.465, 636.582 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "1.2.3 现有研究不足与本文研究内容...........................................................................................3",
+              "kids" : [ ]
+            } ]
+          } ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 604.61, 524.465, 616.182 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "1.3 章节安排..........................................................................................................................................3",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 584.21, 524.465, 595.782 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "1.4 本章小结..........................................................................................................................................4",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 5,
+      "bounding box" : [ 70.92, 563.81, 524.465, 575.382 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "2 相关理论和技术.........................................................................................................................................5",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 7,
+        "level" : "4",
+        "page number" : 5,
+        "bounding box" : [ 91.92, 359.571, 524.465, 554.862 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 4,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 543.29, 524.465, 554.862 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2.1 核心深度学习模型..........................................................................................................................5",
+          "kids" : [ {
+            "type" : "list",
+            "pdfua_tag" : "L",
+            "id" : 3,
+            "level" : "5",
+            "page number" : 5,
+            "bounding box" : [ 112.92, 502.49, 524.465, 534.462 ],
+            "numbering style" : "arabic numbers",
+            "number of list items" : 2,
+            "list items" : [ {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 522.89, 524.465, 534.462 ],
+              "font" : "SimSun",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "2.1.1 MobileNetV3 模型................................................................................................................5",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 502.49, 524.465, 514.062 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "2.1.2 EfficientNet 模型.................................................................................................................. 5",
+              "kids" : [ ]
+            } ]
+          } ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 482.09, 524.465, 493.662 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2.2 卷积神经网络基础..........................................................................................................................5",
+          "kids" : [ {
+            "type" : "list",
+            "pdfua_tag" : "L",
+            "id" : 4,
+            "level" : "6",
+            "page number" : 5,
+            "bounding box" : [ 112.92, 400.37, 524.465, 473.262 ],
+            "numbering style" : "arabic numbers",
+            "number of list items" : 4,
+            "list items" : [ {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 461.69, 524.465, 473.262 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "2.2.1 图像分类概述.......................................................................................................................5",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 441.29, 524.465, 452.862 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "2.2.2 卷积神经网络结构...............................................................................................................6",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 420.771, 524.465, 432.343 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "2.2.3 激活函数...............................................................................................................................8",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 400.37, 524.464, 411.942 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "2.2.4 卷积神经网络的训练.........................................................................................................10",
+              "kids" : [ ]
+            } ]
+          } ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 379.97, 524.464, 391.542 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2.3 图像分类算法主要评价指标........................................................................................................11",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 359.571, 524.464, 371.143 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2.4 本章小结........................................................................................................................................12",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 5,
+      "bounding box" : [ 70.92, 339.05, 524.464, 350.622 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "3 需求分析................................................................................................................................................... 13",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 8,
+        "level" : "7",
+        "page number" : 5,
+        "bounding box" : [ 91.92, 196.131, 524.464, 330.222 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 4,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 318.65, 524.464, 330.222 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "3.1 功能需求分析................................................................................................................................13",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 298.25, 524.464, 309.822 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "3.2 性能需求分析................................................................................................................................13",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 277.85, 524.464, 289.422 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "3.3 可行性分析....................................................................................................................................14",
+          "kids" : [ {
+            "type" : "list",
+            "pdfua_tag" : "L",
+            "id" : 2,
+            "level" : "8",
+            "page number" : 5,
+            "bounding box" : [ 112.92, 216.531, 524.464, 269.022 ],
+            "numbering style" : "arabic numbers",
+            "number of list items" : 3,
+            "list items" : [ {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 257.45, 524.464, 269.022 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "3.3.1 技术可行性.........................................................................................................................14",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 237.05, 524.464, 248.622 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "3.3.2 经济可行性.........................................................................................................................14",
+              "kids" : [ ]
+            }, {
+              "type" : "list item",
+              "pdfua_tag" : "LI",
+              "page number" : 5,
+              "bounding box" : [ 112.92, 216.531, 524.464, 228.103 ],
+              "font" : "TimesNewRomanPSMT",
+              "font size" : 10.45,
+              "text color" : "[0.0, 0.0, 0.0]",
+              "content" : "3.3.3 操作可行性.........................................................................................................................14",
+              "kids" : [ ]
+            } ]
+          } ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 91.92, 196.131, 524.464, 207.703 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "3.4 本章小结........................................................................................................................................14",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 5,
+      "bounding box" : [ 70.92, 175.731, 524.464, 187.303 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4 系统设计................................................................................................................................................... 15",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 12,
+    "level" : "9",
+    "page number" : 5,
+    "bounding box" : [ 91.92, 73.49, 524.464, 166.903 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 5,
+      "bounding box" : [ 91.92, 155.331, 524.464, 166.903 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4.1 系统开发框架................................................................................................................................15",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 1,
+        "level" : "10",
+        "page number" : 5,
+        "bounding box" : [ 112.92, 114.41, 524.464, 146.382 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 2,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 112.92, 134.81, 524.464, 146.382 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "4.1.1 整体架构分层.....................................................................................................................15",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 5,
+          "bounding box" : [ 112.92, 114.41, 524.464, 125.982 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "4.1.2 技术栈选型.........................................................................................................................16",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 5,
+      "bounding box" : [ 91.92, 73.49, 524.464, 105.582 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4.2 系统功能模块................................................................................................................................16 4.2.1 总体功能结构.....................................................................................................................16",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 5,
+    "bounding box" : [ 293.159, 60.003, 302.156, 69.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "III"
+  } ]
+}

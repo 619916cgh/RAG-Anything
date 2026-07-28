@@ -1,0 +1,159 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 29,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 13,
+    "level" : "1",
+    "page number" : 29,
+    "bounding box" : [ 70.92, 107.474, 524.4, 759.143 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 29,
+      "bounding box" : [ 70.92, 723.863, 524.4, 759.143 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "5.1.2 数据划分 在进行实验之前，首先需要对数据集进行划分。本文将数据集划分为训练集、验证",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 29,
+        "bounding box" : [ 70.92, 677.063, 526.919, 712.463 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "集和测试集三个部分。 作为机器学习模型训练的基本单位，在模型训练时，训练集起着至关重要的作用，"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 29,
+        "bounding box" : [ 70.92, 607.103, 524.4, 665.783 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "利用反向传播算法更新模型内部权重使其逐步提高准确率，为了使模型有较好的鲁棒性 和健壮性，训练集中要包含大量数据并且要尽量涵盖目标领域内各种各样的特点以及不 同情况。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 29,
+        "bounding box" : [ 70.92, 560.423, 524.4, 595.704 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "验证集用于训练过程中监测模型性能以及调整超参数，在每次训练完成后对模型进 行评估，以确定模型是否过拟合并保存最优权重。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 29,
+        "bounding box" : [ 70.92, 443.663, 524.511, 549.023 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "测试集是与训练集分离并且不在模型训练过程中使用的数据的一部分，在算法建立 之后用于检验模型泛化能力和实际应用情况。由于其不参与参数优化过程，所以可以很 公正地反映模型对未知数据集的表现能力。通过对分类正确率、精确率以及召回率等重 要指标进行研究不仅可以整体上考察一个模型的质量而且还可以对不同方法之间进行 合理比较。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 29,
+        "bounding box" : [ 94.92, 419.474, 530.4, 432.763 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "在实验中以8∶1∶1的比例将整个数据集中随机划分为训练集、验证集以及测试集，"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 6,
+        "page number" : 29,
+        "bounding box" : [ 70.92, 349.514, 524.4, 408.983 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "其中训练集用来让模型学习特征并且不断优化网络参数，而验证集是在训练过程中用于 检测模型泛化能力和及时对训练过程进行干预，最后测试集用于评价最终效果，以便使 数据更加公平合理及有效可靠，如表 5 所示。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 7,
+        "page number" : 29,
+        "bounding box" : [ 81.0, 309.6, 516.008, 339.462 ],
+        "font" : "SimSun",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "表 5 数据占比情况 数据集划分 样本数量 正常样本数(Normal) 病变样本数(DR) 样本占比"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 8,
+        "page number" : 29,
+        "bounding box" : [ 91.68, 243.41, 504.544, 298.303 ],
+        "font" : "TimesNewRomanPSMT",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "训练集 3618 2440 1178 80% 验证集 432 288 144 10% 测试集 431 286 145 10%"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 9,
+        "page number" : 29,
+        "bounding box" : [ 96.84, 221.81, 507.184, 233.382 ],
+        "font" : "TimesNewRomanPSMT",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "总计 4481 3014 1467 100%"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 29,
+      "bounding box" : [ 70.92, 107.474, 524.4, 213.744 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "5.1.3 数据处理技术与流程 所有图像在输入模型前统一执行预处理，流程如下： 尺寸统一：缩放并中心裁剪为 224×224；格式转换：转换为 RGB 三通道图像； 标准化：使用均值 [0.485, 0.456, 0.406]、标准差 [0.229, 0.224, 0.225] 归一化； 张量转换：转为 PyTorch 支持的 Tensor 格式。预处理保证输入数据格式一致，提高",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 29,
+    "bounding box" : [ 70.92, 84.195, 244.92, 97.484 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "模型训练稳定性。如图 16 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 29,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "22"
+  } ]
+}

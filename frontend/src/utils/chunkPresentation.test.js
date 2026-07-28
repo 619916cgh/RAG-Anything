@@ -5,6 +5,7 @@ import { detectChunkType, getChunkPresentation, summarizeChunkContent } from './
 test('detects chunk type from structured metadata before content fallback', () => {
   assert.equal(detectChunkType({ original_type: 'IMAGE', content: 'Table Analysis: data' }), 'image')
   assert.equal(detectChunkType({ content: 'Table Analysis: data' }), 'table')
+  assert.equal(detectChunkType({ content: '表格分析：标题：无\n分析：模型性能比较' }), 'table')
   assert.equal(detectChunkType({ content: 'ordinary text' }), 'text')
 })
 
@@ -43,6 +44,13 @@ test('supports table prefixes without the optional content word', () => {
   assert.equal(
     summarizeChunkContent('TABLE ANALYSIS: Caption: None - The table compares four models.'),
     'The table compares four models.'
+  )
+})
+
+test('cleans Chinese multimodal template headers and empty fields', () => {
+  assert.equal(
+    summarizeChunkContent('表格分析：标题：无 脚注：无 分析：该表比较四种模型的性能。'),
+    '该表比较四种模型的性能。'
   )
 })
 

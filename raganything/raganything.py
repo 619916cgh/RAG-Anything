@@ -140,6 +140,12 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
         if self.config is None:
             self.config = RAGAnythingConfig()
 
+        # Keep generated multimodal descriptions and persisted chunk wrappers
+        # in the deployment-selected language before processors are created.
+        from raganything.prompt_manager import configure_multimodal_prompt_language_from_env
+
+        configure_multimodal_prompt_language_from_env()
+
         # Set working directory
         self.working_dir = self.config.working_dir
 
@@ -411,23 +417,6 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
     async def _ensure_lightrag_initialized(self):
         """Ensure LightRAG instance is initialized, create if necessary"""
         try:
-            # Check parser installation first
-            if not self._parser_installation_checked:
-                self.logger.info(
-                    "Verifying parser '%s' installation (may take a few seconds)...",
-                    self.config.parser,
-                )
-                if not self.doc_parser.check_installation():
-                    error_msg = (
-                        f"Parser '{self.config.parser}' is not properly installed. "
-                        "Please install it using 'pip install' or 'uv pip install'."
-                    )
-                    self.logger.error(error_msg)
-                    return {"success": False, "error": error_msg}
-
-                self._parser_installation_checked = True
-                self.logger.info(f"Parser '{self.config.parser}' installation verified")
-
             if self.lightrag is not None:
                 # LightRAG was pre-provided, but we need to ensure it's properly initialized
                 # Inherit model functions from LightRAG if not explicitly provided

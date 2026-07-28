@@ -1,0 +1,143 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 10,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 10,
+    "bounding box" : [ 70.92, 607.103, 524.4, 759.523 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "使用 EfficientNetV2 作为主干并且加入了通道注意力机制以及 Focal Loss 对不平衡的数 据集进行处理，在两阶段精炼分类的过程中大大提升了 DR 诊断准确性和病灶检测能力 [12]；张小宝等单独使用 FEM 时模型准确率为 98.35%，与 Leaky Re LU 激活函数结合后, 准确率提升至 98.90%，在 Messidor-2 测试集上,准确率和灵敏度分别较原模型提升 1.78 和 1.60 个百分点,展现出良好的泛化能力[13]。以上这些工作都取得一定成果但是在实际 应用中还存在一些问题例如网络结构过于复杂、计算开销大，而且忽视了基层医院设备 条件有限以及工程化实施的要求，离真正应用于临床还有一定的距离。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 6,
+    "level" : "Subtitle",
+    "page number" : 10,
+    "bounding box" : [ 70.92, 583.704, 269.76, 595.704 ],
+    "heading level" : 2,
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1.2.3 现有研究不足与本文研究内容"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 10,
+    "bounding box" : [ 70.92, 396.983, 530.4, 572.423 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "从目前的研究成果来看，主要有三方面不足。其一，模型效率与准确率相悖，如 VGG、Inception 等高精度模型参数量一般都在几十兆以上，推断速度较慢，不适合在边 缘设备上运行；而 MobileNetV3-Small 这类轻量级模型虽然体积小，但是其检测精度通 常不能满足临床应用的需求，目前较少有关于如何实现“高精度-轻量化”的相关工作 报道；其二，实用性较差，大部分工作还是停留在算法层面，未考虑到基层医疗机构所 具备的硬件设施情况及工程化的问题，在软件层面也几乎没有成熟的解决方案；其三， 实用性差，现有的大多数工作都是针对模型准确率进行研究，而对于整个筛查过程中的 患者管理、批量处理、结果分析以及历史记录等内容则很少涉及，无法真正应用于临床。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 10,
+    "bounding box" : [ 70.92, 279.435, 524.4, 386.084 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "对于以上问题，本文采用 MobileNetV3-Large 作为主干网络，在此基础上进行数据 增强、迁移学习以及超参数优化工作，在保证较低模型复杂度基础上提高准确率，做到 高效又精准；并且使用 Python 语言结合 PyTorch 和 Flask 搭建 B/S 结构网站，具有在线 推断以及批量处理图像的能力，还有用户权限控制、病变程度划分、查看历史记录等功 能，可以方便地帮助乡镇卫生院等机构低成本快速部署 DR 辅助诊断系统。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 9,
+    "level" : "Doctitle",
+    "page number" : 10,
+    "bounding box" : [ 70.92, 248.615, 162.25, 262.665 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1.3 章节安排"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 10,
+    "bounding box" : [ 70.92, 199.514, 524.4, 235.703 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本文围绕基于深度学习的眼底图像分类方法展开研究，并设计实现了一个可视化的 Web 筛查系统。本文的章节安排如下："
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 11,
+    "level" : "1",
+    "page number" : 10,
+    "bounding box" : [ 94.92, 129.435, 524.4, 189.403 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 10,
+      "bounding box" : [ 94.92, 176.114, 524.4, 189.403 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 1 章绪论，阐述眼底分类任务的研究目的及重要性，总结国内外图像分类工作的",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 10,
+        "bounding box" : [ 70.92, 153.622, 430.92, 165.622 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "发展情况，指出当前存在的问题及不足之处，最后提出本文的工作。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 10,
+      "bounding box" : [ 94.92, 129.435, 524.4, 142.724 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "第 2 章相关理论及技术，介绍了图像分类基本概念，对卷积神经网络结构、激活函",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 10,
+    "bounding box" : [ 70.92, 83.663, 524.4, 118.943 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "数以及训练过程作了详细介绍；给出了图像分类任务常用的评估标准，便于后面建立模 型并进行比较。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 10,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "3"
+  } ]
+}

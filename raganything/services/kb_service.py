@@ -1667,6 +1667,13 @@ def _serialize_doc_status_record(record: Any) -> dict[str, Any]:
     }
 
 
+def _get_doc_status_storage(lightrag: Any) -> Any | None:
+    """Support LightRAG's legacy and current doc-status attribute names."""
+    return getattr(lightrag, "doc_status", None) or getattr(
+        lightrag, "doc_status_storage", None
+    )
+
+
 async def _get_pg_doc_status_storage(kb_name: str) -> Any | None:
     """Return a live PG doc-status store, or ``None`` for a JSON-backed KB."""
     if not _pg_storage_ready():
@@ -1680,10 +1687,12 @@ async def _get_pg_doc_status_storage(kb_name: str) -> Any | None:
             raise RuntimeError(
                 f"PG doc_status initialization failed for KB {kb_name}"
             ) from exc
-    if rag is None or not rag.lightrag or not hasattr(rag.lightrag, "doc_status"):
+    if rag is None or not rag.lightrag:
         raise RuntimeError(f"PG doc_status storage is unavailable for KB {kb_name}")
 
-    ds = rag.lightrag.doc_status
+    ds = _get_doc_status_storage(rag.lightrag)
+    if ds is None:
+        raise RuntimeError(f"PG doc_status storage is unavailable for KB {kb_name}")
     # JSONDocStatusStorage deliberately has no ``db`` attribute.
     if not hasattr(ds, "db"):
         return None
@@ -1695,12 +1704,12 @@ async def _get_pg_doc_status_storage(kb_name: str) -> Any | None:
         del kb_instances[kb_name]
     try:
         rag = await get_kb(kb_name)
-        ds = rag.lightrag.doc_status
+        ds = _get_doc_status_storage(rag.lightrag)
     except Exception as exc:
         raise RuntimeError(
             f"PG doc_status cache recovery failed for KB {kb_name}"
         ) from exc
-    if not hasattr(ds, "db") or getattr(ds, "db", None) is None:
+    if ds is None or not hasattr(ds, "db") or getattr(ds, "db", None) is None:
         raise RuntimeError(f"PG doc_status storage is unavailable for KB {kb_name}")
     return ds
 
@@ -1869,8 +1878,11 @@ async def _save_doc_status_json(kb_name: str, data: dict[str, Any]) -> None:
             rag = await get_kb(kb_name)
         except Exception:
             pass
-    if rag is not None and rag.lightrag and hasattr(rag.lightrag, "doc_status"):
+    if rag is not None and rag.lightrag:
         try:
+            doc_status = _get_doc_status_storage(rag.lightrag)
+            if doc_status is None:
+                raise RuntimeError("LightRAG doc_status storage is unavailable")
             upsert_data: dict[str, dict[str, Any]] = {}
             for doc_id, info in data.items():
                 upsert_data[doc_id] = {
@@ -1884,8 +1896,8 @@ async def _save_doc_status_json(kb_name: str, data: dict[str, Any]) -> None:
                     "error_msg": info.get("error_msg"),
                     "track_id": info.get("track_id"),
                 }
-            await rag.lightrag.doc_status.upsert(upsert_data)
-            await rag.lightrag.doc_status.index_done_callback()
+            await doc_status.upsert(upsert_data)
+            await doc_status.index_done_callback()
         except Exception:
             kb_logger.warning(
                 "PG doc_status save failed for KB %s", kb_name, exc_info=True,
@@ -2044,7 +2056,16 @@ async def get_kb(name: str = None) -> RAGAnything:
             target = kb_dir(name)
             set_default_workspace(target)
             instance = await create_rag(working_dir=target)
-            await instance._ensure_lightrag_initialized()
+            initialization = await instance._ensure_lightrag_initialized()
+            if not initialization or not initialization.get("success"):
+                message = (initialization or {}).get("error", "unknown error")
+                try:
+                    await instance.finalize_storages()
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    f"Knowledge-base initialization failed for {name}: {message}"
+                )
             # Lower vector retrieval cosine threshold for broader semantic recall
             if instance.lightrag and hasattr(instance.lightrag, 'chunks_vdb'):
                 instance.lightrag.chunks_vdb.cosine_better_than_threshold = 0.0
@@ -2671,8 +2692,11 @@ async def _persist_failed_doc_status(
             rag = await get_kb(kb_name)
         if rag is None or not getattr(rag, "lightrag", None):
             return None
-        await rag.lightrag.doc_status.upsert({doc_id: record})
-        await rag.lightrag.doc_status.index_done_callback()
+        doc_status = _get_doc_status_storage(rag.lightrag)
+        if doc_status is None:
+            return None
+        await doc_status.upsert({doc_id: record})
+        await doc_status.index_done_callback()
         kb_logger.warning(
             "[DOC-STATUS] Created failed placeholder doc=%s file=%s KB=%s",
             doc_id[:24],
@@ -3237,10 +3261,13 @@ async def _mark_degraded_document(
             rag = await get_kb(kb_name)
         if rag is None or not getattr(rag, "lightrag", None):
             return None
-        await rag.lightrag.doc_status.upsert({
+        doc_status = _get_doc_status_storage(rag.lightrag)
+        if doc_status is None:
+            return None
+        await doc_status.upsert({
             doc_id: {**info, "status": "failed", "metadata": metadata},
         })
-        await rag.lightrag.doc_status.index_done_callback()
+        await doc_status.index_done_callback()
     except Exception:
         kb_logger.warning(
             "Failed to persist degraded document state: KB=%s doc=%s",
@@ -3808,7 +3835,10 @@ async def _cleanup_retry_document_residue(
         workspace = "./rag_storage" if kb_name == "default" else f"./rag_storage_{kb_name}"
         cleaned: list[str] = []
         for doc_id, _info in candidates:
-            current = await lightrag.doc_status.get_by_id(doc_id)
+            doc_status = _get_doc_status_storage(lightrag)
+            if doc_status is None:
+                return None
+            current = await doc_status.get_by_id(doc_id)
             if not isinstance(current, dict):
                 raise WorkerProcessError({
                     "message": f"无法清理重试残留：文档状态不可见 ({doc_id})",
@@ -3846,7 +3876,7 @@ async def _cleanup_retry_document_residue(
                 str(value) for value in current.get("chunks_list") or [] if value
             ]
             if all_ids != current_ids:
-                await lightrag.doc_status.upsert({
+                await doc_status.upsert({
                     doc_id: {
                         **current,
                         "chunks_list": all_ids,
@@ -3854,7 +3884,7 @@ async def _cleanup_retry_document_residue(
                         "metadata": current_metadata,
                     }
                 })
-                await lightrag.doc_status.index_done_callback()
+                await doc_status.index_done_callback()
 
             try:
                 result = await lightrag.adelete_by_doc_id(
@@ -3879,7 +3909,7 @@ async def _cleanup_retry_document_residue(
             except Exception as exc:
                 # Keep the marker so a later retry can attempt cleanup again.
                 try:
-                    latest = await lightrag.doc_status.get_by_id(doc_id)
+                    latest = await doc_status.get_by_id(doc_id)
                     if isinstance(latest, dict):
                         latest_metadata = latest.get("metadata")
                         latest_metadata = (
@@ -3897,14 +3927,14 @@ async def _cleanup_retry_document_residue(
                             "task_id": task_id,
                             "file_hash": file_hash,
                         })
-                        await lightrag.doc_status.upsert({
+                        await doc_status.upsert({
                             doc_id: {
                                 **latest,
                                 "status": DocStatus.FAILED,
                                 "metadata": latest_metadata,
                             }
                         })
-                        await lightrag.doc_status.index_done_callback()
+                        await doc_status.index_done_callback()
                 except Exception:
                     kb_logger.warning(
                         "Unable to preserve retry cleanup marker for doc=%s",
@@ -4890,7 +4920,7 @@ async def _get_kb_doc_list(kb: str) -> str:
                     doc_names.add(name)
         if not doc_names and instance.lightrag:
             try:
-                store = instance.lightrag.doc_status
+                store = _get_doc_status_storage(instance.lightrag)
                 if hasattr(store, '_data'):
                     async with store._storage_lock:
                         for ds in store._data.values():

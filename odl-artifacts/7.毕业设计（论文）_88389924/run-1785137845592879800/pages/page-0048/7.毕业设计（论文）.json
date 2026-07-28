@@ -1,0 +1,151 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 48,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 48,
+    "bounding box" : [ 70.92, 747.143, 178.92, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "种设备上快速运行。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Doctitle",
+    "page number" : 48,
+    "bounding box" : [ 70.92, 715.534, 190.449, 729.584 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "7.4 系统功能测试"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 6,
+    "level" : "Subtitle",
+    "page number" : 48,
+    "bounding box" : [ 70.92, 690.623, 233.637, 702.623 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "7.4.1 用户权限管理模块测试"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 48,
+    "bounding box" : [ 94.92, 666.314, 292.92, 679.603 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "新用户进行账号注册，如图 34 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 48,
+    "bounding box" : [ 158.16, 492.68, 461.04, 657.68 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 48,
+    "bounding box" : [ 259.559, 472.97, 356.528, 484.542 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 34 用户注册页面"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 48,
+    "bounding box" : [ 70.92, 427.395, 524.39, 463.963 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在此页面以“123”作为用户名进行用户注册，输入长度大于等于六位的只包含字 母和数字的密码 123456 注册。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 48,
+    "bounding box" : [ 94.92, 403.995, 292.92, 417.284 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "注册成功后进行登录，如图 35 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 12,
+    "page number" : 48,
+    "bounding box" : [ 154.68, 226.28, 461.16, 395.24 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 13,
+    "page number" : 48,
+    "bounding box" : [ 254.4, 207.41, 361.928, 218.982 ],
+    "linked content id" : 12,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 35 新用户登录页面"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 48,
+    "bounding box" : [ 70.92, 139.343, 524.4, 198.023 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "用户登录后进入到普通用户的主页面，在主页面中用户可以选择单张筛查、批量筛 查与历史记录三个功能使用，并且可以根据室内光线自行调节主题，方便用户科学使用 程序保护眼睛。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 48,
+    "bounding box" : [ 94.92, 115.154, 340.92, 128.443 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "若用户使用错误账号密码登录，如图 36 所示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 48,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "41"
+  } ]
+}

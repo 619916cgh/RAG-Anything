@@ -18,6 +18,7 @@ Usage (process-global switch)::
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Any, Dict
 
@@ -134,6 +135,35 @@ def set_prompt_language(language: str) -> None:
 def get_prompt_language() -> str:
     """Return the currently active prompt language code."""
     return _current_language
+
+
+def configure_multimodal_prompt_language_from_env() -> str:
+    """Apply the deployment language for newly generated multimodal content.
+
+    This is intentionally process-wide because modal processors share the
+    prompt registry. It must run before a RAGAnything instance creates those
+    processors so descriptions and persisted chunk wrappers use one language.
+    """
+    configured = os.getenv("MULTIMODAL_PROMPT_LANGUAGE", "zh")
+    normalized = str(configured or "").strip().lower().replace("_", "-")
+    aliases = {
+        "zh": "zh",
+        "zh-cn": "zh",
+        "cmn": "zh",
+        "en": "en",
+        "en-us": "en",
+        "en-gb": "en",
+    }
+    try:
+        language = aliases[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            "MULTIMODAL_PROMPT_LANGUAGE must be zh or en "
+            "(zh-cn/cmn and en-us/en-gb are accepted aliases)"
+        ) from exc
+
+    set_prompt_language(language)
+    return language
 
 
 def reset_prompts() -> None:

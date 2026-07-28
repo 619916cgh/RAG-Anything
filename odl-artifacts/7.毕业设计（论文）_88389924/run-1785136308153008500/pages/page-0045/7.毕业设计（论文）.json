@@ -1,0 +1,120 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 45,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Doctitle",
+    "page number" : 45,
+    "bounding box" : [ 70.92, 730.507, 159.229, 746.457 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "7 系统测试"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 6,
+    "level" : "1",
+    "page number" : 45,
+    "bounding box" : [ 70.92, 394.223, 524.4, 709.784 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 45,
+      "bounding box" : [ 70.92, 670.823, 524.4, 709.784 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "7.1 系统测试概述 为了对糖尿病视网膜病变快速筛查系统进行全面的功能性、准确性、稳定性和安全",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 45,
+        "bounding box" : [ 70.92, 577.463, 526.919, 659.423 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "性测试，在本章中对该系统进行了相关测试工作。测试基于真实的医疗筛查环境进行， 主要采取黑盒测试方法并结合一定数量的性能指标来进行评估，涵盖用户的权限、图像 筛查、结果显示、历史记录以及后端管理的所有方面，以便使该系统可以顺利上线并且 使用。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 45,
+      "bounding box" : [ 70.92, 449.954, 330.84, 559.784 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "7.2 测试环境 操作系统：Windows 11 运行环境：Python 3.11、PyTorch、Flask 浏览器：Edge 硬件：普通 PC CPU 即可运行，支持 GPU 加速",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 45,
+      "bounding box" : [ 70.92, 394.223, 232.568, 433.184 ],
+      "font" : "SimHei",
+      "font size" : 14.05,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "7.3 模型性能测试与分析 7.3.1 测试集最终性能测试",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 45,
+    "bounding box" : [ 70.92, 346.634, 524.397, 383.324 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "使用最优模型权重即在 Epoch 76 时对未参与训练的 431 张测试集进行验证，其中 正常样本 286 张，病变样本 145 张，混淆矩阵如 30 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 8,
+    "page number" : 45,
+    "bounding box" : [ 160.2, 110.6, 455.64, 338.0 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 9,
+    "page number" : 45,
+    "bounding box" : [ 254.4, 91.131, 361.928, 102.703 ],
+    "linked content id" : 8,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 30 测试集混淆矩阵"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 45,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "38"
+  } ]
+}

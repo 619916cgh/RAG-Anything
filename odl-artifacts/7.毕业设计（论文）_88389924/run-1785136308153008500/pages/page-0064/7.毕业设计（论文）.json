@@ -1,0 +1,305 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 64,
+    "bounding box" : [ 213.6, 781.921, 381.485, 792.371 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 7,
+    "level" : "Doctitle",
+    "page number" : 64,
+    "bounding box" : [ 70.92, 745.294, 162.25, 759.344 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "附录 C： U 盘"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 8,
+    "level" : "Subtitle",
+    "page number" : 64,
+    "bounding box" : [ 70.92, 725.28, 128.768, 735.73 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "1 目录结构"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 9,
+    "level" : "1",
+    "page number" : 64,
+    "bounding box" : [ 91.92, 614.331, 321.968, 716.503 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 91.92, 704.931, 234.129, 716.503 ],
+      "font" : "SimSun",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（1）“学生个人文件夹”目录",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 1,
+        "level" : "2",
+        "page number" : 64,
+        "bounding box" : [ 112.92, 633.89, 268.329, 697.662 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 5,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 64,
+          "bounding box" : [ 112.92, 686.09, 146.344, 697.662 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "1. Word",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 64,
+          "bounding box" : [ 112.92, 673.97, 142.488, 685.542 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "2. PDF",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 64,
+          "bounding box" : [ 112.92, 661.131, 268.329, 672.703 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "3. 格子达检测报告（全文+简版）",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 64,
+          "bounding box" : [ 112.92, 647.45, 167.889, 659.022 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "4. 作品源码",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "page number" : 64,
+          "bounding box" : [ 112.92, 633.89, 188.654, 645.462 ],
+          "font" : "TimesNewRomanPSMT",
+          "font size" : 10.45,
+          "text color" : "[0.0, 0.0, 0.0]",
+          "content" : "5. 毕业答辩 PPT",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 91.92, 614.331, 321.968, 625.903 ],
+      "font" : "SimSun",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2）“1. Word”文件夹和“2. PDF”文件夹目录",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 10,
+    "level" : "2",
+    "page number" : 64,
+    "bounding box" : [ 112.92, 431.21, 215.168, 606.222 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 13,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 594.65, 178.449, 606.222 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "1. 选题审批表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 581.09, 157.449, 592.662 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "2. 任务书",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 567.41, 167.889, 578.982 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "3. 开题报告",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 553.85, 199.448, 565.422 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4. 开题答辩记录表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 540.171, 178.449, 551.743 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "5. 中期检查表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 526.61, 178.449, 538.182 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "6. 指导记录表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 512.931, 209.888, 524.503 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "7. 毕业设计（论文）",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 499.37, 188.888, 510.942 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "8. 检测报告简版",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 485.69, 199.448, 497.262 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "9. 指导老师评定表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 472.131, 204.728, 483.703 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "10. 评阅老师评阅表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 458.45, 183.249, 470.022 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "11. 答辩记录表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 444.89, 215.168, 456.462 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "12. 答辩决议及评审表",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 64,
+      "bounding box" : [ 112.92, 431.21, 215.168, 442.782 ],
+      "font" : "TimesNewRomanPSMT",
+      "font size" : 10.45,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "13. 相关文件（完整）",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 11,
+    "level" : "Subtitle",
+    "page number" : 64,
+    "bounding box" : [ 70.92, 412.44, 128.768, 422.89 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2 文件说明"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 64,
+    "bounding box" : [ 70.92, 382.2, 524.277, 406.33 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "“学生个人文件夹”以“班级学号姓名”命名，包括毕业设计过程性资料、毕业设计作品源码 等文件。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 64,
+    "bounding box" : [ 293.159, 36.003, 302.218, 45.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "57"
+  } ]
+}

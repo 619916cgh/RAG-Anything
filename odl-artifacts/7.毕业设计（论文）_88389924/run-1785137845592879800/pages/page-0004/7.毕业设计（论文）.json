@@ -1,0 +1,71 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 2,
+    "level" : "Doctitle",
+    "page number" : 4,
+    "bounding box" : [ 267.84, 738.78, 327.269, 756.443 ],
+    "heading level" : 1,
+    "font" : "TimesNewRomanPS-BoldMT",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "Abstract"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 4,
+    "bounding box" : [ 70.92, 573.434, 524.635, 731.563 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "Diabetic retinopathy (DR) is a severe microvascular complication of diabetes and a leading cause of irreversible vision loss in adults. Traditional DR screening relies heavily on manual interpretation of color fundus photographs by ophthalmologists,a process that is not only time-consuming and costly but also subject to considerable inter-observer variability. These challenges are further aggravated in primary care settings with uneven distribution of medical resources. To address these problems, this study designs and implements a lightweight intelligent screening system for diabetic retinopathy tailored to primary healthcare institutions."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 4,
+    "bounding box" : [ 70.92, 325.034, 524.436, 566.084 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "For the algorithm,a binary classification dataset consisting of 4,481fundus images (3,014normal and1,467 pathological) was constructed. Data augmentation strategies including random cropping, horizontal flipping, and normalization were applied to increase sample diversity. MobileNetV3-Large was adopted as the backbone, with transfer learning from ImageNet pre-trained weights. Key hyperparameters such as batch size, learning rate, optimizer, and number of training epochs were systematically tuned to fine-tune the model. Experimental results on an independent test set of 431 images show that the optimized model achieves an accuracy of 81.44%,a precision of 83.53%, a recall of 81.44%, and an F1 score of 81.85%,representing a 9.04-percentage-point improvement over the baseline. The average inference time per image is 26 ms, the model has only 4.2M parameters, and the storage size is 16.23 MB,striking a favorable balance between detection accuracy and computational efficiency."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 4,
+    "bounding box" : [ 70.92, 200.835, 524.4, 317.684 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "At the system level, the PyTorch deep learning framework and the Flask lightweight web framework were used to build a browser/server architecture with a separation of front-end and back-end. The system provides core functions including hierarchical user permission management (administrator vs. ordinary user), intelligent screening of single and batch fundus images,confidence-based grading of disease severity (early,moderate,and advanced),screening history review,and back-end data management."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 4,
+    "bounding box" : [ 70.92, 149.595, 536.4, 187.39 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "Key words: Deep learning；Fundus image recognition；MobileNetV3；image classification； Diabetic Retinopathy"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 4,
+    "bounding box" : [ 294.72, 60.003, 300.717, 69.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "II"
+  } ]
+}

@@ -38,8 +38,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 EXPOSE 8000
 
-# 启动命令
-CMD ["python", "server.py"]
+# 入口脚本 + 启动命令
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+CMD ["/app/docker-entrypoint.sh"]
 
 # Opt-in OpenDataLoader runtime. Build explicitly with:
 # docker build --target opendataloader -t raganything:opendataloader .

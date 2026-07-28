@@ -1,0 +1,148 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 25,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 25,
+    "bounding box" : [ 70.92, 747.143, 418.92, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "在系统中还设置有日志功能，用来记录登陆、上传、识别等工作。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Doctitle",
+    "page number" : 25,
+    "bounding box" : [ 70.92, 715.534, 176.29, 729.584 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "4.3 数据库设计"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 25,
+    "bounding box" : [ 70.92, 667.223, 524.4, 703.003 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "该系统为轻量化部署，不依赖 MySQL、SQLite 等独立数据库，采用结构化文件实 现数据持久化，满足小型系统的高效、简洁需求。"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 10,
+    "level" : "1",
+    "page number" : 25,
+    "bounding box" : [ 70.92, 374.595, 524.4, 655.823 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 25,
+      "bounding box" : [ 70.92, 620.543, 524.4, 655.823 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4.3.1 设计原则 数据设计注重简洁性、安全性、可扩展性和数据完整性。整个框架简单明了、各个",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 25,
+        "bounding box" : [ 70.92, 549.674, 526.919, 609.143 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "字段明确，便于读写和维护；密码以加密形式保存并且做到用户之间的数据相互独立； 预留一些字段以便将来可以添加更多种类的数据；而且每个实体都有一个唯一的 ID、 时间戳以及归属用户，对应的 E-R 实体关系如图 10 所示。"
+      }, {
+        "type" : "image",
+        "pdfua_tag" : "Figure",
+        "id" : 2,
+        "page number" : 25,
+        "bounding box" : [ 70.92, 440.36, 512.88, 540.92 ],
+        "alt_source" : "missing",
+        "source" : "7.毕业设计（论文）_images/imageFile1.png"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 25,
+        "bounding box" : [ 262.92, 420.29, 353.289, 431.862 ],
+        "font" : "SimSun",
+        "font size" : 10.45,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "图10 E-R实体关系"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 25,
+      "bounding box" : [ 70.92, 374.595, 524.4, 410.783 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4.3.2 数据库结构 （1） 用户表结构。采用 JSON 文件格式存储，用于保存用户相关信息。表中有用",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 25,
+    "bounding box" : [ 70.92, 304.635, 524.52, 364.603 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "户唯一 ID id、登录账号 username、加密后密码 password、用户角色 role 和创建时间 created\\_at，可以满足注册、登录、权限检查及管理等需求，简洁高效的同时保证安全 性和稳定性，如图 11 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 12,
+    "page number" : 25,
+    "bounding box" : [ 117.12, 109.64, 498.84, 295.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 13,
+    "page number" : 25,
+    "bounding box" : [ 255.84, 90.05, 360.368, 101.622 ],
+    "linked content id" : 12,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图11 用户表内部结构"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 25,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "18"
+  } ]
+}

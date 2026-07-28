@@ -1,0 +1,81 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 19,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 19,
+    "bounding box" : [ 70.92, 723.863, 524.39, 759.523 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "F1 值为精确率与召回率的加权平均值，来综合反映模型的分类性能，其定义如公 式（10）所示："
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 19,
+    "bounding box" : [ 300.959, 670.314, 517.209, 737.262 ],
+    "font" : "CambriaMath",
+    "font size" : 8.5,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "F1= 2∗P∗RP+R （10）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 19,
+    "bounding box" : [ 70.92, 602.904, 524.4, 684.863 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "精确率、召回率以及 F1 值是评估二分类模型优劣的主要标准，三者相互补充，是 一个比较完善的评估体系。其中精确率体现预测结果准确性，召回率体现对目标样本检 测能力，而 F1 值则综合考虑两者情况，在一定程度上反映了模型对该眼底病种分类效 果及实用性，对于优化模型、选择合适模型具有指导作用。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Doctitle",
+    "page number" : 19,
+    "bounding box" : [ 70.92, 571.174, 162.25, 585.224 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2.4 本章小结"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 19,
+    "bounding box" : [ 70.92, 429.623, 530.4, 558.643 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本章对眼底图像分类涉及的相关理论与技术进行了阐述。首先介绍了 MobileNetV3 和 EfficientNet 两种轻量化深度学习模型，分析了各自在特征提取与推理效率方面的优 势。其次从图像分类基本概念出发，详细说明了卷积神经网络的结构组成，包括卷积层、 池化层、输出层及常用激活函数，并梳理了网络训练的前向与反向传播流程。最后介绍 了精确率、召回率和 F1 值等评价指标，为后续模型性能评估提供依据。本章内容为眼 底图像分类系统的设计与实现奠定了理论基础。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 19,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "12"
+  } ]
+}

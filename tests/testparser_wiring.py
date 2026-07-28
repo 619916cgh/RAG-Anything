@@ -59,6 +59,9 @@ async def test_processor_parse_document_uses_selected_parser(monkeypatch, tmp_pa
             pass
 
     class FakeParser:
+        def check_installation(self):
+            return True
+
         def parse_pdf(self, **kwargs):
             return [{"type": "text", "text": "parsed by fake parser", "page_idx": 0}]
 
@@ -153,6 +156,12 @@ async def test_pdf_override_requires_coverage_before_cache(monkeypatch, tmp_path
             pass
 
     class IncompleteOdlParser:
+        def check_installation(self):
+            raise AssertionError("OpenDataLoader must not repeat its prerequisite probe")
+
+        def installation_error(self):
+            return None
+
         def parse_pdf(self, **kwargs):
             return [{"type": "text", "text": "partial", "page_idx": 0}]
 
@@ -191,3 +200,62 @@ async def test_pdf_override_requires_coverage_before_cache(monkeypatch, tmp_path
         await processor.parse_document(str(pdf))
 
     assert stored is False
+
+
+@pytest.mark.asyncio
+async def test_odl_installation_failure_exposes_prerequisite_detail(monkeypatch, tmp_path):
+    """OpenDataLoader failures must identify the failed local prerequisite."""
+    from raganything.processor import doc_processor as doc_proc_module
+    from raganything.processor.doc_processor import DocProcessorMixin
+
+    class Logger:
+        def info(self, *args, **kwargs):
+            pass
+
+        def warning(self, *args, **kwargs):
+            pass
+
+        def error(self, *args, **kwargs):
+            pass
+
+        def debug(self, *args, **kwargs):
+            pass
+
+    class UnavailableOdlParser:
+        def installation_error(self):
+            return "Java version cannot be determined; install a supported Java runtime"
+
+        def check_installation(self):
+            return False
+
+    class Processor(DocProcessorMixin):
+        pass
+
+    processor = Processor()
+    processor.config = type(
+        "Config",
+        (),
+        {
+            "parser": "mineru",
+            "pdf_parser": "opendataloader",
+            "parser_output_dir": str(tmp_path / "output"),
+            "odl_artifact_root": str(tmp_path / "odl-artifacts"),
+            "parse_method": "auto",
+            "display_content_stats": False,
+        },
+    )()
+    processor.logger = Logger()
+    processor.parse_cache = None
+    (tmp_path / "odl-artifacts").mkdir()
+
+    monkeypatch.setattr(
+        doc_proc_module, "get_parser", lambda _name: UnavailableOdlParser()
+    )
+    pdf = tmp_path / "unavailable.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+
+    with pytest.raises(
+        RuntimeError,
+        match="OpenDataLoader runtime prerequisite check failed: Java version cannot",
+    ):
+        await processor.parse_document(str(pdf))

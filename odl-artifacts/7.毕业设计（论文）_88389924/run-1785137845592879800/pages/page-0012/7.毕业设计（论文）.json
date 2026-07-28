@@ -1,0 +1,195 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 12,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 10,
+    "level" : "Doctitle",
+    "page number" : 12,
+    "bounding box" : [ 70.92, 730.507, 207.348, 746.457 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 15.95,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2 相关理论和技术"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 11,
+    "level" : "Subtitle",
+    "page number" : 12,
+    "bounding box" : [ 70.92, 695.734, 218.529, 709.784 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2.1 核心深度学习模型"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 12,
+    "level" : "1",
+    "page number" : 12,
+    "bounding box" : [ 70.92, 483.195, 524.4, 682.823 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 12,
+      "bounding box" : [ 70.92, 646.514, 524.4, 682.823 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "2.1.1 MobileNetV3 模型 MobileNetV3 是 Google 提出的一种轻量化高效的卷积神经网络，在本文中作为主要",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 12,
+        "bounding box" : [ 70.92, 576.554, 524.4, 636.143 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "分类器使用。它通过使用深度可分离卷积大大降低计算量以及参数量，使用倒残差结构 提高特征传递及提取的能力，加入 SE 通道注意力机制加强对病灶部位的特征学习，此 外还有 Hardswish 激活函数使得准确率以及推断速度得到兼顾。"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 12,
+        "bounding box" : [ 70.92, 530.663, 524.396, 566.443 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "本系统以 MobileNetV3-Large 结构为基础，结合迁移学习，完成眼底图像的高效二 分类。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 12,
+      "bounding box" : [ 70.92, 483.195, 524.4, 519.382 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "2.1.2 EfficientNet 模型 EfficientNet 是利用复合缩放方法同时提高模型宽度、深度以及输入大小从而得到一",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 12,
+    "bounding box" : [ 70.92, 390.623, 524.4, 472.704 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "种高效的小型精确模型，在本文中作为一种参考或者候选模型进行比较，在很小计算开 销的情况下获得较高的准确率；而且这个模型网络结构合理，鲁棒性强，适用于医学图 像细微差别区分，而且也像 MobileNetV3 一样可以进行轻量级部署，推理速度极快并且 所需内存较少。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 12,
+    "bounding box" : [ 70.92, 343.944, 524.396, 379.724 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "对于本文工作，我们在 EfficientNet 和 MobileNetV3 之间进行对比以增强系统的可 靠性和选择性。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 15,
+    "level" : "Subtitle",
+    "page number" : 12,
+    "bounding box" : [ 70.92, 287.423, 218.529, 326.384 ],
+    "heading level" : 2,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "2.2 卷积神经网络基础 2.2.1 图像分类概述"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 12,
+    "bounding box" : [ 70.92, 170.663, 524.4, 276.023 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图像分类是计算机视觉领域的重要问题，它是指给定一幅图像将其归类到事先定义 的一些类别的一个或者几个上去。这就要求从这张图片中提取出有用信息并用这些信息 来训练分类器使之能对于新出现而之前从未见过的图片进行分类。图像分类被广泛应用 于医疗图像处理、自动驾驶、人脸识别、图像搜索以及监控等众多实际场景当中。图像 分类的一般步骤是："
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 17,
+    "level" : "2",
+    "page number" : 12,
+    "bounding box" : [ 94.92, 99.795, 530.4, 159.263 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 12,
+      "bounding box" : [ 94.92, 147.263, 530.4, 159.263 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（1） 数据收集。首先需要收集大量的图像数据，这些数据将被用来训练分类模型。",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 12,
+        "bounding box" : [ 70.92, 123.982, 322.92, 135.982 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "数据的质量和多样性对于模型的性能至关重要。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 12,
+      "bounding box" : [ 94.92, 99.795, 524.4, 113.084 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2） 预处理。在训练模型之前，通常需要对图像进行预处理，包括调整大小、归",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 18,
+    "page number" : 12,
+    "bounding box" : [ 70.92, 77.303, 286.92, 89.303 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "一化、增强等，以提高模型的泛化能力。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 12,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5"
+  } ]
+}

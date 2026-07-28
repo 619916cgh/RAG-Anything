@@ -1,0 +1,127 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 14,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 14,
+    "bounding box" : [ 70.92, 747.143, 250.92, 759.143 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "能是更高级、更抽象的图像结构。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 14,
+    "bounding box" : [ 70.92, 653.783, 524.4, 735.863 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "每个卷积核都是一个小型的权重矩阵，它们以一定的步长在输入特征图上滑动，并 在每个位置上进行点积运算。这个过程可以类比于人类视觉系统中感受野的概念，即每 个神经元只对视野中的一小部分区域敏感。通过这种方式，卷积层能够有效地提取出图 像的局部特征，并通过层层叠加的方式逐步构建出更全局、更复杂的特征表示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 14,
+    "bounding box" : [ 70.92, 559.514, 524.514, 642.382 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "此外，在卷积层一般有多个滤波器，这些滤波器可以同时对输入图片进行计算，得 到若干个特征图，即表示整个图片在不同层面以及不同方向的信息。而改变卷积核大小 以及步长，可以使 CNN 更好地提取出不同大小的目标，适用于各种不同的目标检测问 题，如图 2 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 7,
+    "page number" : 14,
+    "bounding box" : [ 189.6, 388.88, 426.6, 550.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 8,
+    "page number" : 14,
+    "bounding box" : [ 274.08, 370.01, 342.129, 381.582 ],
+    "linked content id" : 7,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图2 卷积运算"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 14,
+    "bounding box" : [ 70.92, 325.222, 524.4, 361.003 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "如图所示为 3*3 大小的卷积核在 5*5 大小的输入特征图上以步长 2 进行卷积运算的 过程。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 14,
+    "bounding box" : [ 70.92, 277.754, 524.4, 314.323 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "（2） 池化层。池化层的作用主要是降维、节省计算量以及增强模型对平移不变性 和鲁棒性。常用的池化方式有最大池化和均值池化等，如图 3 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 11,
+    "page number" : 14,
+    "bounding box" : [ 106.08, 177.92, 489.24, 269.0 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile2.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 12,
+    "page number" : 14,
+    "bounding box" : [ 247.8, 159.05, 368.527, 170.622 ],
+    "linked content id" : 11,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图3 最大池化与平均池化"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 14,
+    "bounding box" : [ 70.92, 90.982, 526.919, 149.663 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "池化层通过在输入数据上滑动一个窗口，并在每个窗口位置上对输入数据进行聚合 操作如最大值、平均值等，从而生成输出数据。这个过程可以看作是一种下降维操作， 能够减少数据的空间尺寸，降低计算复杂度，同时保留主要特征。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 14,
+    "bounding box" : [ 290.64, 49.684, 295.14, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "7"
+  } ]
+}

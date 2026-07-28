@@ -1,0 +1,81 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 36,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 36,
+    "bounding box" : [ 144.24, 642.05, 444.728, 759.703 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "表 10 微调前后对比表 评估指标 基线模型 最终模型 变化幅度 最终准确率 69.62% 80.92% 11.30% 最佳准确率 78.09% 87.13% 9.04% 召回率 76.00% 85.00% 9.00% F1 分数 77.50% 85.50% 8.00%"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 36,
+    "bounding box" : [ 138.959, 578.69, 438.063, 632.742 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "mAP@0.5 77.00% 85.48% 8.48% 最终训练损失 0.1820 0.1185 0.0635 最终验证损失 0.2150 0.1761 0.0389"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 36,
+    "bounding box" : [ 70.92, 465.263, 524.4, 570.623 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "上表展示了未经微调的基线模型与经过充分调整的最终模型在分类、检测及损失等 维度上的性能对比。可以看出，最终模型在准确率、精确率、召回率、F1 分数和 mAP@0.5 等关键指标上均有显著提升，同时训练损失与验证损失分别下降了 0.0635 和 0.0389。这 说明通过充分的训练迭代，模型的特征学习能力、收敛效果和泛化性能都得到了有效增 强，能更好地满足糖尿病视网膜病变筛查的精度要求。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 7,
+    "level" : "Doctitle",
+    "page number" : 36,
+    "bounding box" : [ 70.92, 433.534, 162.25, 447.584 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "5.5 本章小结"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 36,
+    "bounding box" : [ 70.92, 291.982, 524.4, 421.124 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "本章对基于 MobileNetV3 糖尿病视网膜病变分类模型进行模型优化以及与 Efficient Net 模型的对比，对数据集进行预处理、参数调优以及训练方法改进后，在验证集上获 得 87.13％的最佳准确率，损失降至 0.1761，整个训练过程平稳并且具有良好的泛化性 能。与 EfficientNet 相比，MobileNetV3 具有更高的分类准确率、更快的收敛速度以及更 小的体积，能够较好地解决临床筛查对于高精度和小体积的需求，为进一步开发系统奠 定坚实的理论基础。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 36,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "29"
+  } ]
+}

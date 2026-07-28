@@ -1,0 +1,269 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 60,
+    "bounding box" : [ 213.6, 781.921, 381.485, 792.371 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 60,
+    "bounding box" : [ 70.92, 743.331, 240.953, 767.022 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "username=session.get('username', '')) return redirect(url_for('login'))"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 60,
+    "bounding box" : [ 91.92, 707.09, 290.037, 730.782 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "@app.route(\"/help\", methods=['POST', 'GET']) def help():"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 695.09, 259.313, 706.662 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return render_template('help.html')"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 60,
+    "bounding box" : [ 91.92, 658.85, 221.512, 682.422 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "@app.route('/single-detection') def single_detection():"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 619.49, 219.253, 657.582 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "\"\"\"单张识别页面\"\"\" # 检查用户是否已登录 if 'user_id' not in session:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 595.37, 405.355, 619.062 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return redirect(url_for('login')) return render_template('single_detection.html', is_admin=is_admin())"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 60,
+    "bounding box" : [ 91.92, 559.131, 219.232, 582.822 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "@app.route('/batch-detection') def batch_detection():"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 546.29, 201.542, 557.862 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "\"\"\"批量识别页面\"\"\""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 519.89, 219.253, 544.303 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 检查用户是否已登录 if 'user_id' not in session:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 495.65, 402.955, 519.342 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return redirect(url_for('login')) return render_template('batch_detection.html', is_admin=is_admin())"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 14,
+    "page number" : 60,
+    "bounding box" : [ 91.92, 459.531, 183.595, 483.103 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "@app.route('/history') def history():"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 446.69, 201.542, 458.262 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "\"\"\"历史记录页面\"\"\""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 16,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 420.171, 219.253, 444.582 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 检查用户是否已登录 if 'user_id' not in session:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 17,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 396.05, 365.035, 419.622 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return redirect(url_for('login')) return render_template('history.html', is_admin=is_admin())"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 18,
+    "page number" : 60,
+    "bounding box" : [ 91.92, 359.81, 339.714, 383.382 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "@app.route('/process-single-detection', methods=['POST']) def process_single_detection():"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 19,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 346.97, 243.542, 358.542 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "\"\"\"处理单张图片识别请求\"\"\""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 20,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 320.45, 219.253, 344.862 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 检查用户是否已登录 if 'user_id' not in session:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 21,
+    "page number" : 60,
+    "bounding box" : [ 112.92, 282.771, 304.384, 319.182 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return jsonify({'error': '请先登录'}), 401 try:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 22,
+    "page number" : 60,
+    "bounding box" : [ 133.92, 257.81, 335.824, 282.222 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "if 'file' not in request.files: return jsonify({'error': '请上传图片'}), 400"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 23,
+    "page number" : 60,
+    "bounding box" : [ 133.92, 220.85, 234.595, 244.422 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "file = request.files['file'] if file.filename == '':"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 24,
+    "page number" : 60,
+    "bounding box" : [ 154.92, 208.01, 335.824, 219.582 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return jsonify({'error': '请选择图片'}), 400"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 25,
+    "page number" : 60,
+    "bounding box" : [ 133.92, 169.49, 274.567, 193.903 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 验证文件类型 if not allowed_file(file.filename):"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 26,
+    "page number" : 60,
+    "bounding box" : [ 70.92, 143.69, 524.251, 168.222 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "return jsonify({'error': '不支持的文件格式，请上传 jpg、jpeg 或 png 格式的图片'}), 400"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 27,
+    "page number" : 60,
+    "bounding box" : [ 133.92, 81.89, 383.813, 130.422 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "# 生成唯一的文件名，避免冲突 filename = secure_filename(file.filename) name, ext = os.path.splitext(filename) unique_filename = f\"{name}_{uuid.uuid4().hex[:8]}{ext}\""
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 60,
+    "bounding box" : [ 293.159, 36.003, 302.218, 45.97 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "53"
+  } ]
+}

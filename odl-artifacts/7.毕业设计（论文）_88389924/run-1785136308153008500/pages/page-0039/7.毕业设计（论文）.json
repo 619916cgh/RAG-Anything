@@ -1,0 +1,90 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 39,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 39,
+    "bounding box" : [ 70.92, 652.874, 524.512, 759.523 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "存的当前登录者的user_id相比较如果不一致就返回一个\"无权删除此条目\"的JSON错误 信息并且结束此次操作，如果是管理员就从/admin/users 路径进入到用户管理界面，在 这个路径上有一个@login_required 装饰器会在进入这个函数之前先验证是否已登录然 后再在这个函数里面再有一个 is_admin 的验证；如果不是管理员就会有提示\"需要管理 员权限\"然后跳转到首页。"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Doctitle",
+    "page number" : 39,
+    "bounding box" : [ 70.92, 622.054, 218.529, 636.104 ],
+    "heading level" : 1,
+    "font" : "SimHei",
+    "font size" : 14.05,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "6.2 单张图像筛查模块"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 39,
+    "bounding box" : [ 70.92, 409.514, 524.4, 609.643 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "单张图像筛查模块是整个系统的主识别功能，基于 Flask 后端接口开发完成，用于 接收用户上传一张眼底照片并进行智能化筛查。用户在前端页面上选取.jpg/.jpeg/.png 类 型的眼底照片之后，在服务器端对用户的登录情况以及文件合法性进行检查，检查成功 后将这张图片使用一个唯一的文件名保存在 uploads 文件夹下，然后调用 predict.py 中预 测接口，对这张图片进行预处理后利用 MobileNetV3 模型进行推理计算出疾病类别、概 率及严重程度，根据此给出相应医疗建议，最后把此次筛查的信息写入 results.csv 文件 并且将识别的结果以及图片一起以 JSON 形式返回给前端显示。该模块实现了从接收图 片、智能识别、得出结论以及保存整个过程自动化，简单方便、快速高效，可以供一个 人完成快速筛查工作，如图 25 所示。"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 7,
+    "page number" : 39,
+    "bounding box" : [ 91.92, 175.28, 492.0, 400.88 ],
+    "alt_source" : "missing",
+    "source" : "7.毕业设计（论文）_images/imageFile1.png"
+  }, {
+    "type" : "caption",
+    "pdfua_tag" : "Caption",
+    "id" : 8,
+    "page number" : 39,
+    "bounding box" : [ 249.12, 156.05, 346.088, 167.622 ],
+    "linked content id" : 7,
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "图 25 单张图像筛查"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 39,
+    "bounding box" : [ 70.92, 94.822, 524.4, 153.383 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "单张图像筛查模块一个单张图像筛查模块是基于“上传—校验—推理—记录”四个 步骤进行设计。从技术角度考虑使用 MobileNetV3 轻量级卷积神经网络来进行推理，因 为其具有较好的准确率并且速度快，适用于基层医疗机构硬件配置较低的情况，在文件"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 39,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "32"
+  } ]
+}

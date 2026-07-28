@@ -1,0 +1,169 @@
+{
+  "file name" : "7.毕业设计（论文）.pdf",
+  "number of pages" : 64,
+  "author" : "张显悦",
+  "title" : "黑龙江工程学院",
+  "creation date" : "D:20260614153622+08'00'",
+  "modification date" : "D:20260614153622+08'00'",
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 23,
+    "bounding box" : [ 213.6, 775.44, 381.485, 785.89 ],
+    "font" : "SimSun",
+    "font size" : 10.45,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "郑州经贸学院本科毕业设计（论文）"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 8,
+    "level" : "1",
+    "page number" : 23,
+    "bounding box" : [ 94.92, 559.514, 530.4, 759.523 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 23,
+      "bounding box" : [ 94.92, 746.234, 524.398, 759.523 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（1） 前端层。采用 HTML5 + CSS3 + JavaScript 构建简洁的 Web 操作界面，支持",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 2,
+        "page number" : 23,
+        "bounding box" : [ 70.92, 700.463, 524.4, 735.863 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "图片上传、结果展示、历史记录查询、批量筛查等交互功能，采用响应式布局，适配电 脑端浏览器访问。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 23,
+      "bounding box" : [ 94.92, 676.274, 530.4, 689.563 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（2） 后端服务层。使用 Flask 轻量级 Web 框架提供接口服务。负责用户登录验证、",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 23,
+        "bounding box" : [ 70.92, 653.783, 454.92, 665.783 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "图片接收、模型推理、结果存储与返回，支持高并发、多用户同时访问。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 23,
+      "bounding box" : [ 94.92, 629.595, 524.4, 642.884 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（3） 模型推理层。基于 PyTorch 深度学习框架加载 MobileNetV3 预训练权重。完",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 23,
+        "bounding box" : [ 70.92, 583.704, 524.4, 619.103 ],
+        "font" : "SimSun",
+        "font size" : 12.0,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "成眼底图像预处理、特征提取、病变分类与置信度计算，输出分类结果、置信度、病变 等级与诊疗建议。"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 23,
+      "bounding box" : [ 94.92, 559.514, 524.4, 572.803 ],
+      "font" : "SimSun",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "（4） 数据存储层。采用文件型数据库形式：JSON 存储用户信息、CSV 存储筛查",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 23,
+    "bounding box" : [ 70.92, 537.023, 358.92, 549.023 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "记录。不使用独立数据库服务，部署简单、迁移方便。"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 10,
+    "level" : "2",
+    "page number" : 23,
+    "bounding box" : [ 70.92, 293.663, 526.919, 525.744 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 23,
+      "bounding box" : [ 70.92, 372.795, 377.147, 525.744 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4.1.2 技术栈选型 开发语言：Python 3.8+ Web 框架：Flask 2.0+ 深度学习框架：PyTorch 1.10+ 数据处理：Pandas、NumPy、Transform 模型：MobileNetV3-Large 存储：users.json、results.csv、本地上传文件夹 uploads",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 1,
+        "page number" : 23,
+        "bounding box" : [ 70.92, 341.974, 190.33, 356.024 ],
+        "font" : "SimHei",
+        "font size" : 14.05,
+        "text color" : "[0.0, 0.0, 0.0]",
+        "content" : "4.2 系统功能模块"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "page number" : 23,
+      "bounding box" : [ 70.92, 293.663, 526.919, 329.063 ],
+      "font" : "SimHei",
+      "font size" : 12.0,
+      "text color" : "[0.0, 0.0, 0.0]",
+      "content" : "4.2.1 总体功能结构 该系统共有用户权限管理模块、单张眼底图像筛查模块、批量眼底图像筛查模块、",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 23,
+    "bounding box" : [ 70.92, 246.982, 524.4, 282.763 ],
+    "font" : "SimSun",
+    "font size" : 12.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "筛查结果展示与建议模块，以及历史记录管理模块和系统管理模块六大模块。如图 9 所 示。"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 23,
+    "bounding box" : [ 290.64, 49.684, 299.699, 59.651 ],
+    "font" : "TimesNewRomanPSMT",
+    "font size" : 9.0,
+    "text color" : "[0.0, 0.0, 0.0]",
+    "content" : "16"
+  } ]
+}
