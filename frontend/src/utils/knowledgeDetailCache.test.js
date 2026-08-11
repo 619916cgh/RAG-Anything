@@ -12,6 +12,20 @@ test('keys values by authentication generation and KB name', () => {
   assert.throws(() => knowledgeDetailCacheKey('user-a', ''), /non-empty KB name/)
 })
 
+test('isolates document pages and invalidates every page for one KB', async () => {
+  const cache = createKnowledgeDetailCache()
+  await cache.load('manuals', () => ({ page: 1 }), { page: 1, pageSize: 10, q: '' })
+  await cache.load('manuals', () => ({ page: 2 }), { page: 2, pageSize: 10, q: '' })
+  await cache.load('manuals', () => ({ page: 1, filtered: true }), { page: 1, pageSize: 10, q: 'report' })
+  await cache.load('training', () => ({ page: 1 }), { page: 1, pageSize: 10, q: '' })
+
+  assert.deepEqual(cache.read('manuals', { page: 2, pageSize: 10, q: '' })?.value, { page: 2 })
+  cache.invalidateKB('manuals')
+  assert.equal(cache.read('manuals', { page: 1, pageSize: 10, q: '' }), null)
+  assert.equal(cache.read('manuals', { page: 2, pageSize: 10, q: '' }), null)
+  assert.deepEqual(cache.read('training', { page: 1, pageSize: 10, q: '' })?.value, { page: 1 })
+})
+
 test('shares in-flight work and caches only within the current authentication generation', async () => {
   const cache = createKnowledgeDetailCache({ authGeneration: 'session-a' })
   let calls = 0

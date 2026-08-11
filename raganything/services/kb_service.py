@@ -1856,6 +1856,38 @@ async def pg_list_uploads(
         return [], 0
 
 
+async def pg_get_upload_statuses_by_task_ids(
+    kb_name: str,
+    task_ids: list[str],
+) -> dict[str, str]:
+    """Read durable upload states for selected list rows only.
+
+    Access to the KB is verified by the caller. Restricting this lookup to the
+    uploader would make shared KB document rows display incomplete state.
+    """
+    normalized_ids = sorted({str(task_id) for task_id in task_ids if task_id})
+    if not normalized_ids:
+        return {}
+    try:
+        from raganything.services.pg_state_repo import get_pg_pool
+
+        sql = (
+            "SELECT task_id, status FROM uploaded_files "
+            "WHERE kb_name = $1 AND task_id = ANY($2::text[])"
+        )
+        pool = get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, kb_name, normalized_ids)
+        return {
+            str(row["task_id"]): str(row["status"] or "queued")
+            for row in rows
+            if row["task_id"]
+        }
+    except Exception:
+        kb_logger.warning("PG upload status batch read failed", exc_info=True)
+        return {}
+
+
 async def pg_get_latest_content_updates_batch(kb_names: list[str]) -> dict[str, str]:
     """Return the latest completed or deleted content change for each KB.
 
@@ -2277,6 +2309,295 @@ async def _load_doc_status_summaries(kb_name: str) -> dict[str, Any]:
         if not docs or len(result) >= total:
             return result
         page += 1
+
+
+def _document_summary_page_metadata(
+    *,
+    page: int,
+    page_size: int,
+    total: int,
+    query: str,
+    source: str,
+    documents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return {
+        "documents": documents,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+        "q": query,
+        "source": source,
+    }
+
+
+def _legacy_document_summary_page(
+    summaries: Mapping[str, Any],
+    *,
+    page: int,
+    page_size: int,
+    query: str,
+    runtime_tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compatibility page for pre-PostgreSQL doc-status stores.
+
+    JSON stores have no query planner, so this fallback remains intentionally
+    outside the large-KB performance contract. It still emits the same compact
+    summary shape and deduplication semantics as the PostgreSQL path.
+    """
+    best: dict[str, tuple[str, dict[str, Any]]] = {}
+    for raw_id, raw_info in summaries.items():
+        if not isinstance(raw_info, Mapping):
+            continue
+        info = _serialize_doc_status_summary(raw_info)
+        doc_id = str(raw_id)
+        display_name = display_document_name(info.get("file_path", ""))
+        dedupe_key = display_name or f"__missing_doc__:{doc_id}"
+        existing = best.get(dedupe_key)
+        updated = str(info.get("updated_at") or "")
+        if existing is None or updated > str(existing[1].get("updated_at") or ""):
+            best[dedupe_key] = (doc_id, info)
+
+    records: list[dict[str, Any]] = [
+        {
+            "kind": "document",
+            "full_id": doc_id,
+            "info": info,
+            "runtime_task": None,
+            "display_file": display_document_name(info.get("file_path", "")),
+            "updated": str(info.get("updated_at") or ""),
+        }
+        for doc_id, info in best.values()
+    ]
+    persisted_names = {record["display_file"] for record in records if record["display_file"]}
+    for task in runtime_tasks:
+        task_id = str(task.get("id") or task.get("task_id") or "")
+        display_name = display_document_name(task.get("file", ""))
+        if not task_id or not display_name or display_name in persisted_names:
+            continue
+        records.append({
+            "kind": "runtime",
+            "full_id": task_id,
+            "info": None,
+            "runtime_task": task,
+            "display_file": display_name,
+            "updated": str(task.get("started_at") or ""),
+        })
+
+    normalized_query = query.casefold()
+    if normalized_query:
+        records = [
+            record for record in records
+            if normalized_query in record["display_file"].casefold()
+        ]
+    records.sort(key=lambda record: record["full_id"])
+    records.sort(key=lambda record: record["updated"], reverse=True)
+    total = len(records)
+    start = (page - 1) * page_size
+    return _document_summary_page_metadata(
+        page=page,
+        page_size=page_size,
+        total=total,
+        query=query,
+        source="json-fallback",
+        documents=records[start:start + page_size],
+    )
+
+
+async def _load_pg_document_summary_page(
+    kb_name: str,
+    *,
+    page: int,
+    page_size: int,
+    query: str,
+    runtime_tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Select one deduplicated document-summary page without LightRAG hydration."""
+    from raganything.services.pg_state_repo import get_pg_pool
+
+    workspace = kb_dir(kb_name)
+    runtime_json = json.dumps(runtime_tasks, ensure_ascii=False, default=str)
+    offset = (page - 1) * page_size
+    # `base_name` mirrors display_document_name(): normalize separators, keep
+    # the final path component, then remove one staged hexadecimal prefix.
+    sql = """
+        WITH source_documents AS (
+            SELECT id, file_path, status, content_summary, content_length,
+                   chunks_count, metadata, error_msg, created_at, updated_at, track_id,
+                   regexp_replace(
+                       replace(COALESCE(file_path, ''), chr(92), '/'),
+                       '^.*/', ''
+                   ) AS base_name
+            FROM LIGHTRAG_DOC_STATUS
+            WHERE workspace = $1
+        ),
+        normalized_documents AS (
+            SELECT *,
+                   CASE
+                       WHEN base_name ~ '^(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{32})_.+$'
+                           THEN regexp_replace(
+                               base_name,
+                               '^(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{32})_(.+)$',
+                               '\\1'
+                           )
+                       ELSE base_name
+                   END AS display_file
+            FROM source_documents
+        ),
+        deduplicated_documents AS (
+            SELECT *,
+                   row_number() OVER (
+                       PARTITION BY CASE
+                           WHEN display_file = '' THEN id
+                           ELSE display_file
+                       END
+                       ORDER BY updated_at DESC NULLS LAST, id ASC
+                   ) AS duplicate_rank
+            FROM normalized_documents
+        ),
+        runtime_source AS (
+            SELECT value AS task,
+                   COALESCE(value->>'id', value->>'task_id') AS task_id,
+                   CASE
+                       WHEN COALESCE(value->>'updated_at', value->>'started_at', '') ~
+                            '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+                           THEN (COALESCE(value->>'updated_at', value->>'started_at'))::timestamptz
+                       ELSE NULL::timestamptz
+                   END AS runtime_updated_at,
+                   regexp_replace(
+                       replace(COALESCE(value->>'file', ''), chr(92), '/'),
+                       '^.*/', ''
+                   ) AS base_name
+            FROM jsonb_array_elements($2::jsonb)
+        ),
+        normalized_runtime AS (
+            SELECT *,
+                   CASE
+                       WHEN base_name ~ '^(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{32})_.+$'
+                           THEN regexp_replace(
+                               base_name,
+                               '^(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{32})_(.+)$',
+                               '\\1'
+                           )
+                       ELSE base_name
+                   END AS display_file
+            FROM runtime_source
+        ),
+        synthetic_runtime AS (
+            SELECT DISTINCT ON (task_id)
+                   task_id, task, display_file, runtime_updated_at
+            FROM normalized_runtime r
+            WHERE task_id IS NOT NULL
+              AND display_file <> ''
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM deduplicated_documents d
+                  WHERE d.duplicate_rank = 1 AND d.display_file = r.display_file
+              )
+            ORDER BY task_id
+        ),
+        candidates AS (
+            SELECT 'document'::text AS kind,
+                   id AS full_id,
+                   file_path, status, content_summary, content_length, chunks_count,
+                   metadata, error_msg, created_at, updated_at, track_id,
+                   display_file, NULL::jsonb AS runtime_task
+            FROM deduplicated_documents
+            WHERE duplicate_rank = 1
+            UNION ALL
+            SELECT 'runtime'::text AS kind,
+                   task_id AS full_id,
+                   NULL::text AS file_path, NULL::text AS status,
+                   ''::text AS content_summary, 0::bigint AS content_length,
+                   0::integer AS chunks_count, '{}'::jsonb AS metadata,
+                   NULL::text AS error_msg, NULL::timestamptz AS created_at,
+                   runtime_updated_at AS updated_at, task_id AS track_id,
+                   display_file, task AS runtime_task
+            FROM synthetic_runtime
+        ),
+        filtered AS (
+            SELECT *
+            FROM candidates
+            WHERE $3 = '' OR position(lower($3) IN lower(display_file)) > 0
+        ),
+        total AS (
+            SELECT count(*)::bigint AS count FROM filtered
+        ),
+        paged AS (
+            SELECT *
+            FROM filtered
+            ORDER BY updated_at DESC NULLS LAST, full_id ASC
+            LIMIT $4 OFFSET $5
+        )
+        SELECT p.*, t.count AS total
+        FROM total t
+        LEFT JOIN paged p ON true
+        ORDER BY p.updated_at DESC NULLS LAST, p.full_id ASC
+    """
+    pool = get_pg_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, workspace, runtime_json, query, page_size, offset)
+
+    total = int(rows[0]["total"] or 0) if rows else 0
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        if row["full_id"] is None:
+            continue
+        runtime_task = row["runtime_task"]
+        if isinstance(runtime_task, str):
+            runtime_task = json.loads(runtime_task)
+        if row["kind"] == "runtime":
+            info = None
+        else:
+            info = _serialize_doc_status_summary(row)
+        records.append({
+            "kind": str(row["kind"]),
+            "full_id": str(row["full_id"]),
+            "info": info,
+            "runtime_task": runtime_task if isinstance(runtime_task, dict) else None,
+            "display_file": str(row["display_file"] or ""),
+            "updated": row["updated_at"],
+        })
+    return _document_summary_page_metadata(
+        page=page,
+        page_size=page_size,
+        total=total,
+        query=query,
+        source="postgres",
+        documents=records,
+    )
+
+
+async def load_document_summary_page(
+    kb_name: str,
+    *,
+    page: int,
+    page_size: int,
+    query: str = "",
+    runtime_tasks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return list-view records and metadata without hydrating every document."""
+    normalized_query = str(query or "").strip()
+    tasks = runtime_tasks or []
+    if _pg_storage_ready():
+        return await _load_pg_document_summary_page(
+            kb_name,
+            page=page,
+            page_size=page_size,
+            query=normalized_query,
+            runtime_tasks=tasks,
+        )
+    summaries = await _load_doc_status_summaries(kb_name)
+    return _legacy_document_summary_page(
+        summaries,
+        page=page,
+        page_size=page_size,
+        query=normalized_query,
+        runtime_tasks=tasks,
+    )
 
 
 async def _load_doc_status_json(kb_name: str) -> dict[str, Any]:
@@ -3252,7 +3573,9 @@ async def create_rag(
         enable_image_processing=task_ingestion.get("enable_image", os.getenv("ENABLE_IMAGE_PROCESSING", "true").lower() == "true"),
         enable_table_processing=task_ingestion.get("enable_table", os.getenv("ENABLE_TABLE_PROCESSING", "true").lower() == "true"),
         enable_equation_processing=task_ingestion.get("enable_equation", os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true"),
-        enable_video_processing=task_ingestion.get("enable_video", os.getenv("ENABLE_VIDEO_PROCESSING", "false").lower() == "true"),
+        # Video processing is enabled only by the upload snapshot derived
+        # from a supported filename. Never fall back to a deployment toggle.
+        enable_video_processing=bool(task_ingestion.get("enable_video", False)),
         video_index_profile_version=str(task_ingestion.get("video_index_profile_version") or "v2"),
         parsers_by_type=task_ingestion.get("parsers_by_type") or {},
         entity_types=task_ingestion.get("entity_types", os.getenv("ENTITY_TYPES", "")),

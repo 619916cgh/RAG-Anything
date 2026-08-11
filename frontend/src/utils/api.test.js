@@ -182,6 +182,27 @@ test('explicit KB detail reads encode the target without changing ambient curren
   assert.equal(calls[0], '/api/knowledge/documents?kb=%E7%9B%AE%E6%A0%87%20KB%2F2')
 })
 
+test('document summary requests encode KB, page, size and literal search terms', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  globalThis.localStorage = { getItem: () => null }
+  let calledUrl = ''
+  globalThis.fetch = async url => {
+    calledUrl = String(url)
+    return jsonResponse({ documents: [], total: 0, page: 1, page_size: 50, total_pages: 1 })
+  }
+  t.after(() => {
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  await api.getDocumentSummariesForKB('\u77e5\u8bc6\u5e93 KB/2', { page: 2, pageSize: 50, q: '\u4e2d\u6587 & report' })
+  assert.equal(
+    calledUrl,
+    '/api/knowledge/document-summaries?kb=%E7%9F%A5%E8%AF%86%E5%BA%93+KB%2F2&page=2&page_size=50&q=%E4%B8%AD%E6%96%87+%26+report',
+  )
+})
+
 test('detail prefetch shares in-flight document and statistics requests', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage
@@ -190,7 +211,7 @@ test('detail prefetch shares in-flight document and statistics requests', async 
   globalThis.fetch = async url => {
     calls.push(String(url))
     await Promise.resolve()
-    return String(url).includes('/documents')
+    return String(url).includes('/document-summaries')
       ? jsonResponse({ documents: [{ id: 'doc-1' }] })
       : jsonResponse({ documents: 1, entities: 2, relations: 3, chunks: 4 })
   }
@@ -222,7 +243,7 @@ test('cancelling one detail consumer does not abort or poison the shared prefetc
   globalThis.fetch = async url => {
     calls.push(String(url))
     await fetchBarrier
-    return String(url).includes('/documents')
+    return String(url).includes('/document-summaries')
       ? jsonResponse({ documents: [{ id: 'doc-1' }] })
       : jsonResponse({ documents: 1, entities: 2, relations: 3, chunks: 4 })
   }
@@ -244,6 +265,38 @@ test('cancelling one detail consumer does not abort or poison the shared prefetc
   assert.equal(calls.length, 2)
   assert.equal(result.documents.status, 'ready')
   assert.equal(api.getCachedKnowledgeDetail('manuals').stats.data.documents, 1)
+})
+
+test('upload task deletion and retry cancellation invalidate every cached document page', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const calls = []
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = async (url, options = {}) => {
+    const target = String(url)
+    calls.push({ target, options })
+    if (target.includes('/document-summaries')) return jsonResponse({ documents: [{ id: target }] })
+    if (target.includes('/knowledge/stats')) return jsonResponse({ documents: 2 })
+    return jsonResponse({ status: 'ok' })
+  }
+  t.after(() => {
+    api.clearKnowledgeDetailCache()
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  api.clearKnowledgeDetailCache()
+  await api.prefetchKnowledgeDetail('manuals', { page: 1, pageSize: 10 })
+  await api.prefetchKnowledgeDetail('manuals', { page: 2, pageSize: 10 })
+  await api.deleteUploadTask('task-1', { kb: 'manuals' })
+  assert.equal(api.getCachedKnowledgeDetail('manuals', { page: 1, pageSize: 10 }), null)
+  assert.equal(api.getCachedKnowledgeDetail('manuals', { page: 2, pageSize: 10 }), null)
+
+  await api.prefetchKnowledgeDetail('manuals', { page: 1, pageSize: 10 })
+  await api.cancelUploadRetry('task-1', { kb: 'manuals' })
+  assert.equal(api.getCachedKnowledgeDetail('manuals', { page: 1, pageSize: 10 }), null)
+  assert.equal(calls.find(call => call.target.includes('/upload/tasks/task-1?kb=manuals'))?.options.method, 'DELETE')
+  assert.equal(calls.find(call => call.target.includes('/upload/tasks/task-1/cancel-retry?kb=manuals'))?.options.method, 'POST')
 })
 
 test('authentication generation changes clear the knowledge-base list cache', async t => {
@@ -317,7 +370,7 @@ test('a forbidden detail refresh evicts cached rows and returns fail-closed reso
         text: async () => JSON.stringify({ detail: 'forbidden' }),
       }
     }
-    return String(url).includes('/documents')
+    return String(url).includes('/document-summaries')
       ? jsonResponse({ documents: [{ id: 'doc-1' }] })
       : jsonResponse({ documents: 1 })
   }

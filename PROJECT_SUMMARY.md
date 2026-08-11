@@ -75,7 +75,7 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 - **按文件类型解析器覆盖**：`parser-per-type-overrides` + `collapse-parser-per-type-options` 已实现未提交，详见 2026-08-04 记录；per-type 解析器优先级、前端按类型三行下拉与折叠摘要已就位。
 - **个人设置中心与平台设置策略**：`redesign-personal-settings-center` 规格已归档，实现仍在未提交工作区。`/preferences` 统一“个人设置”，具备独立分区保存、存储值/生效值/来源/约束展示、可执行检索预设和移动端锚点；`/admin/platform` 管理默认值、允许范围和硬上限。
 - **分级个人设置权限投影**：`enforce-personal-settings-capabilities` 已实现未提交。实时权限控制分区与 API；降级的新任务继承默认，旧快照不变。
-- **知识库级上传默认**：`knowledge-base-ingestion-settings` 已实现未提交。新任务按平台/个人/知识库/单次覆盖解析；KB 稀疏覆盖保存在 `kb_metadata.extra.ingestion_defaults` 并以独立 revision 乐观锁更新，不影响 `vision_embedding` 等现有元数据或历史快照。`GET/PUT /kb/{kb}/ingestion-settings` 分别要求可访问 KB 与 `kb:write`；student 无上传、配置写入或目录加载，assistant、teacher、dept_admin、super_admin 仍受既有 KB 范围约束，平台策略留在 `/admin/platform`。五种上传入口实际使用快照的生效值。
+- **知识库级上传默认**：`knowledge-base-ingestion-settings` 已实现未提交。新任务按平台/个人/知识库/单次覆盖解析；KB 稀疏覆盖保存在 `kb_metadata.extra.ingestion_defaults` 并以独立 revision 乐观锁更新，不影响 `vision_embedding` 等现有元数据或历史快照。`GET/PUT /kb/{kb}/ingestion-settings` 分别要求可访问 KB 与 `kb:write`；student 无上传、配置写入或目录加载，assistant、teacher、dept_admin、super_admin 仍受既有 KB 范围约束，平台策略留在 `/admin/platform`。保留的单文件和批量文件上传入口实际使用快照的生效值。
 - **视觉模型配置与混合检索链路**：工作区实现模型目录、请求/任务设置快照、作用域缓存和 KB 视觉向量重建。默认 `hybrid` 查询使用不可变的用户检索选项（含图谱深度），不修改共享检索器；KB 重建失败保留旧索引并持续显示失败状态与重试入口。生产迁移及真实 PostgreSQL 多进程验收仍取决于部署环境。
 - **部署配置**：Docker 构建上下文排除 `.env`，模型目录使用只读挂载；本机没有 Docker 命令，容器构建和除 `027` 外的部署迁移未在本轮验收。
 - **项目总结质量检查**：当前工作区新增标准库检查器、10 项定向测试和 non-blocking GitHub Actions workflow；本地违规仍返回非零，CI 仅用 `continue-on-error` 提示，不作为合并门禁。入口见 [`check_project_summary.py`](scripts/check_project_summary.py) 和 [`project-summary-quality.yml`](.github/workflows/project-summary-quality.yml)。
@@ -161,7 +161,7 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 - 角色分配等级约束：`can_assign_role()`（`ROLE_ORDER/ROLE_RANK`）限定操作者只能分配不高于自身等级的角色；`create_user/update_user` 强制校验，bootstrap 以 super_admin 豁免。
 - 会话属“使用”资源：创建/重命名/删除按 `agent:read`（保留所有权校验），消息编辑按 `agent:write`。
 - `GET /kb/{kb}/vision-settings` 按 `kb:read`+可见性读取，写入保持属主/`kb:write`；`GET /workflows/models` 需 `workflow:read`。
-- `POST /upload/folder` 受 `FOLDER_UPLOAD_ROOTS` 白名单约束（默认 `uploads/` 与 `WORKING_DIR`），越界 403；运行时角色种子由 `DEFAULT_ROLES` 派生（`build_default_role_rows`），PG 模式删除 KB 已修复。
+- 运行时角色种子由 `DEFAULT_ROLES` 派生（`build_default_role_rows`），PG 模式删除 KB 已修复。
 
 ### 知识库与任务
 
@@ -452,3 +452,91 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 ## 30. 2026-08-10 Worker 后缓存失效修复验收边界
 
 `persist_vector_stores=False` 仅用于 Worker 写入后的旧缓存释放；普通缓存淘汰继续持久化向量。40 项 Worker/持久化测试与 12 项缓存回归通过，云端需重建 app 并重新上传新 PDF 验收。
+
+## 31. 2026-08-10 视频自动处理（本地实现，待云端验收）
+
+- 新上传的 `.mp4`、`.avi`、`.mov`、`.mkv`、`.webm` 由共享媒体扩展名 helper 自动派生内部 `enable_video=true`，并固定新任务快照为 v2；普通文件保持关闭视频处理器。保留的单文件和批量文件上传均按实际文件名判断。
+- 个人、知识库、平台和环境配置中的旧 `enable_video` 保留为兼容读取但不再参与解析或公开投影；前端上传页、个人设置、平台设置和上传请求均移除视频开关。历史快照不迁移，显式旧值继续保持原语义。
+- 本地验证：视频/设置/Worker 聚焦测试 100 项通过（2 项跳过），自动路由与共享后缀测试包含其中；前端单测 167 项通过；相关 `py_compile` 和 `git diff --check` 通过。上传任务回归另有 5 项既有 `text_embedding_identity_missing` 夹具失败，未归因于本变更；`npm run build` 在受限 Windows 环境中 120 秒无输出超时，构建未宣称通过；云端需重建 app 后上传短视频和 PDF 验收 Worker、向量和标签结果。
+
+## 32. 2026-08-10 KB grant migration startup diagnosis
+
+- Local startup initially failed in `pg_auth_repo._attach_allowed_kbs()` because `public.kb_access_grants` lacked `access_level`; migration history was applied through 032.
+- `scripts/pg_migration_runner.py` now loads the project `.env` with `override=False`, matching `server.py`, so local PowerShell execution receives the configured `DATABASE_URL` without printing credentials. After backup acknowledgement, migrations 033 and 034 were applied successfully; the column now exists.
+- Post-migration startup smoke reached `Application startup complete`; the process was stopped after verification. Focused migration/runner tests pass (16 passed, 1 skipped), with no remaining migration status or startup error.
+
+## 33. 2026-08-10 Knowledge-base editing and permission review (no behavior change)
+
+- Current KB editing is protected by two layers: role permission and KB object scope. Content changes (upload, document/chunk/tag changes, retry, multimodal reprocessing, ingestion and vision settings) require both `kb:write` and owner/super-admin scope or an explicit `operate` grant. A `read` grant permits viewing only.
+- The KB editor drawer exposes display-name and member controls only from server-returned capabilities. Member management additionally requires `kb:manage`: super_admin can manage all KBs, dept_admin only owned or granted KBs, and teacher only owned KBs; assistant and student cannot manage members. Member grants accept only `read`/`operate`, cannot target the owner or super_admin, respect role hierarchy, and invalidate the member session after change.
+- Verification: `tests/test_kb_member_access.py tests/test_kb_rbac_matrix.py` passed (22). The broader check including `tests/test_kb_ingestion_settings.py` had 25 pass / 2 fail because its mocks still replace the former read-scope helper while implementation now calls `verify_kb_operate_access`, causing an uninitialized local PG pool; this is a test-fixture drift, not runtime authorization acceptance. No source behavior was changed in this review.
+
+## 34. 2026-08-10 Role-derived knowledge-base visibility (local implementation)
+
+- `super_admin`, `dept_admin`, and `teacher` now receive read-only visibility of every knowledge base without adding rows to `kb_access_grants` or changing `allowed_kbs`. `assistant` and `student` remain limited to owned and explicitly granted knowledge bases.
+- The same read scope applies to KB reads, list, batch statistics, switching, and document download. Content mutation remains gated by the endpoint permission plus ownership, super-admin status, or an explicit `operate` grant. A `read` grant and role-derived visibility do not allow upload, document/chunk/tag changes, graph editing, rename, member management, or deletion.
+- `/api/kb/list` projects `read`, `operate`, `rename`, `manage_members`, and `delete` per KB. Detail, chunk, and delete UI controls consume that projection and fail closed after refresh or revocation. A prior dept-admin read-grant member-management path was tightened to require `operate`.
+- Local verification: focused backend visibility/list/switch/stats/download tests passed (54); frontend unit/source-contract suite passed (169); `py_compile`, strict OpenSpec validation, and `git diff --check` passed. Authenticated PostgreSQL five-role sessions, migration fresh/upgrade/repeat verification, and browser acceptance remain required before deployment; no production migration or live role data was changed in this task.
+
+## 35. 2026-08-10 Frontend multimodal controls removed
+
+- The knowledge-base upload panel and personal settings page no longer expose image, table, or equation processing choices. Existing stored settings and historical task snapshots remain readable and unchanged.
+- Both remaining frontend upload helpers now send `enable_image=true`, `enable_table=true`, and `enable_equation=true`; this affects new uploads created through the current frontend only. Direct backend API callers and legacy task semantics remain unchanged.
+- Local verification for this change: frontend unit/source-contract tests passed (172), Vite production build passed, and scoped `git diff --check` passed. Browser acceptance, backend direct-API behavior, and production deployment acceptance remain unverified.
+
+## 36. 2026-08-10 Non-file upload routes removed
+
+- URL import, server-folder import, and pasted-content ingestion are removed from the knowledge-base upload UI, frontend API client, and backend router. Ordinary file and batch-file upload remain available.
+- The removed backend surface is `POST /upload/folder`, `POST /upload/content`, and `POST /upload/url`; the folder whitelist setting and its route-only helpers are removed. Existing documents and persisted upload snapshots are not migrated or changed.
+- Local verification: frontend unit/source-contract tests passed (172); focused backend RBAC, retained upload, and route-surface tests passed (32); upload-task regression tests passed (58, with 5 unrelated text-embedding-identity fixture cases excluded); router/test `py_compile`, Vite production build, and scoped `git diff --check` passed. Browser acceptance, direct API 404 confirmation, and deployment acceptance remain unverified.
+
+## 37. 2026-08-10 Upload defaults and one-time override clarity (local implementation)
+
+- The knowledge-base detail page now separates the long-term "知识库长期上传默认" from a local one-time chunking override. Normal file and batch uploads show the effective strategy and its KB, personal, or platform/system source, and omit `chunking_strategy` when no temporary override is selected.
+- The temporary selector is collapsed by default, is explicitly expanded with accessible state, applies only to the next single-file or batch submit, and is cleared/collapsed after an accepted request. Rejected requests retain it for retry, and changing KB clears both the override and its expanded state. Image/table/equation processing remains fixed on for current frontend uploads.
+- The batch upload router keeps an immutable request strategy and resolves each file independently. Queue payloads and per-task response rows carry that file's resolved strategy, preventing an earlier file's default resolution from becoming a later file's request override. No public endpoint, schema, migration, historical task snapshot, or direct API behavior changed.
+- Local verification: frontend unit/source-contract tests passed (172); `tests/test_chunking_strategy_tracking.py tests/test_user_settings_resolution.py` passed (31); router `py_compile`, OpenSpec strict validation, and scoped `git diff --check` passed. `npm run build` produced no output and timed out at approximately 2 and 5 minutes in the managed Windows environment, so build and browser acceptance remain unverified.
+
+## 38. 2026-08-11 Upload log chunking strategy verification (no code behavior change)
+
+- The upload request and task snapshot for `4 系统设计.docx` both use `chunking_strategy=agentic`; the Worker records it as LLM intelligent chunking. The strategy asks the LLM to identify semantic boundaries, then merges segments to target `800` tokens with `100` tokens overlap; it is not embedding-similarity chunking.
+- The log records 2 multimodal chunks and 3 chunks in final document status. A separate vision-embedding 401 authentication failure and terminal `upload_claim_lost` are processing/status boundaries and do not change the selected chunking strategy; final task success still requires task-status verification.
+
+## 39. 2026-08-11 Local parser availability diagnostics (partial environment repair)
+
+- MinerU command discovery now resolves `mineru.exe` beside the active virtual-environment interpreter for both installation probing and real parser execution, preventing a service process with a reduced `PATH` from incorrectly disabling an installed MinerU.
+- The parser catalog now caches an additive, safe `reason` only for unavailable parsers. PaddleOCR, Marker, MinerU, and OpenDataLoader expose actionable local prerequisite errors; the personal-settings and KB-default selectors display that reason instead of a generic disabled option. Existing parser IDs, upload APIs, task snapshots, and persisted settings are unchanged.
+- Local verification: MinerU 3.4.4 command and stable direct probe passed; Docling and OpenDataLoader direct probes passed, with the latter resolving its Java 17 runtime from the process environment. Focused parser/settings tests passed (60), frontend unit tests passed (173), `py_compile`, and `git diff --check` passed.
+- This is not a complete five-parser environment acceptance: `paddlepaddle` and `marker-pdf[full]` are still absent from the local `.venv`. The approved package installation attempt timed out against PyPI, and the subsequent elevated retry was rejected by the approval service before execution. The FastAPI service was not listening on port 8001 during this verification, so authenticated `/api/users/me/settings/options`, image/PDF parsing smoke, browser UI, and production/container validation remain open until those dependencies are installed and the service is restarted.
+
+## 40. 2026-08-11 Interrupted local parser dependency install cleanup (no application behavior change)
+
+- The timed-out optional dependency installation left no completed PaddlePaddle or Marker package, no new wheel cache, and no `pip-*` temporary directory. Only the identified 107-byte pip version self-check record from the attempt was removed.
+- Existing pip wheel caches, unattributable zero-byte temporary files, project files, virtual-environment packages, database data, and upload-task data were deliberately preserved. No parser availability, API, configuration, or deployment behavior changed during cleanup.
+
+## 41. 2026-08-11 Frontend load response diagnosis and bounded repair
+
+- Local HTTP smoke showed the running API health endpoint and unauthenticated auth endpoint responding in milliseconds; the reproducible frontend risks were stalled auth bootstrap, duplicate or overlapping client reads, and uncompressed production text assets rather than a local API baseline delay.
+- Auth bootstrap and refresh now share an abortable 8-second request bound, preserving stored credentials for transient failures while preventing an indefinitely visible startup loader. Initial agent-thread selection avoids a redundant thread-list refresh; Monitor and AutoRepair dashboard reads are visibility-gated or cancel the preceding request before refreshing; hidden tabs skip epoch polling.
+- Nginx now enables gzip only for text, CSS, JavaScript, JSON, XML, and SVG, leaving already-compressed font/media assets outside the explicit type list. No API, RBAC, database, migration, or persisted data behavior changed.
+- Local verification: frontend unit suite 176 passed, Vite production build passed, scoped diff check passed, and local API health/auth smoke passed. Production Nginx compression headers, authenticated browser waterfall, slow-network recovery, and large-KB document pagination/load testing remain unverified; the detail endpoint still returns an unpaginated document list and needs a separately designed backward-compatible pagination change.
+
+## 42. 2026-08-11 User-visible document-name cleanup
+
+- Uploaded files retain their unique staged names for storage, retry, deduplication, and download lookup. A shared display-only helper now removes legacy 8-hex and current 32-hex prefixes at user-facing boundaries.
+- Retrieval source caches, RRF, graph and tag-scoped contexts, agent document summaries, citation DTOs, video citations, document-task display, citation fallback, and download response filenames show the original filename without changing persisted `file_path` values.
+- Local verification: 70 focused tests passed, including display normalization, source-cache reconstruction, RRF/graph/tag retrieval, structured and video citations, and prefixed-file download resolution; `py_compile` and scoped `git diff --check` passed. Browser and deployed-service acceptance remain unverified.
+
+## 43. 2026-08-11 Large knowledge-base document summary pagination
+
+- `GET /api/knowledge/document-summaries` now provides PostgreSQL-backed, case-insensitive display-name search, exact totals, stable pagination, deduplication, bounded runtime-task/upload-status overlays, and page-only tag health. The legacy `/api/knowledge/documents` full-list contract is unchanged; JSON storage remains a compatibility fallback outside the large-KB performance guarantee.
+- The knowledge-detail page now uses auth/KB/page/search-scoped caches, 250 ms debounced cancellable server search, server pagination metadata, page clamping, cross-page selection, and KB-wide cache invalidation after document and upload-task mutations. Same-name active task phases are preserved for legacy persisted rows without task provenance.
+- Verification: backend focused suite 56 passed; frontend utility suite 179 passed; `py_compile`, scoped `git diff --check`, OpenSpec strict validation, and Vite production build passed. A warmed local PostgreSQL fixture with 10,000 synthetic rows returned 50-row pages with mean 188 ms and P95 190 ms across 30 calls; the matching `EXPLAIN (ANALYZE, BUFFERS)` completed in 123 ms. No index migration was added because the measured plan is below the 1-second release gate.
+- Remaining acceptance boundary: authenticated browser regression, deployed-service/Nginx behavior, and production PostgreSQL multi-role acceptance remain unverified. The benchmark used a unique disposable workspace and removed only its synthetic rows.
+
+## 44. 2026-08-11 云端公开问答演示窗口
+
+- `public-demo-qa-window` 已落地迁移 `035_public_demo_shares.sql`、SHA-256 令牌哈希、固定 agent/KB、PostgreSQL 限流与并发租约、超级管理员创建/撤销、匿名 bootstrap/SSE、无会话持久化、撤销二次校验和短时受控媒体预览。
+- 前端新增独立 `/demo/:shareId#token` kiosk 页面；令牌只从 fragment 读取并通过 `X-Demo-Token` 发送，匿名请求省略浏览器凭据，来源仅显示脱敏文档名，媒体仅接受同源短时 grant。
+- 本地证据：后端公开演示与迁移测试 26 passed；前端 `npm run test:unit` 184 passed；OpenSpec strict 与 `git diff --check` 通过。`npm run build` 在受管 Windows 环境 124 秒无输出超时，构建未验证。
+- 云端边界：确认 PostgreSQL 备份后执行迁移，重建 App/前端镜像，验收真实云端 KB 的 SSE、引用、媒体、撤销、限流与 Nginx 同源路由。2.1 的认证/演示查询路径尚未提炼为共享服务，归档前需补齐或明确接受实现差异。

@@ -7,6 +7,7 @@ export const DETAIL_RESOURCE_STATUS = Object.freeze({
 function normaliseResource(resource, fallbackData) {
   if (resource?.status === DETAIL_RESOURCE_STATUS.READY) {
     return {
+      ...resource,
       status: DETAIL_RESOURCE_STATUS.READY,
       data: resource.data ?? fallbackData,
       error: '',
@@ -16,6 +17,7 @@ function normaliseResource(resource, fallbackData) {
   }
   if (resource?.status === DETAIL_RESOURCE_STATUS.ERROR) {
     return {
+      ...resource,
       status: DETAIL_RESOURCE_STATUS.ERROR,
       data: fallbackData,
       error: resource.error || '加载失败，请重试',
@@ -64,6 +66,7 @@ export function mergeKnowledgeDetailSnapshot(previous, kbName, snapshot) {
   const mergeResource = (current, incoming, fallbackData) => {
     if (incoming?.status === DETAIL_RESOURCE_STATUS.READY) {
       return {
+        ...incoming,
         status: DETAIL_RESOURCE_STATUS.READY,
         data: incoming.data ?? fallbackData,
         error: '',
@@ -109,7 +112,7 @@ export function getDocumentListMode({ routeKB, state, filteredCount, hasFilter =
   }
   if (state.documents.status === DETAIL_RESOURCE_STATUS.ERROR) return 'error'
   if (filteredCount > 0) return 'ready'
-  return hasFilter && state.documents.data.length > 0 ? 'no-match' : 'empty'
+  return hasFilter ? 'no-match' : 'empty'
 }
 
 export function createLatestRequestGate() {

@@ -13,8 +13,27 @@ function requireKBName(kbName) {
  * The scope is deliberately part of the key so a later login cannot reuse
  * data fetched under an earlier authentication generation.
  */
-export function knowledgeDetailCacheKey(authGeneration, kbName) {
-  return JSON.stringify([authGeneration, requireKBName(kbName)])
+export function normalizeDocumentPageQuery({ page = 1, pageSize = 10, q = '' } = {}) {
+  const normalizedPage = Number.isInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1
+  const normalizedPageSize = Number.isInteger(Number(pageSize)) && Number(pageSize) > 0
+    ? Number(pageSize)
+    : 10
+  return {
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+    q: String(q || '').trim().toLowerCase(),
+  }
+}
+
+export function knowledgeDetailCacheKey(authGeneration, kbName, pageQuery) {
+  const normalized = normalizeDocumentPageQuery(pageQuery)
+  return JSON.stringify([
+    authGeneration,
+    requireKBName(kbName),
+    normalized.page,
+    normalized.pageSize,
+    normalized.q,
+  ])
 }
 
 /**
@@ -47,7 +66,7 @@ export function createKnowledgeDetailCache({
   const inFlight = new Map()
   const keyRevisions = new Map()
 
-  const currentKey = kbName => knowledgeDetailCacheKey(activeGeneration, kbName)
+  const currentKey = (kbName, pageQuery) => knowledgeDetailCacheKey(activeGeneration, kbName, pageQuery)
 
   const revisionFor = key => keyRevisions.get(key) || 0
 
@@ -60,8 +79,8 @@ export function createKnowledgeDetailCache({
     }
   }
 
-  const read = kbName => {
-    const key = currentKey(kbName)
+  const read = (kbName, pageQuery) => {
+    const key = currentKey(kbName, pageQuery)
     const entry = entries.get(key)
     if (!entry) return null
 
@@ -75,11 +94,25 @@ export function createKnowledgeDetailCache({
     }
   }
 
-  const invalidate = kbName => {
-    const key = currentKey(kbName)
+  const invalidate = (kbName, pageQuery) => {
+    const key = currentKey(kbName, pageQuery)
     entries.delete(key)
     inFlight.delete(key)
     keyRevisions.set(key, revisionFor(key) + 1)
+  }
+
+  const invalidateKB = kbName => {
+    const normalizedName = requireKBName(kbName)
+    for (const key of new Set([...entries.keys(), ...inFlight.keys(), ...keyRevisions.keys()])) {
+      try {
+        if (JSON.parse(key)[1] !== normalizedName) continue
+      } catch {
+        continue
+      }
+      entries.delete(key)
+      inFlight.delete(key)
+      keyRevisions.set(key, revisionFor(key) + 1)
+    }
   }
 
   const invalidateAll = () => {
@@ -96,13 +129,13 @@ export function createKnowledgeDetailCache({
     return true
   }
 
-  const load = (kbName, loader, { force = false } = {}) => {
-    const key = currentKey(kbName)
+  const load = (kbName, loader, { force = false, ...pageQuery } = {}) => {
+    const key = currentKey(kbName, pageQuery)
     if (typeof loader !== 'function') {
       throw new TypeError('loader must be a function')
     }
 
-    const snapshot = read(kbName)
+    const snapshot = read(kbName, pageQuery)
     if (!force && snapshot?.fresh) return Promise.resolve(snapshot.value)
 
     const existing = inFlight.get(key)
@@ -140,6 +173,7 @@ export function createKnowledgeDetailCache({
     read,
     load,
     invalidate,
+    invalidateKB,
     invalidateAll,
     setAuthGeneration,
     getAuthGeneration: () => activeGeneration,

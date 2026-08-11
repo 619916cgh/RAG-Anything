@@ -1,5 +1,5 @@
 ﻿const API_BASE = '/api'
-import { knowledgeDetailCache } from './knowledgeDetailCache.js'
+import { createKnowledgeDetailCache, knowledgeDetailCache } from './knowledgeDetailCache.js'
 import { createGlobalStatsCache, GLOBAL_STATS_CACHE_TTL_MS } from './globalStatsCache.js'
 import { notifyAuthExpired, refreshStoredSession, readStoredAuth } from './authSession.js'
 
@@ -15,12 +15,13 @@ let kbListCache = null
 let kbListCacheAt = 0
 let kbListEpoch = 0
 const globalStatsCache = createGlobalStatsCache({ ttlMs: GLOBAL_STATS_CACHE_TTL_MS })
+const knowledgeDetailStatsCache = createKnowledgeDetailCache()
 export function setCurrentKB(name) { currentKB = name }
 export function getCurrentKB() { return currentKB }
 
-export function getCachedKnowledgeDetail(kbName) {
+export function getCachedKnowledgeDetail(kbName, pageQuery) {
   if (!kbName) return null
-  const snapshot = knowledgeDetailCache.read(kbName)
+  const snapshot = knowledgeDetailCache.read(kbName, pageQuery)
   if (!snapshot) return null
   return {
     ...snapshot.value,
@@ -30,16 +31,21 @@ export function getCachedKnowledgeDetail(kbName) {
 }
 
 export function invalidateKnowledgeDetail(kbName) {
-  if (kbName) knowledgeDetailCache.invalidate(kbName)
+  if (kbName) {
+    knowledgeDetailCache.invalidateKB(kbName)
+    knowledgeDetailStatsCache.invalidateKB(kbName)
+  }
 }
 
 export function clearKnowledgeDetailCache() {
   knowledgeDetailCache.invalidateAll()
+  knowledgeDetailStatsCache.invalidateAll()
 }
 
 export function advanceKnowledgeDetailAuthGeneration() {
   const current = Number(knowledgeDetailCache.getAuthGeneration()) || 0
   knowledgeDetailCache.setAuthGeneration(current + 1)
+  knowledgeDetailStatsCache.setAuthGeneration(current + 1)
   currentKB = ''
   clearKBListCache()
   clearGlobalStatsCache()
@@ -79,6 +85,12 @@ function clearKBListCache() {
   kbListInFlight = null
   kbListCache = null
   kbListCacheAt = 0
+}
+
+function setFixedMultimodalUploadParams(params) {
+  params.set('enable_image', 'true')
+  params.set('enable_table', 'true')
+  params.set('enable_equation', 'true')
 }
 
 function clearGlobalStatsCache() {
@@ -345,6 +357,38 @@ function detailResource(result, selectData) {
   }
 }
 
+function documentPageResource(result) {
+  if (result.status === 'fulfilled') {
+    const value = result.value || {}
+    return {
+      status: 'ready',
+      data: value.documents || [],
+      total: Number(value.total) || 0,
+      page: Number(value.page) || 1,
+      pageSize: Number(value.page_size) || 10,
+      totalPages: Number(value.total_pages) || 1,
+      hasNext: Boolean(value.has_next),
+      hasPrev: Boolean(value.has_prev),
+      q: String(value.q || ''),
+      error: '',
+    }
+  }
+  return {
+    status: 'error',
+    data: null,
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+    q: '',
+    error: result.reason?.message || '加载失败，请重试',
+    httpStatus: result.reason?.status || 0,
+    failClosed: result.reason?.status === 401 || result.reason?.status === 403,
+  }
+}
+
 function abortError() {
   const error = new Error('请求已取消')
   error.name = 'AbortError'
@@ -364,11 +408,24 @@ function waitForSharedRequest(request, signal) {
   })
 }
 
-async function loadKnowledgeDetailSnapshot(kbName, { timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS } = {}) {
+async function loadKnowledgeDetailSnapshot(
+  kbName,
+  { page = 1, pageSize = 10, q = '', forceStats = false, timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS } = {},
+) {
   const encodedKB = encodeURIComponent(kbName)
+  const documentParams = new URLSearchParams({
+    kb: kbName,
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  if (q) documentParams.set('q', q)
   const [documentsResult, statsResult] = await Promise.allSettled([
-    fetchJson(`/knowledge/documents?kb=${encodedKB}`, { timeoutMs }),
-    fetchJson(`/knowledge/stats?kb=${encodedKB}`, { timeoutMs }),
+    fetchJson(`/knowledge/document-summaries?${documentParams.toString()}`, { timeoutMs }),
+    knowledgeDetailStatsCache.load(
+      kbName,
+      () => fetchJson(`/knowledge/stats?kb=${encodedKB}`, { timeoutMs }),
+      { force: forceStats },
+    ),
   ])
   const accessDenied = [documentsResult, statsResult].some(result => (
     result.status === 'rejected'
@@ -377,22 +434,29 @@ async function loadKnowledgeDetailSnapshot(kbName, { timeoutMs = KB_DETAIL_PREFE
   if (accessDenied) invalidateKnowledgeDetail(kbName)
   return {
     kbName,
-    documents: detailResource(documentsResult, value => value.documents || []),
+    documents: documentPageResource(documentsResult),
     stats: detailResource(statsResult, value => value || {}),
   }
 }
 
 export function prefetchKnowledgeDetail(
   kbName,
-  { force = false, signal, timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS } = {},
+  { force = false, signal, page = 1, pageSize = 10, q = '', timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS } = {},
 ) {
-  const cached = knowledgeDetailCache.read(kbName)
+  const pageQuery = { page, pageSize, q }
+  const cached = knowledgeDetailCache.read(kbName, pageQuery)
   const cachedHasError = cached?.value?.documents?.status === 'error'
     || cached?.value?.stats?.status === 'error'
   const sharedRequest = knowledgeDetailCache.load(
     kbName,
-    () => loadKnowledgeDetailSnapshot(kbName, { timeoutMs }),
-    { force: force || cachedHasError },
+    () => loadKnowledgeDetailSnapshot(kbName, {
+      page,
+      pageSize,
+      q,
+      forceStats: force,
+      timeoutMs,
+    }),
+    { force: force || cachedHasError, ...pageQuery },
   )
   return waitForSharedRequest(sharedRequest, signal)
 }
@@ -494,10 +558,7 @@ export const api = {
     const fd = new FormData(); fd.append('file', file)
     const params = new URLSearchParams()
     if (chunking_strategy) params.set('chunking_strategy', chunking_strategy)
-    if (multimodal.enable_image !== undefined) params.set('enable_image', multimodal.enable_image)
-    if (multimodal.enable_table !== undefined) params.set('enable_table', multimodal.enable_table)
-    if (multimodal.enable_equation !== undefined) params.set('enable_equation', multimodal.enable_equation)
-    if (multimodal.enable_video !== undefined) params.set('enable_video', multimodal.enable_video)
+    setFixedMultimodalUploadParams(params)
     const qs = params.toString()
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
@@ -523,10 +584,7 @@ export const api = {
     files.forEach(f => fd.append('files', f))
     const params = new URLSearchParams()
     if (chunking_strategy) params.set('chunking_strategy', chunking_strategy)
-    if (multimodal.enable_image !== undefined) params.set('enable_image', multimodal.enable_image)
-    if (multimodal.enable_table !== undefined) params.set('enable_table', multimodal.enable_table)
-    if (multimodal.enable_equation !== undefined) params.set('enable_equation', multimodal.enable_equation)
-    if (multimodal.enable_video !== undefined) params.set('enable_video', multimodal.enable_video)
+    setFixedMultimodalUploadParams(params)
     const qs = params.toString()
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
@@ -545,50 +603,9 @@ export const api = {
       throw err
     })
   },
-  uploadFolder: (path, chunking_strategy = '', multimodal = {}) => {
-    const requestKB = currentKB
-    if (!requestKB) return Promise.reject(new Error('知识库未就绪'))
-    const params = new URLSearchParams()
-    params.set('folder_path', path)
-    if (chunking_strategy) params.set('chunking_strategy', chunking_strategy)
-    if (multimodal.enable_image !== undefined) params.set('enable_image', multimodal.enable_image)
-    if (multimodal.enable_table !== undefined) params.set('enable_table', multimodal.enable_table)
-    if (multimodal.enable_equation !== undefined) params.set('enable_equation', multimodal.enable_equation)
-    if (multimodal.enable_video !== undefined) params.set('enable_video', multimodal.enable_video)
-    params.set('kb', requestKB)
-    return invalidateAfter(fetchJson(`/upload/folder?${params.toString()}`, { method: 'POST' }), requestKB)
-  },
-  uploadUrl: (url, { strategy = '', multimodal = {} } = {}) => {
-    const requestKB = currentKB
-    if (!requestKB) return Promise.reject(new Error('知识库未就绪'))
-    const params = new URLSearchParams()
-    params.set('url', url)
-    if (strategy) params.set('chunking_strategy', strategy)
-    if (multimodal.enable_image !== undefined) params.set('enable_image', multimodal.enable_image)
-    if (multimodal.enable_table !== undefined) params.set('enable_table', multimodal.enable_table)
-    if (multimodal.enable_equation !== undefined) params.set('enable_equation', multimodal.enable_equation)
-    if (multimodal.enable_video !== undefined) params.set('enable_video', multimodal.enable_video)
-    params.set('kb', requestKB)
-    return invalidateAfter(fetchJson(`/upload/url?${params.toString()}`, { method: 'POST' }), requestKB)
-  },
-  uploadContent: (content, title, chunking_strategy = '', multimodal = {}) => {
-    const requestKB = currentKB
-    if (!requestKB) return Promise.reject(new Error('知识库未就绪'))
-    const params = new URLSearchParams()
-    if (chunking_strategy) params.set('chunking_strategy', chunking_strategy)
-    if (multimodal.enable_image !== undefined) params.set('enable_image', multimodal.enable_image)
-    if (multimodal.enable_table !== undefined) params.set('enable_table', multimodal.enable_table)
-    if (multimodal.enable_equation !== undefined) params.set('enable_equation', multimodal.enable_equation)
-    if (multimodal.enable_video !== undefined) params.set('enable_video', multimodal.enable_video)
-    params.set('kb', requestKB)
-    return invalidateAfter(fetchJson(`/upload/content?${params.toString()}`, {
-      method: 'POST', body: JSON.stringify({ content, title }),
-    }), requestKB)
-  },
-
   // 知识相关接口
   prefetchKnowledgeDetail: (kbName, options) => prefetchKnowledgeDetail(kbName, options),
-  getCachedKnowledgeDetail: (kbName) => getCachedKnowledgeDetail(kbName),
+  getCachedKnowledgeDetail: (kbName, pageQuery) => getCachedKnowledgeDetail(kbName, pageQuery),
   invalidateKnowledgeDetail: (kbName) => invalidateKnowledgeDetail(kbName),
   clearKnowledgeDetailCache: () => clearKnowledgeDetailCache(),
   clearGlobalStatsCache: () => clearGlobalStatsCache(),
@@ -597,6 +614,18 @@ export const api = {
     `/knowledge/documents?kb=${encodeURIComponent(kbName)}`,
     { signal, timeoutMs },
   ),
+  getDocumentSummariesForKB: (
+    kbName,
+    { page = 1, pageSize = 10, q = '', signal, timeoutMs = 0 } = {},
+  ) => {
+    const params = new URLSearchParams({
+      kb: kbName,
+      page: String(page),
+      page_size: String(pageSize),
+    })
+    if (q) params.set('q', q)
+    return fetchJson(`/knowledge/document-summaries?${params.toString()}`, { signal, timeoutMs })
+  },
   getStats: () => request('/knowledge/stats'),
   getGlobalStatsCached: ({ force = false } = {}) => {
     const key = currentKB
@@ -698,12 +727,18 @@ export const api = {
     { method: 'POST' },
   ), kb),
   getUploadTasks: () => request('/upload/tasks'),
-  deleteUploadTask: (taskId) => request(`/upload/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' }),
+  deleteUploadTask: (taskId, { kb = currentKB } = {}) => invalidateAfter(fetchJson(
+    `/upload/tasks/${encodeURIComponent(taskId)}?kb=${encodeURIComponent(kb)}`,
+    { method: 'DELETE' },
+  ), kb),
   retryUploadTaskNow: (taskId, { kb = currentKB } = {}) => invalidateAfter(fetchJson(
     `/upload/tasks/${encodeURIComponent(taskId)}/retry-now?kb=${encodeURIComponent(kb)}`,
     { method: 'POST' },
   ), kb),
-  cancelUploadRetry: (taskId) => request(`/upload/tasks/${encodeURIComponent(taskId)}/cancel-retry`, { method: 'POST' }),
+  cancelUploadRetry: (taskId, { kb = currentKB } = {}) => invalidateAfter(fetchJson(
+    `/upload/tasks/${encodeURIComponent(taskId)}/cancel-retry?kb=${encodeURIComponent(kb)}`,
+    { method: 'POST' },
+  ), kb),
   reprocessMultimodal: (kbName) => invalidateAfter(
     fetchJson(`/kb/${encodeURIComponent(kbName)}/reprocess-multimodal`, { method: 'POST' }),
     kbName,
@@ -771,6 +806,11 @@ export const api = {
   createAgent: (data) => fetchJson('/agents', { method: 'POST', body: JSON.stringify(data) }),
   updateAgent: (id, data) => fetchJson(`/agents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteAgent: (id) => fetchJson(`/agents/${id}`, { method: 'DELETE' }),
+
+  // Public demo shares: backend additionally requires the super_admin role.
+  listDemoShares: () => fetchJson('/demo/shares'),
+  createDemoShare: (agentId) => fetchJson('/demo/shares', { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
+  revokeDemoShare: (shareId) => fetchJson(`/demo/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
 
   // 智能体会话
   listConversations: (agentId) => fetchJson(`/agents/${agentId}/conversations`),
