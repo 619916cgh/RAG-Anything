@@ -74,6 +74,7 @@ export function startSystemDataEpochMonitor({
 
   const check = async () => {
     if (stopped || checking) return
+    if (documentTarget?.visibilityState === 'hidden') return
     checking = true
     try {
       if (await synchronize()) onReset()

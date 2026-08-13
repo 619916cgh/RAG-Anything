@@ -7,6 +7,7 @@ from raganything.dependencies import (
     verify_kb_operate_access,
 )
 from raganything.permissions import DEFAULT_ROLES, Permission
+from raganything.routers.knowledge import _kb_capabilities_from_metadata
 
 
 @pytest.fixture(autouse=True)
@@ -58,10 +59,11 @@ async def test_operate_grants_allow_content_scope_for_write_capable_roles(role_n
 @pytest.mark.asyncio
 async def test_member_management_is_limited_to_super_admin_dept_scope_and_teacher_owner():
     assert await verify_kb_manage_access("team-kb", user(1, "super_admin")) == "team-kb"
-    assert await verify_kb_manage_access("team-kb", user(1, "dept_admin", access_level="read")) == "team-kb"
+    assert await verify_kb_manage_access("team-kb", user(1, "dept_admin", access_level="operate")) == "team-kb"
     assert await verify_kb_manage_access("team-kb", user(10, "teacher")) == "team-kb"
 
     for actor in (
+        user(1, "dept_admin", access_level="read"),
         user(1, "teacher", access_level="operate"),
         user(1, "assistant", access_level="operate"),
         user(1, "student", access_level="read"),
@@ -77,3 +79,36 @@ def test_kb_manage_is_only_granted_to_management_roles():
     assert Permission.KB_MANAGE in DEFAULT_ROLES["teacher"]["permissions"]
     assert Permission.KB_MANAGE not in DEFAULT_ROLES["assistant"]["permissions"]
     assert Permission.KB_MANAGE not in DEFAULT_ROLES["student"]["permissions"]
+
+
+@pytest.mark.parametrize("role_name", ["dept_admin", "teacher"])
+def test_role_derived_read_only_capabilities_hide_mutations(role_name):
+    current_user = user(1, role_name)
+    current_user["role"]["permissions"] = DEFAULT_ROLES[role_name]["permissions"]
+
+    capabilities = _kb_capabilities_from_metadata(
+        "team-kb", {"owner_id": 10}, current_user,
+    )
+
+    assert capabilities == {
+        "read": True,
+        "operate": False,
+        "rename": False,
+        "manage_members": False,
+        "delete": False,
+    }
+
+
+def test_dept_admin_operate_grant_projects_editor_capabilities():
+    current_user = user(1, "dept_admin", access_level="operate")
+    current_user["role"]["permissions"] = DEFAULT_ROLES["dept_admin"]["permissions"]
+
+    capabilities = _kb_capabilities_from_metadata(
+        "team-kb", {"owner_id": 10}, current_user,
+    )
+
+    assert capabilities["read"] is True
+    assert capabilities["operate"] is True
+    assert capabilities["rename"] is True
+    assert capabilities["manage_members"] is True
+    assert capabilities["delete"] is False

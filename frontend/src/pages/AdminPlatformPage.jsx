@@ -22,7 +22,7 @@ const DEFAULT_FIELDS = {
     ['chunk_size', '默认分块大小', 'number'], ['entity_types', '默认实体类型', 'list'],
     ['minimum_relation_degree', '默认最低关系度', 'number'],
     ['enable_image', '默认处理图片', 'boolean'], ['enable_table', '默认处理表格', 'boolean'],
-    ['enable_equation', '默认处理公式', 'boolean'], ['enable_video', '默认处理视频', 'boolean'],
+    ['enable_equation', '默认处理公式', 'boolean'],
   ],
   retrieval: [
     ['preset', '默认检索预设', 'text'], ['rrf_k', '默认 RRF', 'number'],

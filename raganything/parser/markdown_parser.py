@@ -740,21 +740,19 @@ class MarkerParser(Parser):
                     )
 
     def check_installation(self) -> bool:
-        """Check whether the marker-pdf Python package is importable.
+        return self.installation_error() is None
 
-        Returns ``True`` if ``marker.converters.pdf.PdfConverter`` can be
-        imported, ``False`` otherwise.  Does **not** trigger Surya model
-        download.
-        """
+    def installation_error(self) -> str | None:
+        """Return a concise local prerequisite error without loading Marker models."""
         if self._remote_service_url():
-            return self._service_is_healthy()
+            return None if self._service_is_healthy() else "Marker worker is unavailable"
         try:
-            from marker.converters.pdf import PdfConverter  # noqa: F401
-            return True
-        except ImportError:
+            self._require_marker()
+            return None
+        except ImportError as exc:
             self.logger.debug(
                 "Marker Python package is not installed. "
                 "Install with: pip install marker-pdf"
             )
-            return False
+            return str(exc)
 

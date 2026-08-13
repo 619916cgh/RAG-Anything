@@ -2,7 +2,11 @@ export function getKnowledgeBaseItems(response) {
   return Array.isArray(response?.knowledge_bases) ? response.knowledge_bases : []
 }
 
+export function getConfirmedKnowledgeBase(response, kbName) {
+  if (!kbName) return null
+  return getKnowledgeBaseItems(response).find(item => item?.name === kbName) || null
+}
+
 export function isKnowledgeBaseConfirmed(response, kbName) {
-  if (!kbName) return false
-  return getKnowledgeBaseItems(response).some(item => item?.name === kbName)
+  return getConfirmedKnowledgeBase(response, kbName) !== null
 }

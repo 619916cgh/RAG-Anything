@@ -76,9 +76,20 @@ test('stale write handlers fail closed after live permission revocation', () => 
   const chunk = source('../pages/DocumentChunkDetailPage.jsx')
   const chat = source('../pages/AgentChatPage.jsx')
   assert.match(knowledge, /if \(!canCreateKB\) return/)
-  assert.match(knowledge, /if \(!canDeleteKB\) return/)
+  assert.match(knowledge, /if \(!canDeleteKB \|\| knowledgeBase\?\.capabilities\?\.delete !== true\) return/)
+  assert.match(knowledge, /knowledgeBase\?\.capabilities\?\.delete !== true/)
   assert.match(chunk, /if \(!canWrite \|\| !kbAccess\.confirmed/)
   assert.match(chat, /if \(!canEditMessages\) return/)
+})
+
+test('KB mutation pages require the per-KB operate capability', () => {
+  const detail = source('../pages/KnowledgeDetailPage.jsx')
+  const chunks = source('../pages/DocumentChunksPage.jsx')
+  const chunk = source('../pages/DocumentChunkDetailPage.jsx')
+  assert.match(detail, /hasPermission\('kb:write'\) && canOperateKB/)
+  assert.match(detail, /hasPermission\('graph:write'\) && canOperateKB/)
+  assert.match(chunks, /hasPermission\('kb:write'\) && kbAccess\.capabilities\?\.operate === true/)
+  assert.match(chunk, /hasPermission\('kb:write'\) && kbAccess\.capabilities\?\.operate === true/)
 })
 
 test('resource pages do not mount an empty grid beside their empty state', () => {

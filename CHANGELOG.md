@@ -102,9 +102,6 @@ multimodal_content: list[dict[str, Any]] | None = None
 |------|------|------|------|
 | 上传 | `/api/upload` | POST | 单文件异步上传 |
 | | `/api/upload/batch` | POST | 批量多文件上传 |
-| | `/api/upload/folder` | POST | 文件夹批量处理 |
-| | `/api/upload/content` | POST | 文本粘贴入库 |
-| | `/api/upload/url` | POST | URL 远程导入 |
 | 知识库 | `/api/knowledge/documents` | GET | 文档列表 |
 | | `/api/knowledge/documents/{id}` | DELETE | 单文档删除 |
 | | `/api/knowledge/documents/batch-delete` | POST | 批量删除文档 |

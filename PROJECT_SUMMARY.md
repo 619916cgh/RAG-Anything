@@ -534,9 +534,115 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 - Verification: backend focused suite 56 passed; frontend utility suite 179 passed; `py_compile`, scoped `git diff --check`, OpenSpec strict validation, and Vite production build passed. A warmed local PostgreSQL fixture with 10,000 synthetic rows returned 50-row pages with mean 188 ms and P95 190 ms across 30 calls; the matching `EXPLAIN (ANALYZE, BUFFERS)` completed in 123 ms. No index migration was added because the measured plan is below the 1-second release gate.
 - Remaining acceptance boundary: authenticated browser regression, deployed-service/Nginx behavior, and production PostgreSQL multi-role acceptance remain unverified. The benchmark used a unique disposable workspace and removed only its synthetic rows.
 
+## 43.1 2026-08-12 Knowledge-detail request lifecycle optimization
+
+- `optimize-knowledge-detail-request-lifecycle` adds cache-owned, reference-aware cancellation for knowledge-detail document-page and statistics reads. A caller can abandon an obsolete KB/page/search request; the underlying fetch is aborted only after its final consumer releases it. The statistics request remains independently shared across pages, and abort/failure/invalidation/auth-generation races cannot populate the scoped cache.
+- `GET /api/knowledge/document-summaries` no longer performs global terminal-task cleanup during ordinary reads. Its runtime-task read is now scoped to the authorized KB and bounded to 200 active rows. Object-level authorization remains a FastAPI dependency before route data work; legacy `/api/knowledge/documents` behavior is unchanged.
+- Verification: two frontend and one backend expert reviews completed; frontend unit suite 206 passed, focused document-summary/runtime-task backend suite 6 passed, strict OpenSpec validation and scoped `git diff --check` passed, and the final Vite production build completed in 7.27 seconds. Tests cover one-consumer survival, final-consumer abort of document and statistics requests, cross-page statistics sharing, invalidation abort, pre-aborted callers, cache-registry isolation, auth-generation invalidation, KB-bounded runtime tasks, and no read-time cleanup.
+- Remaining acceptance boundary: no authenticated browser trace or deployed-service measurement has been performed for this follow-up. The cloud host still has the previous healthy app container because the earlier full-image rebuild was interrupted while downloading dependencies; it must be rebuilt and health/browser-checked before release acceptance.
+
 ## 44. 2026-08-11 云端公开问答演示窗口
 
 - `public-demo-qa-window` 已落地迁移 `035_public_demo_shares.sql`、SHA-256 令牌哈希、固定 agent/KB、PostgreSQL 限流与并发租约、超级管理员创建/撤销、匿名 bootstrap/SSE、无会话持久化、撤销二次校验和短时受控媒体预览。
 - 前端新增独立 `/demo/:shareId#token` kiosk 页面；令牌只从 fragment 读取并通过 `X-Demo-Token` 发送，匿名请求省略浏览器凭据，来源仅显示脱敏文档名，媒体仅接受同源短时 grant。
 - 本地证据：后端公开演示与迁移测试 26 passed；前端 `npm run test:unit` 184 passed；OpenSpec strict 与 `git diff --check` 通过。`npm run build` 在受管 Windows 环境 124 秒无输出超时，构建未验证。
 - 云端边界：确认 PostgreSQL 备份后执行迁移，重建 App/前端镜像，验收真实云端 KB 的 SSE、引用、媒体、撤销、限流与 Nginx 同源路由。2.1 的认证/演示查询路径尚未提炼为共享服务，归档前需补齐或明确接受实现差异。
+
+## 45. 2026-08-12 本地公开演示迁移恢复
+
+- 本地 PostgreSQL 在执行迁移前已创建可恢复的压缩备份并完成校验；项目迁移执行器随后成功应用唯一待处理的 `035_public_demo_shares.sql`。该迁移仅新增 `demo_shares` 及活跃链接索引，未修改既有业务表或数据。
+- 复核显示迁移清单已到第 38 项且链路为 current；未携带认证信息访问 `GET /api/demo/shares` 现在返回预期的 `401`，此前由缺少 `demo_shares` 引起的 `UndefinedTableError` / 500 已消除。前端管理入口 `/admin/demo-shares` 的 SPA 响应为 200。
+- 未创建演示分享、未发起真实 RAG/SSE 问答，未改动云服务器或云端知识库。发布前仍须解决公开演示并发状态在异常重启后的回收，以及 OpenSpec 2.1 的认证/演示共享查询执行层，再执行云端备份、迁移和真实 KB 验收。
+
+## 46. 2026-08-12 公开演示窗口视觉与阅读体验
+
+- 独立 `/demo/:shareId` kiosk 页面升级为适合投影展示的深蓝信息顶栏、明确的助手欢迎态、对话身份标识、受限宽度的 Markdown 回答排版和来源编号卡片；底部输入区域与回答列对齐，桌面不再出现横跨全屏的控制条，移动端保留安全区、44px 操作目标和单列布局。
+- 演示回答现在使用默认安全的 Markdown 渲染，支持标题、强调、列表、代码、引用与分割线；不启用原始 HTML，链接不作为外部跳转渲染。令牌 fragment、同源受控媒体 URL、匿名请求与 SSE 行为均未改变。知识库解析/分块仍明确为“新上传默认”的只读状态。
+- 本地验证：前端单元测试 184 passed，Vite 生产构建通过，公开页安全渲染契约和 scoped `git diff --check` 通过。浏览器 CDP 前置脚本在本机不可用，因此实际桌面/移动截图、真实分享 SSE 与受控媒体交互仍需在可用浏览器或云端环境中验收。
+
+## 47. 2026-08-12 公开演示滚动跟随修复
+
+- 演示问答区不再在每个流式 token 到达时无条件滚到底部；用户滚轮上滑离开底部后会暂停自动跟随，出现“新回答”按钮，点击后恢复到底部跟随。发送新问题时会重新启用跟随，固定底部输入栏和 Enter 发送行为不变。
+- 本地验证：前端单元测试 186 passed，公开演示滚动/固定输入源码契约通过，scoped `git diff --check` 通过；真实浏览器滚轮和移动触控验收仍受本机 CDP 不可用限制。
+
+## 48. 2026-08-12 撤销教师与学生演示首屏优化
+
+- 按用户要求移除上一轮新增的云端在线状态、教师/学生定位、课堂推荐问题及其专用样式和源码契约测试；普通欢迎页、深蓝顶栏、Markdown、来源/媒体、滚动跟随、固定输入框和 Enter 发送行为保留。
+- 本地验证：前端单元测试 186 passed，OpenSpec `public-demo-qa-window` strict 校验通过，相关文件 `git diff --check` 通过。未改变后端、令牌、SSE、媒体安全逻辑或云端部署状态。
+
+## 49. 2026-08-12 学习对话版公开演示界面
+
+- 公开演示页改为学习对话布局：顶部拆分为品牌/知识库主信息与低权重只读设置；用户问题增加身份标识；回答列适度加宽并压缩重复留白；代码块和长内容改为更轻的阅读样式。
+- 来源与受控图片/视频统一收进可访问的“依据与资料”折叠区，仍只消费 SSE 返回的来源和 `controlledDemoMediaUrl` 结果；未改变令牌、SSE、媒体授权、固定输入框、Enter/IME、滚动跟随或后端行为。
+- 本地验证：前端单元测试 188 passed，OpenSpec strict 与 scoped `git diff --check` 通过。`npm run build` 在受管 Windows 环境约 124 秒无输出超时，本轮构建未验证；浏览器桌面/移动截图和真实云端问答仍未验收。
+
+## 50. 2026-08-12 公开演示实体关系紧凑渲染
+
+- 公开演示页将连续的单行 fenced 实体、关系箭头和单行 fenced 实体识别为只读关系条，紧凑渲染为“实体 → 关系 → 实体”；未参与关系的短实体渲染为小标签。多行或含代码结构的 fenced block 保持原 Markdown 代码块，不改变回答语义。
+- 本地验证：前端单元测试 191 passed，含连续实体关系、普通多行代码和非法标记的格式化器测试；OpenSpec strict 与 scoped `git diff --check` 通过。浏览器实际长回答视觉验收和云端环境仍未验证。
+
+## 51. 2026-08-12 修正公开演示箭头关系格式
+
+- 根据真实问答输出补充识别“单行实体代码块 → 单独箭头段落 → 单行实体代码块”的格式；该格式现在与带关系文字的三元组一样渲染为紧凑关系条。之前页面仍逐行显示不是缓存导致，而是原匹配规则未覆盖这种实际输出形态。
+- 本地验证：前端单元测试 192 passed，新增箭头关系回归测试，`git diff --check` 通过。开发服务器通常热更新，已构建版本需要重新构建前端资源并刷新/重启应用；浏览器和云端部署验收仍未完成。
+
+## 52. 2026-08-12 公开演示实体紧凑判定修复
+
+- 收紧公开演示格式化器：只有单行且不含关系分隔符的实体才会渲染为紧凑标签或关系条；多行代码块和含分隔符的值保持普通 Markdown/代码输出。
+- 本轮仅修改演示端展示规则及其测试，不改变智能体配置、知识库数据、RAG 检索、SSE 协议、媒体授权或后端行为。
+- 本地验证：前端单元测试 193 passed；`npx openspec validate public-demo-qa-window --strict` 通过；scoped `git diff --check` 通过。已构建资源、浏览器/移动端视觉验收和云端部署仍未验证。
+
+## 53. 2026-08-12 正常智能体关系紧凑展示
+
+- 新增 `compact-agent-relation-display` 前端变更：登录后的正常智能体聊天页现在仅在助手回答完成且成功时，将完整的“实体代码块 - 关系箭头 - 实体代码块”压缩为关系条；不再把独立短代码、SQL、命令、配置、行内代码或半截流式代码误判为实体。
+- 转换只发生在展示层，原始 `m.content`、SSE token、会话保存/编辑/重试、引用和媒体行为均不变；正常智能体使用独立的 `agent-chat-relation` 样式，不复用公开演示 kiosk 的类名或权限边界。
+- 本地验证：前端单元测试 `201 passed`，其中新增关系格式化/源代码契约测试 8 项；OpenSpec `compact-agent-relation-display` strict 校验通过；相关文件 `git diff --check` 通过。Vite 构建、真实浏览器桌面/移动端和云端部署验收仍未验证。
+
+## 54. 2026-08-12 发布可信度与可检索性首批收敛
+
+- 新增 active change `production-readiness-and-durable-ingestion`：PostgreSQL 严格就绪检查要求有效文本块与完整向量覆盖；缺失文本、无效内容、向量缺失或权威存储不可用会进入可恢复的 `retrieval_readiness` 重试，保留 task claim owner/generation 围栏，不能标记 `completed`。图谱、标签和可选多模态后处理不再把已具备检索工件的上传改为失败；标签问题记为 `degraded` 并保留修复入口。
+- 增加受后端权限保护的 `GET /knowledge/retrieval-health` 与 `POST /knowledge/documents/{doc_id}/repair-retrieval`：前者要求 KB read scope + `kb:read`，后者要求 KB operate scope + `kb:write`，复用 `(kb_name, doc_id, stage)` 幂等 repair job。未新增或改写历史迁移。
+- 新增只读 `scripts/release_candidate_inventory.py`。本次盘点结果为：35 个 OpenSpec 工件已归属、3 个共享序列化资产（项目总结、migration manifest、Nginx）、86 个未归属改动、2 个生成物候选；因此当前 dirty worktree 不能作为单一发布候选，需按 OpenSpec/功能边界拆分并串行处理共享资产。
+- 新增 `scripts/run_isolated_release_acceptance.py` 与 `docs/isolated-release-acceptance.md`。runner 强制 non-production、隔离 target/目录、显式源码根目录、fresh/upgrade/repeat/intentional-failure migration、五角色、Worker、health 与始终执行的 cleanup 阶段；任一失败或跳过均输出脱敏 `not-releasable` 证据。它不执行生产迁移，不把外部模型、视频、浏览器 UAT 或生产批准误报为完成。
+- 代码级证据：先前聚焦回归 8 项通过；本轮 `py_compile`、OpenSpec strict 和 scoped `git diff --check` 通过。随后本机在导入 LightRAG 的 `pypinyin` 词库时发生 `MemoryError`，使后端 pytest 收集受阻；这不是通过证据。真实隔离 PostgreSQL/Worker、migration 四路径、五角色直接 API、浏览器/视频和生产批准均未执行，仍为发布前必需验收边界。
+- 追加验证：生产就绪测试 13 项、文档健康/repair 23 项、五角色 KB 权限 39 项、上传 claim/取消/重试 17 项通过。旧上传回归夹具补齐了无密钥的 `text_embedding_identity`，未放宽生产快照校验。新增修复端点对文档 ID 前缀采用精确优先、唯一前缀规则，歧义返回 409；验收 runner 的证据错误信息会移除绝对路径，并始终在隔离工作目录执行 cleanup。真实迁移/PG/Worker 验收仍未执行。
+## 55. 2026-08-13 KB detail capabilities fallback
+
+- `frontend/src/hooks/useConfirmedKnowledgeBase.js` now normalizes missing or invalid KB `capabilities` to an empty object, preserving fail-closed permission checks and preventing the detail page crash when reading `operate`.
+- Frontend unit tests and Vite production build passed locally. Cloud static asset deployment is pending because SSH to `115.190.170.186:22` timed out; no backend or database changes were made in this step.
+## 56. 2026-08-13 capability guard deployment diagnosis
+
+- Added optional chaining at the three KB detail write-capability read sites and updated their source-contract tests; frontend unit tests: 206 passed, Vite build passed.
+- Cloud HTTP currently serves old bundle `/assets/index-Dwxog5Mk.js`; local build serves `/assets/index-ErAIT5tC.js`. The new archive SHA256 is `34472E53FB0FF34B87004AAD154B0E00DE98A84703B64724F8D37488561B53E2`, but SCP/SSH timed out, so the new static assets are not deployed yet.
+## 57. 2026-08-13 online asset overwrite evidence
+
+- Read-only HTTP inspection shows the cloud index still references `/assets/index-Dwxog5Mk.js`, and the lazy `KnowledgeDetailPage` chunk still contains plain `capabilities.operate` with no optional guard. This confirms the current browser error is from an old static bundle; force refresh cannot fix an unchanged server asset.
+- A concurrent cloud deployment/rebuild can overwrite the Nginx static image or replace the served `dist`; deployment must be serialized with other sessions before retrying.
+
+## 58. 2026-08-13 selected release deployment attempt
+
+- 已向云端 `/opt/rag-anything` 上传本批选定的运行文件，并在服务器创建源码/当前镜像备份；逐文件 SHA-256 对比一致。未上传或覆盖 `.env`、PostgreSQL/Redis 数据卷、上传文件、`rag_storage`、输出目录和模型缓存，未执行生产迁移。
+- 按用户授权清理 Docker 悬空镜像和未使用构建缓存：释放约 `1.58 GB` 构建缓存及少量悬空层；未使用 `image prune -a`、`volume prune` 或带 `--volumes` 的清理。清理后根分区可用空间约 `1.9 GB`，后续构建期间约 `1.7–1.8 GB`。
+- 已为当前运行镜像增加独立的 `predeploy` 回滚标签。`raganything-app`、PostgreSQL、Redis、Marker、Nginx 均保持运行；app 健康检查持续为 `healthy`，本机 `/api/health` 返回 `200`。
+- `docker compose build app` 曾执行依赖安装，但最终未产生新镜像，且 app 未重启；因此本次不能记为代码已发布。生产仍运行原有 `kb-pagination-recovery-20260812` 镜像。Compose 日志未见由本次操作引起的启动异常；剩余构建缓存约 `2.07 GB`，可在下次受控构建前重新评估磁盘空间。
+- 当前结论仅覆盖远程文件同步、Docker 清理、旧容器健康和 HTTP smoke；真实 Worker、上传到向量检索、五角色浏览器/API、迁移 fresh/upgrade/repeat/failure 及生产批准仍未完成。
+
+## 59. 2026-08-13 production disk reclamation
+
+- 在用户确认后，生产服务器仅清理了未使用的 Docker 构建缓存、五个经容器引用核验的历史应用镜像、一个三天前成功退出的迁移容器及其未再被容器引用的镜像层。未删除 PostgreSQL/Redis 卷、上传、`rag_storage`、输出、模型缓存、运行容器或业务数据；两份约 7.49 GB 的 parser-runtime 归档因 SHA-256 不同而保留。
+- 实际回收：构建缓存约 2.068 GB、随后镜像/历史容器约 3.676 GB；根分区可用空间从约 1.8 GB 升至约 23 GB。Docker 的 `image prune -a` 会删除未被容器引用的带标签镜像，因此原 `predeploy` 标签被移除；已立即将当前健康 app 镜像重新固定为 `rollback-current-20260813T103000Z`。
+- 终检：app/Marker/PostgreSQL/Redis/Nginx 均运行，app 与 Marker healthy；app 直连和 Nginx `/api/health` 均为 HTTP 200。当前运行版本未切换，仍为 `kb-pagination-recovery-20260812`；本次仅完成容量恢复，不构成新代码发布、Worker/PG 验收或生产迁移批准。
+## 60. 2026-08-13 production mirror-build final result
+
+- The selected source is present in `/opt/rag-anything`, but the mirror-backed `docker build --target default -t raganything-app:parsers` ended with status `1` at the OpenDataLoader validation layer: `java -version` did not satisfy the required Java 17 check. No `raganything-app:parsers` image was produced and `app` was not switched.
+- The existing `raganything-app:kb-pagination-recovery-20260812` container remains `healthy`; direct `http://127.0.0.1:8000/api/health` and Nginx `http://127.0.0.1/api/health` both returned HTTP 200 after the failed build. No production migration, data-volume change, Worker ingestion/retrieval, browser/RBAC acceptance, or production approval was performed. Root free space after the failed build was about 9.6 GB; the rollback tag remains the release recovery point.
+-## 61. 2026-08-13 app-only build and rollback
+
+- Fixed the Dockerfile Java 17 self-check regex from double escaping to the correct literal-dot ERE. A temporary app-only Dockerfile (frontend/base/default only) built \`raganything-app:parsers\` successfully with image ID \`sha256:3eb524d990a2b35c50b675a6f55016051bae557a4bb5b51231460f399ca2342e\`; the temporary file was removed afterward.
+- The app-only image was switched with \`docker compose up -d --no-deps --no-build app\`, but startup failed because the selected remote source set was inconsistent: \`knowledge.py\` imported \`has_default_kb_read_access\`, which was absent from the deployed \`dependencies.py\`. The new container became unhealthy/restarting and returned direct health \`000\` / Nginx \`502\`.
+- The immutable rollback tag \`raganything-app:rollback-current-20260813T103000Z\` was retagged and the app was restored with the same \`--no-deps --no-build\` boundary. Final state: image ID \`sha256:9ed3118702640006e748b34f64b7adc10cb63a862eeaaa993c5ed766a590bca7\`, container healthy, restart count 0, direct and Nginx health both HTTP 200. No migration or data-volume change was performed; Worker, retrieval, five-role browser/API, and production approval remain unverified.
+
+## 62. 2026-08-13 workspace convergence snapshot
+
+- All source, tests, migrations, OpenSpec artifacts, deployment configuration, and documentation changes in the working tree were consolidated into one Git snapshot at the user's request. Reproducible root-level test output files and an unrelated malformed temporary file were removed instead of versioned; local environment files, runtime data, uploads, and model caches remain ignored.
+- This commit establishes a complete source boundary for the next cloud release archive. It does not itself deploy code or change the production acceptance boundary recorded above.

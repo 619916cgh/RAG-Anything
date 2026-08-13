@@ -29,7 +29,6 @@ _FIELD_SPECS = (
     (('enable_image',), 'ENABLE_IMAGE_PROCESSING', 'bool', True),
     (('enable_table',), 'ENABLE_TABLE_PROCESSING', 'bool', True),
     (('enable_equation',), 'ENABLE_EQUATION_PROCESSING', 'bool', True),
-    (('enable_video',), 'ENABLE_VIDEO_PROCESSING', 'bool', False),
     (('rrf', 'rrf_k'), 'RRF_K', 'int', 60),
     (('rrf', 'bm25_top_k'), 'BM25_TOP_K', 'int', 50),
     (('rrf', 'vector_top_k'), 'VECTOR_TOP_K', 'int', 100),

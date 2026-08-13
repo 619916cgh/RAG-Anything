@@ -79,12 +79,14 @@ CMD ["python", "server.py"]
 # Compatibility verification target for the OpenDataLoader runtime bundled in
 # the default image. Build explicitly with:
 # docker build --target opendataloader -t raganything:opendataloader .
+FROM base AS default
+
 FROM nginx:alpine AS frontend
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-build /frontend/dist /usr/share/nginx/html
 
-FROM base AS opendataloader
-RUN java -version 2>&1 | grep -Eq 'version "17\\.|openjdk 17\\.' \
+FROM default AS opendataloader
+RUN java -version 2>&1 | grep -Eq 'version "17\.|openjdk 17\.' \
     && python -c "from importlib.metadata import version; assert version('opendataloader-pdf') == '2.5.0'"
 
 # Marker is intentionally isolated: marker-pdf requires Pillow<11 while the
@@ -112,7 +114,3 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8765/healthz', timeout=5)"
 EXPOSE 8765
 CMD ["python", "/marker/marker_worker.py"]
-
-# Default app target includes PaddleOCR/OpenDataLoader and Java; Marker remains
-# isolated in the dedicated `marker` target above.
-FROM base AS default

@@ -273,6 +273,7 @@ from raganything.routers.admin import router as admin_router
 from raganything.routers.autorepair import router as autorepair_router
 from raganything.routers.vision import router as vision_router
 from raganything.routers.user_settings import router as user_settings_router
+from raganything.routers.demo import router as demo_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(knowledge_router, prefix="/api")
@@ -281,6 +282,7 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(autorepair_router, prefix="/api")
 app.include_router(vision_router, prefix="/api")
 app.include_router(user_settings_router, prefix="/api")
+app.include_router(demo_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup():

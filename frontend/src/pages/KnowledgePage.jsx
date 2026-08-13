@@ -67,6 +67,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
         const hasStats = stats !== undefined
         const isUnavailable = stats?.unavailable === true
         const canEdit = canEditKnowledgeBase(kb)
+        const canDeleteKB = canDelete && kb.capabilities?.delete === true
 
         return (
           <article
@@ -146,7 +147,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
               </button>
             )}
 
-            {canDelete && kb.name !== 'default' && (
+            {canDeleteKB && kb.name !== 'default' && (
               <button
                 type="button"
                 onClick={(e) => handleDeleteClick(e, kb)}
@@ -415,7 +416,8 @@ export default function KnowledgePage() {
 
   // 删除知识库
   const deleteKB = useCallback(async (name, onDone) => {
-    if (!canDeleteKB) return
+    const knowledgeBase = kbs.find(kb => kb.name === name)
+    if (!canDeleteKB || knowledgeBase?.capabilities?.delete !== true) return
     setDeletingKB(true)
     try {
       await api.deleteKB(name)
@@ -426,7 +428,7 @@ export default function KnowledgePage() {
       showToast('删除失败: ' + e.message, 'error')
     }
     setDeletingKB(false)
-  }, [canDeleteKB, loadKBs])
+  }, [canDeleteKB, kbs, loadKBs])
 
   const handleEditorSaved = useCallback((updated) => {
     if (updated?.name) {

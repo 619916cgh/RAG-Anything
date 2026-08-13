@@ -41,6 +41,7 @@ from lightrag.lightrag import LightRAG
 
 from raganything.modalprocessors import BaseModalProcessor, ContextExtractor
 from raganything.prompt import PROMPTS
+from raganything.utils.media import SUPPORTED_VIDEO_EXTENSIONS, is_supported_video_file
 
 
 class VideoProcessingError(RuntimeError):
@@ -205,11 +206,10 @@ def validate_video_file(video_path: str) -> Dict[str, Any]:
         return {"valid": False, "error": f"File not found: {video_path}"}
 
     # Check supported extensions
-    supported = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
-    if path.suffix.lower() not in supported:
+    if not is_supported_video_file(path):
         return {
             "valid": False,
-            "error": f"Unsupported video format: {path.suffix}. Supported: {supported}",
+            "error": f"Unsupported video format: {path.suffix}. Supported: {sorted(SUPPORTED_VIDEO_EXTENSIONS)}",
         }
 
     # Check file size (skip empty files)

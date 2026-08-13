@@ -1,8 +1,8 @@
 """Targeted tests for the harden-rbac-isolation backend changes.
 
 Covers: GET /workflows/models read guard, workflow-run owner filtering,
-WebSocket run ownership, vision-settings read guard, /upload/folder
-whitelist, and cleanup_kb_resources collection-before-begin_deletion order.
+WebSocket run ownership, vision-settings read guard, and cleanup_kb_resources
+collection-before-begin_deletion order.
 """
 
 import os
@@ -269,74 +269,6 @@ class TestVisionSettingsReadGuard:
         )
         assert result == "demo"
 
-
-# ── /upload/folder whitelist ──────────────────────────────
-
-class TestUploadFolderWhitelist:
-    @pytest.mark.asyncio
-    async def test_outside_whitelist_returns_403(self, monkeypatch, tmp_path):
-        from raganything.routers import knowledge
-
-        monkeypatch.setattr(knowledge, "_ensure_vision_index_mutable", AsyncMock())
-        monkeypatch.setenv("FOLDER_UPLOAD_ROOTS", str(tmp_path))
-        outside = tmp_path / ".." / "outside-folder"
-        outside.mkdir(exist_ok=True)
-
-        with pytest.raises(HTTPException) as exc:
-            await knowledge.upload_folder(
-                folder_path=str(outside), kb="demo",
-                current_user={"id": 9, "username": "s"},
-                _perm=None,
-            )
-        assert exc.value.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_inside_whitelist_proceeds_to_work(self, monkeypatch, tmp_path):
-        from raganything.routers import knowledge
-
-        monkeypatch.setattr(knowledge, "_ensure_vision_index_mutable", AsyncMock())
-        monkeypatch.setenv("FOLDER_UPLOAD_ROOTS", str(tmp_path))
-        inside = tmp_path / "sub"
-        inside.mkdir(exist_ok=True)
-
-        async def boom(*args, **kwargs):
-            raise HTTPException(500, "reached downstream")
-
-        monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", boom)
-        with pytest.raises(HTTPException) as exc:
-            await knowledge.upload_folder(
-                folder_path=str(inside), kb="demo",
-                current_user={"id": 9, "username": "s"},
-                _perm=None,
-            )
-        assert exc.value.status_code == 500
-
-    def test_roots_override_and_defaults(self, monkeypatch):
-        from raganything.routers import knowledge
-
-        monkeypatch.setenv("FOLDER_UPLOAD_ROOTS", str(tmp_path := Path(".").resolve() / "x"))
-        roots = knowledge._folder_upload_roots()
-        assert roots == [str(tmp_path.resolve())]
-
-        monkeypatch.delenv("FOLDER_UPLOAD_ROOTS", raising=False)
-        roots = knowledge._folder_upload_roots()
-        assert len(roots) == 2
-        assert any(os.path.basename(r) == "uploads" for r in roots)
-        assert any(os.path.basename(r) == "rag_storage" for r in roots)
-
-    def test_is_path_within(self, tmp_path):
-        from raganything.routers import knowledge
-
-        root = tmp_path / "root"
-        root.mkdir(exist_ok=True)
-        (root / "sub").mkdir(exist_ok=True)
-        assert knowledge._is_path_within(str(root / "sub"), str(root))
-        assert knowledge._is_path_within(str(root), str(root))
-        assert not knowledge._is_path_within(str(tmp_path / "root2"), str(root))
-        assert not knowledge._is_path_within(str(tmp_path.parent), str(root))
-
-
-# ── cleanup_kb_resources ordering ─────────────────────────
 
 class TestCleanupKbResourcesOrdering:
     @pytest.mark.asyncio

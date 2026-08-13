@@ -7,6 +7,7 @@ Contains configuration dataclasses with environment variable support
 from dataclasses import dataclass, field
 from typing import List
 from lightrag.utils import get_env_value
+from raganything.utils.media import SUPPORTED_VIDEO_EXTENSIONS
 
 
 @dataclass
@@ -99,9 +100,9 @@ class RAGAnythingConfig:
     """Enable equation content processing."""
 
     enable_video_processing: bool = field(
-        default=get_env_value("ENABLE_VIDEO_PROCESSING", False, bool)
+        default=False
     )
-    """Enable video content processing. Defaults to False due to heavy optional dependencies (ffmpeg, opencv, whisper)."""
+    """Internal task capability; upload routing derives it from the filename."""
 
     video_index_profile_version: str = field(default="v2")
     """Immutable v2-only upload-snapshot marker for video indexing."""
@@ -238,7 +239,8 @@ class RAGAnythingConfig:
             x.strip()
             for x in get_env_value(
                 "SUPPORTED_FILE_EXTENSIONS",
-                ".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.gif,.webp,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.mp4,.avi,.mov,.mkv,.webm",
+                ".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.gif,.webp,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,"
+                + ",".join(sorted(SUPPORTED_VIDEO_EXTENSIONS)),
                 str,
             ).split(",")
         ]

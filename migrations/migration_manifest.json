@@ -37,6 +37,7 @@
     {"sequence": 34, "id": "031_kb_card_update_time.sql"},
     {"sequence": 35, "id": "032_kb_text_embedding_identity.sql"},
     {"sequence": 36, "id": "033_kb_access_grant_levels.sql"},
-    {"sequence": 37, "id": "034_kb_manage_permission.sql"}
+    {"sequence": 37, "id": "034_kb_manage_permission.sql"},
+    {"sequence": 38, "id": "035_public_demo_shares.sql"}
   ]
 }

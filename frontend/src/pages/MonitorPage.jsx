@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CirclePause, Database, HardDrive, Loader2, Pin, PinOff,
   RefreshCw, Server, Terminal, Trash2, TrendingUp, Zap,
@@ -108,27 +108,41 @@ export default function MonitorPage({ onToast }) {
   const [cacheStats, setCacheStats] = useState(null)
   const [cacheStatsLoaded, setCacheStatsLoaded] = useState(false)
   const [maintaining, setMaintaining] = useState('')
+  const monitorRequestRef = useRef(false)
 
   const loadMonitorData = async () => {
-    const [s, l, log, h, cache] = await Promise.all([
-      api.getStatus().catch(() => ({})),
-      api.getLLMStats().catch(() => ({})),
-      api.getLogs(30).catch(() => ({ events: [] })),
-      api.health().catch(err => ({ status: 'degraded', components: { health: err.message } })),
-      api.getCacheStats().catch(() => null),
-    ])
-    setStatus(s)
-    setLLMStats(l)
-    setLogs(log.events || [])
-    setHealth(h)
-    setCacheStats(cache)
-    setCacheStatsLoaded(true)
+    if (document.visibilityState === 'hidden' || monitorRequestRef.current) return
+    monitorRequestRef.current = true
+    try {
+      const [s, l, log, h, cache] = await Promise.all([
+        api.getStatus().catch(() => ({})),
+        api.getLLMStats().catch(() => ({})),
+        api.getLogs(30).catch(() => ({ events: [] })),
+        api.health().catch(err => ({ status: 'degraded', components: { health: err.message } })),
+        api.getCacheStats().catch(() => null),
+      ])
+      setStatus(s)
+      setLLMStats(l)
+      setLogs(log.events || [])
+      setHealth(h)
+      setCacheStats(cache)
+      setCacheStatsLoaded(true)
+    } finally {
+      monitorRequestRef.current = false
+    }
   }
 
   useEffect(() => {
     loadMonitorData()
     const timer = setInterval(loadMonitorData, 5000)
-    return () => clearInterval(timer)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') loadMonitorData()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [])
 
   const runMaintenance = async (action, kbName) => {

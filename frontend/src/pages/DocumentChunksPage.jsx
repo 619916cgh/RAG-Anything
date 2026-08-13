@@ -159,8 +159,8 @@ export default function DocumentChunksPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { hasPermission } = useAuth()
-  const canWrite = hasPermission('kb:write')
   const kbAccess = useConfirmedKnowledgeBase(kbName)
+  const canWrite = hasPermission('kb:write') && kbAccess.capabilities?.operate === true
   const navigationDoc = location.state?.doc || null
   const selectedTagId = searchParams.get('tag')
   const legacyChunkId = searchParams.get('chunk')

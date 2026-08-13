@@ -1,6 +1,8 @@
 import json
+import os
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -12,11 +14,23 @@ from scripts.pg_migration_runner import (
     ManifestError,
     MigrationApplyError,
     MigrationRunner,
+    _load_project_dotenv,
     connection_environment,
     database_safe_failure,
     load_manifest,
     sanitize_failure,
 )
+
+
+def test_project_dotenv_loads_without_overriding_environment(tmp_path):
+    (tmp_path / ".env").write_text(
+        "PGHOST=dotenv-host\nPGPORT=5439\n", encoding="utf-8"
+    )
+    with patch.dict(os.environ, {"PGHOST": "explicit-host"}, clear=False):
+        os.environ.pop("PGPORT", None)
+        _load_project_dotenv(tmp_path)
+        assert os.environ["PGHOST"] == "explicit-host"
+        assert os.environ["PGPORT"] == "5439"
 
 
 class _FakePsql:
@@ -90,7 +104,7 @@ def test_repository_manifest_covers_every_sql_file_and_keeps_duplicate_prefixes(
     root = Path(__file__).resolve().parents[1]
     migrations = load_manifest(root)
 
-    assert len(migrations) == len(list((root / "migrations").glob("*.sql"))) == 35
+    assert len(migrations) == len(list((root / "migrations").glob("*.sql")))
     assert [migration.migration_id for migration in migrations[:2]] == [
         "001_shared_state_tables.sql",
         "001_pg_schema.sql",
@@ -111,7 +125,7 @@ def test_repository_manifest_covers_every_sql_file_and_keeps_duplicate_prefixes(
         "010_manufacturing_to_autorepair_permissions.sql",
         "010_uploaded_files_task_queue.sql",
     }
-    assert migrations[-1].migration_id == "032_kb_text_embedding_identity.sql"
+    assert migrations[-1].migration_id == "035_public_demo_shares.sql"
 
 
 def test_manifest_rejects_missing_or_duplicate_entries(tmp_path):

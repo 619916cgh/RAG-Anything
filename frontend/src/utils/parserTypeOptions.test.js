@@ -49,6 +49,14 @@ test('resolveParserOptionsByType keeps the available flag for disabled parsers',
   assert.equal(mineru.available, true)
 })
 
+test('resolveParserOptionsByType preserves an unavailable parser reason', () => {
+  const options = resolveParserOptionsByType([
+    { id: 'marker', name: 'Marker', available: false, reason: 'missing marker-pdf', supported_types: ['pdf'] },
+  ], 'pdf')
+
+  assert.equal(options[1].reason, 'missing marker-pdf')
+})
+
 test('resolveParserOptionsByType falls back to follow-default only when the catalog is missing', () => {
   assert.deepEqual(resolveParserOptionsByType(undefined, 'pdf'), [{ id: '', name: '跟随默认（推荐）' }])
   assert.deepEqual(resolveParserOptionsByType(null, 'office'), [{ id: '', name: '跟随默认（推荐）' }])

@@ -6,6 +6,7 @@ import {
   writeStoredAuth,
   refreshStoredSession,
   resetRefreshStateForTests,
+  fetchWithTimeout,
 } from './authSession.js'
 
 function installStorage(initial = null) {
@@ -74,4 +75,42 @@ test('writeStoredAuth persists the complete user projection', () => {
     user: { id: 2, role: { name: 'teacher', permissions: ['kb:read'] } },
   })
   assert.equal(readStoredAuth().user.role.name, 'teacher')
+})
+
+test('fetchWithTimeout aborts a half-open auth request', async () => {
+  let aborted = false
+  const fetchImpl = async (_url, { signal }) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      aborted = true
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      reject(error)
+    }, { once: true })
+    void resolve
+  })
+
+  await assert.rejects(
+    fetchWithTimeout('/api/auth/me', { fetchImpl, timeoutMs: 5 }),
+    error => error.code === 'REQUEST_TIMEOUT',
+  )
+  assert.equal(aborted, true)
+})
+
+test('fetchWithTimeout preserves caller cancellation as AbortError', async () => {
+  const caller = new AbortController()
+  const fetchImpl = async (_url, { signal }) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      reject(error)
+    }, { once: true })
+    void resolve
+  })
+  const request = fetchWithTimeout('/api/auth/me', {
+    fetchImpl,
+    signal: caller.signal,
+    timeoutMs: 100,
+  })
+  caller.abort()
+  await assert.rejects(request, error => error.name === 'AbortError' && !error.code)
 })

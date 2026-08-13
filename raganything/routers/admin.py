@@ -40,6 +40,7 @@ from raganything.services.auth import (
     user_is_admin as _auth_user_is_admin,
 )
 import raganything.services.runtime_settings as runtime_settings
+from raganything.utils.media import SUPPORTED_VIDEO_EXTENSIONS
 
 router = APIRouter(tags=["admin"])
 
@@ -102,12 +103,12 @@ def _serialize_settings() -> dict:
         "enable_image": os.getenv("ENABLE_IMAGE_PROCESSING", "true").lower() == "true",
         "enable_table": os.getenv("ENABLE_TABLE_PROCESSING", "true").lower() == "true",
         "enable_equation": os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true",
-        "enable_video": os.getenv("ENABLE_VIDEO_PROCESSING", "false").lower() == "true",
         "working_dir": shared.WORKING_DIR,
         "parser_output_dir": os.getenv("OUTPUT_DIR", "./output"),
         "supported_extensions": [
             ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".gif", ".webp",
             ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".txt", ".md",
+            *sorted(SUPPORTED_VIDEO_EXTENSIONS),
         ],
         "rrf": {
             "rrf_k": int(os.getenv("RRF_K", "60")),

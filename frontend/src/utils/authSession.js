@@ -1,6 +1,46 @@
 export const AUTH_KEY = 'raganything_auth'
+export const AUTH_BOOTSTRAP_TIMEOUT_MS = 8_000
 
 let refreshInFlight = null
+
+// A half-open auth request must not hold the whole application on its loader.
+// The caller may provide a signal so component teardown also cancels the fetch.
+export async function fetchWithTimeout(
+  url,
+  { fetchImpl = globalThis.fetch, timeoutMs = AUTH_BOOTSTRAP_TIMEOUT_MS, signal, ...options } = {},
+) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl must be a function')
+  if (!(timeoutMs > 0)) return fetchImpl(url, { ...options, signal })
+
+  const controller = new AbortController()
+  let timedOut = false
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const forwardAbort = signal
+    ? () => controller.abort()
+    : null
+
+  if (forwardAbort) {
+    if (signal.aborted) controller.abort()
+    else signal.addEventListener('abort', forwardAbort, { once: true })
+  }
+
+  try {
+    return await fetchImpl(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (timedOut && error?.name === 'AbortError') {
+      const timeoutError = new Error('认证请求超时，请检查网络或服务状态后重试')
+      timeoutError.code = 'REQUEST_TIMEOUT'
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+    if (signal && forwardAbort) signal.removeEventListener('abort', forwardAbort)
+  }
+}
 
 export function readStoredAuth() {
   try {

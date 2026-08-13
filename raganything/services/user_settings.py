@@ -35,7 +35,7 @@ DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     "ingestion": {
         "parser": "docling", "chunking_strategy": "recursive", "chunk_size": 800,
         "enable_image": True, "enable_table": True, "enable_equation": True,
-        "enable_video": False, "entity_types": [], "minimum_relation_degree": 0,
+        "entity_types": [], "minimum_relation_degree": 0,
         "parsers_by_type": {},
     },
     "retrieval": {
@@ -55,6 +55,7 @@ RETRIEVAL_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 ALLOWED_FIELDS: dict[str, set[str]] = {key: set(value) for key, value in DEFAULT_SETTINGS.items()}
+LEGACY_IGNORED_INGESTION_FIELDS = frozenset({"enable_video"})
 
 # Per-file-type parser override keys and the genuine capability matrix for
 # every bundled parser.  Ids outside the matrix are custom parsers: they are
@@ -214,7 +215,13 @@ def resolved_sections(permitted_sections: Collection[str] | None) -> tuple[Secti
 
 def _project_sections(values: dict[str, Any], sections: Collection[str]) -> dict[str, Any]:
     allowed = set(sections)
-    return {section: _copy(value) for section, value in values.items() if section in allowed}
+    result = {section: _copy(value) for section, value in values.items() if section in allowed}
+    # Keep historical JSON intact in storage, but never present the retired
+    # video setting as a user-configurable or effective setting.
+    ingestion = result.get("ingestion")
+    if isinstance(ingestion, dict):
+        ingestion.pop("enable_video", None)
+    return result
 
 
 def project_settings_options(options: dict[str, Any], sections: Collection[str]) -> dict[str, Any]:
@@ -319,7 +326,6 @@ def _legacy_environment_settings() -> dict[str, dict[str, Any]]:
         ("enable_image", "ENABLE_IMAGE_PROCESSING"),
         ("enable_table", "ENABLE_TABLE_PROCESSING"),
         ("enable_equation", "ENABLE_EQUATION_PROCESSING"),
-        ("enable_video", "ENABLE_VIDEO_PROCESSING"),
     ):
         raw = os.getenv(env_name)
         if raw is not None and raw.strip().lower() in {"true", "false"}:
@@ -345,10 +351,14 @@ def _normalize_parsers_by_type(parsers_by_type: Any) -> dict[str, Any]:
 
 def _normalize_section_values(section: str, values: dict[str, Any]) -> dict[str, Any]:
     """Return normalized values for persistence without mutating the input."""
-    if section != "ingestion" or "parsers_by_type" not in values:
+    if section != "ingestion":
         return values
-    normalized = dict(values)
-    normalized["parsers_by_type"] = _normalize_parsers_by_type(normalized["parsers_by_type"])
+    normalized = {
+        key: value for key, value in values.items()
+        if key not in LEGACY_IGNORED_INGESTION_FIELDS
+    }
+    if "parsers_by_type" in normalized:
+        normalized["parsers_by_type"] = _normalize_parsers_by_type(normalized["parsers_by_type"])
     return normalized
 
 
@@ -357,7 +367,10 @@ def _validate_section(section: str, values: dict[str, Any] | None) -> None:
         raise ValueError("unknown settings section")
     if values is None:
         return
-    if not isinstance(values, dict) or not set(values).issubset(ALLOWED_FIELDS[section]):
+    allowed_fields = ALLOWED_FIELDS[section]
+    if section == "ingestion":
+        allowed_fields = allowed_fields | LEGACY_IGNORED_INGESTION_FIELDS
+    if not isinstance(values, dict) or not set(values).issubset(allowed_fields):
         raise ValueError("invalid settings fields")
     text_fields = {
         "models": {"llm_profile_id", "vlm_profile_id"},
@@ -368,7 +381,7 @@ def _validate_section(section: str, values: dict[str, Any] | None) -> None:
     for key in text_fields[section].intersection(values):
         if not isinstance(values[key], str) or not values[key].strip():
             raise ValueError(f"{key} must be a non-empty string")
-    bool_fields = {"enable_image", "enable_table", "enable_equation", "enable_video"}
+    bool_fields = {"enable_image", "enable_table", "enable_equation"}
     for key in bool_fields.intersection(values):
         if not isinstance(values[key], bool):
             raise ValueError(f"{key} must be a boolean")
@@ -607,6 +620,11 @@ def resolve_settings(
                     effective[section][key] = value
                     sources[section][key] = source
             for key, value in values.items():
+                # Video processing is derived from the uploaded filename at
+                # enqueue time. Ignore legacy settings and client overrides
+                # so they cannot disable automatic handling of new videos.
+                if section == "ingestion" and key == "enable_video":
+                    continue
                 if section == "ingestion" and key == "parsers_by_type":
                     value = _normalize_parsers_by_type(value)
                     merged = dict(effective[section].get(key) or {})
@@ -616,6 +634,11 @@ def resolve_settings(
                     continue
                 effective[section][key] = value
                 sources[section][key] = source
+
+    # Keep the internal snapshot field for Worker compatibility while making
+    # it impossible for user, KB, platform, or environment settings to set it.
+    effective["ingestion"]["enable_video"] = False
+    sources["ingestion"].pop("enable_video", None)
 
     constraints: dict[str, dict[str, Any]] = {}
     allowed = _safe_platform_policy(platform)["allowed"]
@@ -898,18 +921,24 @@ async def put_platform_settings(settings: dict[str, Any], expected_revision: int
 # subprocess or re-import heavy libraries, so avoid re-running it on every
 # options request; failures are recorded as unavailable instead of 500s.
 _PARSER_PROBE_TTL_SECONDS = 60.0
-_parser_availability_cache: dict[str, tuple[float, bool]] = {}
+_parser_availability_cache: dict[str, tuple[float, bool, str | None]] = {}
 
 
-def _probe_parser_available(parser_id: str) -> bool:
-    """Return whether a parser is installed, never raising for the caller."""
+def _probe_parser_available(parser_id: str) -> tuple[bool, str | None]:
+    """Return parser availability and a local prerequisite error, never raising."""
     from raganything.parser import get_parser
 
     try:
-        return bool(get_parser(parser_id).check_installation())
+        parser = get_parser(parser_id)
+        installation_error = getattr(parser, "installation_error", None)
+        if callable(installation_error):
+            reason = installation_error()
+            return reason is None, reason
+        available = bool(parser.check_installation())
+        return available, None if available else "Parser installation check failed"
     except Exception:
         logger.exception("parser installation probe failed for %s", parser_id)
-        return False
+        return False, "Parser installation check failed"
 
 
 def _parser_catalog() -> list[dict[str, Any]]:
@@ -921,16 +950,19 @@ def _parser_catalog() -> list[dict[str, Any]]:
     for parser_id in SUPPORTED_PARSERS:
         cached = _parser_availability_cache.get(parser_id)
         if cached is not None and now - cached[0] < _PARSER_PROBE_TTL_SECONDS:
-            available = cached[1]
+            available, reason = cached[1], cached[2]
         else:
-            available = _probe_parser_available(parser_id)
-            _parser_availability_cache[parser_id] = (now, available)
-        result.append({
+            available, reason = _probe_parser_available(parser_id)
+            _parser_availability_cache[parser_id] = (now, available, reason)
+        item = {
             "id": parser_id,
             "name": parser_id,
             "available": available,
             "supported_types": list(_parser_supported_types(parser_id)),
-        })
+        }
+        if not available:
+            item["reason"] = reason or "Parser installation check failed"
+        result.append(item)
     return result
 
 

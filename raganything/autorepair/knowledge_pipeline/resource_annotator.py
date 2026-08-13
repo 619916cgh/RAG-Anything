@@ -15,6 +15,7 @@ from datetime import datetime
 from ..knowledge_graph.models import (
     ResourceMetadata, ModalityType, CopyrightStatus,
 )
+from raganything.utils.media import SUPPORTED_VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,7 @@ EXT_TO_MODALITY = {
     ".jpeg": ModalityType.IMAGE, ".bmp": ModalityType.IMAGE,
     ".gif": ModalityType.IMAGE,
     # Video
-    ".mp4": ModalityType.VIDEO, ".avi": ModalityType.VIDEO,
-    ".mov": ModalityType.VIDEO, ".mkv": ModalityType.VIDEO,
+    **{extension: ModalityType.VIDEO for extension in SUPPORTED_VIDEO_EXTENSIONS},
     # Code
     ".py": ModalityType.CODE, ".cpp": ModalityType.CODE,
     ".c": ModalityType.CODE, ".gcode": ModalityType.CODE,

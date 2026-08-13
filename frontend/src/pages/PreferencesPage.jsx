@@ -58,10 +58,6 @@ const FIELD_LABELS = {
   chunk_size: '分块大小',
   entity_types: '实体类型',
   minimum_relation_degree: '最低关系度',
-  enable_image: '图片处理',
-  enable_table: '表格处理',
-  enable_equation: '公式处理',
-  enable_video: '视频处理',
   parsers_by_type: '按文件类型解析器',
   preset: '检索预设',
   rrf_k: 'RRF',
@@ -76,6 +72,8 @@ const FIELD_LABELS = {
   personal_concurrency: '个人并发额度',
   llm_timeout: 'LLM 等待时间',
 }
+
+const FIXED_INGESTION_FIELDS = new Set(['enable_image', 'enable_table', 'enable_equation'])
 
 function FieldState({ label, stored, effective, source, constraint, valueLabel = settingValueLabel }) {
   const sourceLabel = SOURCE_LABELS[source] || source || '平台默认'
@@ -243,7 +241,9 @@ export default function PreferencesPage({ onToast }) {
     setStatus(current => ({ ...current, [section]: { pending: true, error: '' } }))
     try {
       const rawValues = drafts[section] || {}
-      const values = section === 'ingestion' ? { ...rawValues } : rawValues
+      const values = section === 'ingestion'
+        ? Object.fromEntries(Object.entries(rawValues).filter(([field]) => !FIXED_INGESTION_FIELDS.has(field)))
+        : rawValues
       if (section === 'ingestion') {
         if (rawValues.chunking_strategy) values.chunking_strategy = canonicalChunkingStrategyId(rawValues.chunking_strategy)
         if (rawValues.parsers_by_type !== undefined) values.parsers_by_type = normalizeParsersByType(rawValues.parsers_by_type)
@@ -390,13 +390,12 @@ export default function PreferencesPage({ onToast }) {
 
         {visibleSections.includes('ingestion') && <Section {...sectionProps('ingestion')}>
           <div className="preferences-field-grid">
-            <label htmlFor="ingestion-parser">默认解析器<select id="ingestion-parser" className="select-field" value={drafts.ingestion?.parser ?? effective.ingestion?.parser ?? 'docling'} onChange={event => setDraft('ingestion', { parser: event.target.value })}>{parserOptions.map(item => <option value={item.id} key={item.id} disabled={item.available === false}>{item.name || item.id}</option>)}</select><small>未单独指定时，所有文件类型使用此解析器；未安装的解析器会置灰。</small></label>
-            <label htmlFor="ingestion-video">启用视频处理<input id="ingestion-video" type="checkbox" checked={drafts.ingestion?.enable_video ?? effective.ingestion?.enable_video ?? false} onChange={event => setDraft('ingestion', { enable_video: event.target.checked })} /><small>视频不经解析器，自动抽帧与转写。</small></label>
+            <label htmlFor="ingestion-parser">默认解析器<select id="ingestion-parser" className="select-field" value={drafts.ingestion?.parser ?? effective.ingestion?.parser ?? 'docling'} onChange={event => setDraft('ingestion', { parser: event.target.value })}>{parserOptions.map(item => <option value={item.id} key={item.id} disabled={item.available === false} title={item.available === false ? item.reason || '解析器运行依赖不可用' : undefined}>{item.name || item.id}{item.available === false ? `（不可用：${item.reason || '缺少运行依赖'}）` : ''}</option>)}</select><small>未单独指定时，所有文件类型使用此解析器；不可用项会显示本机依赖原因。</small></label>
           </div>
           <details className="preferences-advanced">
             <summary>按文件类型指定（可选）<span className="preferences-advanced-summary">{summarizeParsersByType(drafts.ingestion?.parsers_by_type ?? effective.ingestion?.parsers_by_type)}</span></summary>
             <div className="preferences-field-grid">
-              {PARSER_FILE_TYPES.map(fileType => <label key={fileType.id} htmlFor={`ingestion-parser-${fileType.id}`}>{fileType.label}<select id={`ingestion-parser-${fileType.id}`} className="select-field" value={drafts.ingestion?.parsers_by_type?.[fileType.id] ?? ''} onChange={event => { const parsersByType = { ...(drafts.ingestion?.parsers_by_type || {}) }; if (event.target.value === '') delete parsersByType[fileType.id]; else parsersByType[fileType.id] = event.target.value; setDraft('ingestion', { parsers_by_type: parsersByType }) }}>{parserOptionsByType[fileType.id].map(item => <option value={item.id} key={item.id} disabled={item.available === false}>{item.name || item.id}</option>)}</select></label>)}
+              {PARSER_FILE_TYPES.map(fileType => <label key={fileType.id} htmlFor={`ingestion-parser-${fileType.id}`}>{fileType.label}<select id={`ingestion-parser-${fileType.id}`} className="select-field" value={drafts.ingestion?.parsers_by_type?.[fileType.id] ?? ''} onChange={event => { const parsersByType = { ...(drafts.ingestion?.parsers_by_type || {}) }; if (event.target.value === '') delete parsersByType[fileType.id]; else parsersByType[fileType.id] = event.target.value; setDraft('ingestion', { parsers_by_type: parsersByType }) }}>{parserOptionsByType[fileType.id].map(item => <option value={item.id} key={item.id} disabled={item.available === false} title={item.available === false ? item.reason || '解析器运行依赖不可用' : undefined}>{item.name || item.id}{item.available === false ? `（不可用：${item.reason || '缺少运行依赖'}）` : ''}</option>)}</select></label>)}
             </div>
           </details>
           <div className="preferences-field-grid">
@@ -405,15 +404,10 @@ export default function PreferencesPage({ onToast }) {
             <label htmlFor="ingestion-entities">实体类型<input id="ingestion-entities" className="input-field" value={(drafts.ingestion?.entity_types ?? effective.ingestion?.entity_types ?? []).join(', ')} placeholder="人物, 组织, 概念" onChange={event => setDraft('ingestion', { entity_types: event.target.value.split(',').map(value => value.trim()).filter(Boolean) })} /><small>使用逗号分隔，留空表示不额外限定。</small></label>
             <label htmlFor="ingestion-relation-degree">最低关系度<input id="ingestion-relation-degree" className="input-field" type="number" min="0" value={drafts.ingestion?.minimum_relation_degree ?? effective.ingestion?.minimum_relation_degree ?? 0} onChange={event => setDraft('ingestion', { minimum_relation_degree: Number(event.target.value) })} /></label>
           </div>
-          <fieldset className="preferences-toggle-list">
-            <legend>文档内多模态处理</legend>
-            {[['enable_image', '文档内图片'], ['enable_table', '表格'], ['enable_equation', '公式']].map(([field, label]) => <label key={field}><span>{label}处理</span><input type="checkbox" checked={drafts.ingestion?.[field] ?? effective.ingestion?.[field] ?? false} onChange={event => setDraft('ingestion', { [field]: event.target.checked })} /></label>)}
-            <small className="preferences-local-note">“文档内图片处理”针对文档中内嵌的插图；独立图片文件请使用上方“图片文件解析”。</small>
-          </fieldset>
           <details className="preferences-state-details">
             <summary>查看已保存值与生效状态</summary>
             <div className="preferences-state-grid">
-              {['parser', 'chunking_strategy', 'chunk_size', 'entity_types', 'minimum_relation_degree', 'enable_image', 'enable_table', 'enable_equation', 'enable_video'].map(field => <FieldState key={field} label={FIELD_LABELS[field]} stored={data.stored?.ingestion?.[field]} effective={effective.ingestion?.[field]} source={data.sources?.ingestion?.[field]} constraint={data.constraints?.ingestion?.[field]} />)}
+              {['parser', 'chunking_strategy', 'chunk_size', 'entity_types', 'minimum_relation_degree'].map(field => <FieldState key={field} label={FIELD_LABELS[field]} stored={data.stored?.ingestion?.[field]} effective={effective.ingestion?.[field]} source={data.sources?.ingestion?.[field]} constraint={data.constraints?.ingestion?.[field]} />)}
               <FieldState label={FIELD_LABELS.parsers_by_type} stored={data.stored?.ingestion?.parsers_by_type} effective={effective.ingestion?.parsers_by_type} source={data.sources?.ingestion?.parsers_by_type} constraint={data.constraints?.ingestion?.parsers_by_type} valueLabel={formatParsersByType} />
             </div>
           </details>

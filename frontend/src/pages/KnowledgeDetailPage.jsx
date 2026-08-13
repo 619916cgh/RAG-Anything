@@ -914,7 +914,7 @@ export default function KnowledgeDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { hasPermission, verifyToken } = useAuth()
   const kbAccess = useConfirmedKnowledgeBase(kbName)
-  const canOperateKB = kbAccess.capabilities.operate === true
+  const canOperateKB = kbAccess.capabilities?.operate === true
   const canManageKB = hasPermission('kb:write') && canOperateKB
   const canViewVisionSettings = hasPermission('kb:read')
   const canManageGraph = hasPermission('graph:write') && canOperateKB

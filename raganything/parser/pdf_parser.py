@@ -3,6 +3,7 @@ from .base import Parser, _IS_WINDOWS, MineruExecutionError
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 import json
@@ -27,6 +28,15 @@ class MineruParser(Parser):
     def __init__(self) -> None:
         """Initialize MineruParser"""
         super().__init__()
+
+    @staticmethod
+    def _mineru_command() -> str:
+        """Resolve the MinerU executable from the active Python environment."""
+        executable_name = "mineru.exe" if _IS_WINDOWS else "mineru"
+        candidate = Path(sys.executable).resolve().parent / executable_name
+        if candidate.is_file():
+            return str(candidate)
+        return executable_name
 
     @classmethod
     def _run_mineru_command(
@@ -67,7 +77,7 @@ class MineruParser(Parser):
             **kwargs: Additional parameters for subprocess (e.g., env)
         """
         cmd = [
-            "mineru",
+            cls._mineru_command(),
             "-p",
             str(input_path),
             "-o",
@@ -739,12 +749,10 @@ class MineruParser(Parser):
             return self.parse_pdf(file_path, output_dir, method, lang, **kwargs)
 
     def check_installation(self) -> bool:
-        """
-        Check if MinerU 2.0 is properly installed
+        return self.installation_error() is None
 
-        Returns:
-            bool: True if installation is valid, False otherwise
-        """
+    def installation_error(self) -> str | None:
+        """Return a concise local prerequisite error for the MinerU command."""
         try:
             # Prepare subprocess parameters to hide console window on Windows
             subprocess_kwargs = {
@@ -760,13 +768,16 @@ class MineruParser(Parser):
             if _IS_WINDOWS:
                 subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-            result = subprocess.run(["mineru", "--version"], **subprocess_kwargs)
+            result = subprocess.run([self._mineru_command(), "--version"], **subprocess_kwargs)
             self.logger.debug(f"MinerU version: {result.stdout.strip()}")
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        except FileNotFoundError:
             self.logger.debug(
                 "MinerU 2.0 is not properly installed. "
                 "Please install it using: pip install -U 'mineru[core]'"
             )
-            return False
-
+            return "MinerU command was not found in the active Python environment"
+        except subprocess.TimeoutExpired:
+            return "MinerU installation check timed out"
+        except subprocess.CalledProcessError as exc:
+            return f"MinerU installation check failed with exit code {exc.returncode}"

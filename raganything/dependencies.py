@@ -23,6 +23,8 @@ from raganything.services.auth import (
 
 security = HTTPBearer()
 
+_ROLE_DEFAULT_KB_READ = frozenset({"super_admin", "dept_admin", "teacher"})
+
 # ── 限流器 ─────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 
@@ -278,8 +280,7 @@ async def verify_kb_access(
     if kb not in kb_meta:
         raise HTTPException(404, f"知识库 '{kb}' 不存在")
 
-    # 管理员可访问所有知识库
-    if current_user.get("is_admin"):
+    if has_default_kb_read_access(current_user):
         return kb
 
     allowed_kbs = current_user.get("allowed_kbs", [])
@@ -296,6 +297,12 @@ async def verify_kb_access(
 
     return kb
 
+
+
+def has_default_kb_read_access(current_user: dict) -> bool:
+    """Whether a role receives non-persistent read visibility for every KB."""
+    role_name = (current_user.get("role") or {}).get("name")
+    return bool(current_user.get("is_admin")) or role_name in _ROLE_DEFAULT_KB_READ
 
 def _kb_grant_level(current_user: dict, kb: str) -> str | None:
     levels = current_user.get("kb_access_levels") or {}
@@ -347,7 +354,7 @@ async def verify_kb_manage_access(
     is_owner = kb_meta[kb].get("owner_id") == current_user.get("id")
     if role_name == "teacher" and is_owner:
         return kb
-    if role_name == "dept_admin" and (is_owner or _kb_grant_level(current_user, kb)):
+    if role_name == "dept_admin" and (is_owner or _kb_grant_level(current_user, kb) == "operate"):
         return kb
     raise HTTPException(403, "无权管理该知识库成员")
 

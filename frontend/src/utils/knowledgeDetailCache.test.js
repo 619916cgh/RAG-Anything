@@ -103,3 +103,50 @@ test('targeted and full invalidation prevent old in-flight reads from repopulati
   await full
   assert.equal(cache.read('training'), null)
 })
+
+test('acquire aborts an invalidated shared request and never starts work for a pre-aborted consumer', async () => {
+  const cache = createKnowledgeDetailCache()
+  let started = 0
+  let requestSignal
+  const request = cache.acquire('manuals', ({ signal }) => new Promise((_resolve, reject) => {
+    started += 1
+    requestSignal = signal
+    signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true })
+  }))
+  await Promise.resolve()
+  cache.invalidateKB('manuals')
+  await assert.rejects(request, error => error?.name === 'AbortError')
+  assert.equal(requestSignal.aborted, true)
+
+  const alreadyAborted = new AbortController()
+  alreadyAborted.abort()
+  await assert.rejects(
+    cache.acquire('manuals', () => { started += 1 }, { signal: alreadyAborted.signal }),
+    error => error?.name === 'AbortError',
+  )
+  assert.equal(started, 1)
+})
+
+test('keeps leased requests separate from ordinary loads for the same cache key', async () => {
+  const cache = createKnowledgeDetailCache()
+  let resolveLoad
+  let resolveAcquire
+  const ordinary = cache.load('manuals', () => new Promise(resolve => { resolveLoad = resolve }))
+  const leased = cache.acquire('manuals', () => new Promise(resolve => { resolveAcquire = resolve }))
+  await Promise.resolve()
+  resolveLoad('ordinary')
+  resolveAcquire('leased')
+  assert.equal(await ordinary, 'ordinary')
+  assert.equal(await leased, 'leased')
+})
+
+test('a delayed leased response cannot repopulate after authentication generation changes', async () => {
+  const cache = createKnowledgeDetailCache({ authGeneration: 'old' })
+  let resolveRequest
+  const request = cache.acquire('manuals', () => new Promise(resolve => { resolveRequest = resolve }))
+  await Promise.resolve()
+  cache.setAuthGeneration('new')
+  resolveRequest('old-response')
+  assert.equal(await request, 'old-response')
+  assert.equal(cache.read('manuals'), null)
+})

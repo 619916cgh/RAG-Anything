@@ -13,6 +13,7 @@ from raganything.services.pg_state_repo import get_pg_pool
 logger = logging.getLogger("rag_server.document_repair")
 
 REPAIR_STAGE = "entity_extraction"
+RETRIEVAL_REPAIR_STAGE = "retrieval_readiness"
 REPAIR_LEASE_SECONDS = 15 * 60
 REPAIR_MAX_ATTEMPTS = 3
 
@@ -116,6 +117,21 @@ async def enqueue_repair(
             str(error or "")[:4000],
         )
     return dict(row)
+
+
+async def enqueue_retrieval_repair(
+    kb_name: str,
+    doc_id: str,
+    *,
+    reason_code: str,
+) -> dict[str, Any]:
+    """Queue one idempotent retrieval repair without exposing document data."""
+    return await enqueue_repair(
+        kb_name,
+        doc_id,
+        stage=RETRIEVAL_REPAIR_STAGE,
+        error=str(reason_code or "retrieval_not_ready")[:128],
+    )
 
 
 async def prepare_document_repair(
@@ -379,7 +395,25 @@ async def run_repair_job(job: dict[str, Any]) -> None:
             job["kb_name"],
             [str(value) for value in status.get("chunks_list") or persisted_by_id],
             persisted_by_id,
+            require_postgres=job.get("stage") == RETRIEVAL_REPAIR_STAGE,
         )
+        if job.get("stage") == RETRIEVAL_REPAIR_STAGE:
+            if not quality["ready"]:
+                raise RuntimeError(
+                    "retrieval repair did not restore authoritative readiness: "
+                    f"{quality.get('reason_code') or 'unknown'}"
+                )
+            metadata.update({
+                "content_ready": True,
+                "retrieval_status": "completed",
+                "retrieval_failure_reason": "",
+                "retryable": False,
+            })
+            await original_doc_status.upsert({
+                job["doc_id"]: {**status, "metadata": metadata}
+            })
+            await original_doc_status.index_done_callback()
+            return
         if status.get("status") == "processed":
             if not quality["ready"]:
                 raise RuntimeError(f"document vector quality gate failed after repair: {quality}")

@@ -29,13 +29,18 @@ export default function AutoRepairDashboardPage() {
   const canInteract = hasPermission('autorepair:write')
   const { arKb, setArKb, kbList, kbLoading, kbError, creating, canCreateArKb, createArKb, refreshKbList } = useAutoRepairKB()
   const genRef = useRef(0)  // generation counter: discard stale API responses on KB switch
+  const requestRef = useRef(null)
 
   const loadAll = useCallback(async (showLoading = true) => {
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
     if (!arKb) {
       setDashboard(null)
       setKgSummary(null)
       setCaseStats(null)
       setLoading(false)
+      requestRef.current = null
       return
     }
     const gen = ++genRef.current
@@ -43,9 +48,9 @@ export default function AutoRepairDashboardPage() {
     setError(null)
     try {
       const [dashResult, kgResult, caseResult] = await Promise.allSettled([
-        api.get(`/autorepair/dashboard?kb=${arKb}`),
-        api.get(`/autorepair/knowledge-graph/summary?kb=${arKb}`),
-        api.get(`/autorepair/cases/stats?kb=${arKb}`),
+        api.get(`/autorepair/dashboard?kb=${arKb}`, { signal: controller.signal }),
+        api.get(`/autorepair/knowledge-graph/summary?kb=${arKb}`, { signal: controller.signal }),
+        api.get(`/autorepair/cases/stats?kb=${arKb}`, { signal: controller.signal }),
       ])
       if (gen !== genRef.current) return  // stale — newer request in flight
       const dashRes = dashResult.status === 'fulfilled' ? dashResult.value : null
@@ -61,6 +66,7 @@ export default function AutoRepairDashboardPage() {
       setError('数据加载失败，请确认后端服务已启动')
     } finally {
       if (gen === genRef.current && showLoading) setLoading(false)
+      if (requestRef.current === controller) requestRef.current = null
     }
   }, [arKb])
 

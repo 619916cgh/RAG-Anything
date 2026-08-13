@@ -313,8 +313,18 @@ async def test_upload_cancellation_kills_worker_subprocess(monkeypatch):
         raise asyncio.CancelledError()
 
     async def fake_settings_snapshot(_task_id):
+        from raganything.embedding.identity import canonical_text_embedding_identity
+
         return {
-            "settings": {"ingestion": {"chunking_strategy": "fixed_size"}},
+            "settings": {
+                "ingestion": {"chunking_strategy": "fixed_size"},
+                "text_embedding_identity": canonical_text_embedding_identity(
+                    provider="openai_compatible",
+                    model="text-embedding-v3",
+                    dimension=1024,
+                    endpoint_semantics="default",
+                ),
+            },
             "revision": 1,
             "fingerprint": "fp",
         }

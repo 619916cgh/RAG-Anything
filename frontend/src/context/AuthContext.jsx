@@ -7,6 +7,7 @@ import {
   writeStoredAuth,
   removeStoredAuth,
   refreshStoredSession,
+  fetchWithTimeout,
 } from '../utils/authSession'
 
 const AuthContext = createContext(null)
@@ -19,11 +20,16 @@ export function AuthProvider({ children }) {
   // 从本地存储恢复登录状态，并验证令牌有效性。
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const init = async () => {
       const saved = readStoredAuth()
+      const authFetch = (url, options = {}) => fetchWithTimeout(url, {
+        ...options,
+        signal: controller.signal,
+      })
       if (saved?.token) {
         try {
-          const res = await fetch('/api/auth/me', {
+          const res = await authFetch('/api/auth/me', {
             headers: { 'Authorization': `Bearer ${saved.token}` },
           })
           if (res.ok) {
@@ -39,7 +45,7 @@ export function AuthProvider({ children }) {
               setUser(me.user)
             }
           } else if (res.status === 401 || res.status === 403) {
-            const refreshed = await refreshStoredSession()
+            const refreshed = await refreshStoredSession(authFetch)
             if (refreshed && !cancelled) {
               advanceKnowledgeDetailAuthGeneration()
               setToken(refreshed.access_token)
@@ -58,7 +64,10 @@ export function AuthProvider({ children }) {
       }
     }
     init()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [])
 
   useEffect(() => {

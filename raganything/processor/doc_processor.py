@@ -31,6 +31,7 @@ import hashlib
 import json
 from typing import Dict, List, Any
 from pathlib import Path
+from raganything.utils.media import is_supported_video_file
 
 from raganything.base import DocStatus
 from raganything.parser import MineruParser, MineruExecutionError, get_parser
@@ -76,7 +77,7 @@ class DocProcessorMixin:
             ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp",
         }:
             return "image"
-        if suffix in {".mp4", ".avi", ".mov", ".mkv", ".webm"}:
+        if is_supported_video_file(file_path):
             return "video"
         return "generic"
 

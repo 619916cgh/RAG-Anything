@@ -64,6 +64,7 @@ export function createKnowledgeDetailCache({
   let invalidationEpoch = 0
   const entries = new Map()
   const inFlight = new Map()
+  const leasedInFlight = new Map()
   const keyRevisions = new Map()
 
   const currentKey = (kbName, pageQuery) => knowledgeDetailCacheKey(activeGeneration, kbName, pageQuery)
@@ -96,29 +97,38 @@ export function createKnowledgeDetailCache({
 
   const invalidate = (kbName, pageQuery) => {
     const key = currentKey(kbName, pageQuery)
+    inFlight.get(key)?.controller?.abort()
+    leasedInFlight.get(key)?.controller?.abort()
     entries.delete(key)
     inFlight.delete(key)
+    leasedInFlight.delete(key)
     keyRevisions.set(key, revisionFor(key) + 1)
   }
 
   const invalidateKB = kbName => {
     const normalizedName = requireKBName(kbName)
-    for (const key of new Set([...entries.keys(), ...inFlight.keys(), ...keyRevisions.keys()])) {
+    for (const key of new Set([...entries.keys(), ...inFlight.keys(), ...leasedInFlight.keys(), ...keyRevisions.keys()])) {
       try {
         if (JSON.parse(key)[1] !== normalizedName) continue
       } catch {
         continue
       }
+      inFlight.get(key)?.controller?.abort()
+      leasedInFlight.get(key)?.controller?.abort()
       entries.delete(key)
       inFlight.delete(key)
+      leasedInFlight.delete(key)
       keyRevisions.set(key, revisionFor(key) + 1)
     }
   }
 
   const invalidateAll = () => {
     invalidationEpoch += 1
+    for (const flight of inFlight.values()) flight.controller?.abort()
+    for (const flight of leasedInFlight.values()) flight.controller?.abort()
     entries.clear()
     inFlight.clear()
+    leasedInFlight.clear()
     keyRevisions.clear()
   }
 
@@ -129,10 +139,17 @@ export function createKnowledgeDetailCache({
     return true
   }
 
-  const load = (kbName, loader, { force = false, ...pageQuery } = {}) => {
+  const load = (kbName, loader, {
+    force = false,
+    shouldCache = () => true,
+    ...pageQuery
+  } = {}) => {
     const key = currentKey(kbName, pageQuery)
     if (typeof loader !== 'function') {
       throw new TypeError('loader must be a function')
+    }
+    if (typeof shouldCache !== 'function') {
+      throw new TypeError('shouldCache must be a function')
     }
 
     const snapshot = read(kbName, pageQuery)
@@ -154,6 +171,7 @@ export function createKnowledgeDetailCache({
           && invalidationEpoch === requestEpoch
           && revisionFor(key) === requestRevision
           && Object.is(activeGeneration, requestGeneration)
+          && shouldCache(value)
         ) {
           touch(key, { value, cachedAt: Number(now()) })
         }
@@ -169,9 +187,61 @@ export function createKnowledgeDetailCache({
     return request
   }
 
+  const acquire = (kbName, loader, { signal, ...options } = {}) => {
+    if (signal?.aborted) return Promise.reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' }))
+    const key = currentKey(kbName, options)
+    const force = Boolean(options.force)
+    const snapshot = read(kbName, options)
+    if (!force && snapshot?.fresh) return Promise.resolve(snapshot.value)
+    let flight = leasedInFlight.get(key)
+    if (!flight) {
+      const controller = new AbortController()
+      const requestEpoch = invalidationEpoch
+      const requestRevision = revisionFor(key)
+      const requestGeneration = activeGeneration
+      let request
+      request = Promise.resolve()
+        .then(() => loader({ kbName, authGeneration: requestGeneration, signal: controller.signal }))
+        .then(value => {
+          const activeRequest = leasedInFlight.get(key)
+          if (
+            activeRequest?.promise === request
+            && invalidationEpoch === requestEpoch
+            && revisionFor(key) === requestRevision
+            && Object.is(activeGeneration, requestGeneration)
+            && (typeof options.shouldCache !== 'function' || options.shouldCache(value))
+          ) touch(key, { value, cachedAt: Number(now()) })
+          return value
+        })
+        .finally(() => {
+          flight.settled = true
+          if (leasedInFlight.get(key)?.promise === request) leasedInFlight.delete(key)
+        })
+      flight = { promise: request, controller, consumers: 0, settled: false }
+      leasedInFlight.set(key, flight)
+    }
+    flight.consumers += 1
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      flight.consumers = Math.max(0, flight.consumers - 1)
+      if (!flight.settled && flight.consumers === 0) flight.controller.abort()
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => { release(); reject(Object.assign(new Error('请求已取消'), { name: 'AbortError' })) }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      flight.promise.then(resolve, reject).finally(() => {
+        signal?.removeEventListener('abort', onAbort)
+        release()
+      })
+    })
+  }
+
   return {
     read,
     load,
+    acquire,
     invalidate,
     invalidateKB,
     invalidateAll,
@@ -181,7 +251,7 @@ export function createKnowledgeDetailCache({
       return entries.size
     },
     get inFlightSize() {
-      return inFlight.size
+      return inFlight.size + leasedInFlight.size
     },
   }
 }

@@ -347,21 +347,33 @@ async def get_task_status(task_id: str) -> dict[str, Any] | None:
     return processing_tasks.get(task_id)
 
 
-async def get_all_tasks() -> list[dict[str, Any]]:
+async def get_all_tasks(
+    *, kb_name: str | None = None, limit: int | None = None,
+) -> list[dict[str, Any]]:
     """Get all active processing tasks — PG-first, local cache fallback.
 
     Returns:
         List of task status dicts, newest first
     """
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be positive")
     if _task_pg_ready():
         from raganything.services.pg_state_repo import get_pg_pool
         pool = get_pg_pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
+            query = (
                 "SELECT * FROM processing_tasks "
-                "WHERE status NOT IN ('completed','failed') "
-                "ORDER BY updated_at DESC"
+                "WHERE status NOT IN ('completed','failed')"
             )
+            params: list[Any] = []
+            if kb_name is not None:
+                params.append(kb_name)
+                query += f" AND kb_name=${len(params)}"
+            query += " ORDER BY updated_at DESC"
+            if limit is not None:
+                params.append(limit)
+                query += f" LIMIT ${len(params)}"
+            rows = await conn.fetch(query, *params)
             if rows:
                 result = []
                 for r in rows:
@@ -381,11 +393,15 @@ async def get_all_tasks() -> list[dict[str, Any]]:
                 return result
 
     # Fallback: local cache
+    local_tasks = (
+        task for task in processing_tasks.values()
+        if kb_name is None or task.get("kb", task.get("kb_name", "")) == kb_name
+    )
     return sorted(
-        processing_tasks.values(),
+        local_tasks,
         key=lambda t: t.get("started_at", ""),
         reverse=True,
-    )
+    )[:limit]
 
 
 async def cleanup_completed_tasks() -> None:

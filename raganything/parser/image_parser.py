@@ -339,9 +339,13 @@ class PaddleOCRParser(Parser):
         )
 
     def check_installation(self) -> bool:
+        return self.installation_error() is None
+
+    def installation_error(self) -> str | None:
+        """Return a concise local prerequisite error without initializing OCR models."""
         try:
             self._require_paddleocr()
-            return True
-        except ImportError:
-            return False
+        except ImportError as exc:
+            return str(exc)
+        return None
 

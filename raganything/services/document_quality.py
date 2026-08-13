@@ -87,7 +87,16 @@ async def evaluate_content_readiness(
     kb_name: str,
     chunk_ids: list[str],
     text_chunks: dict[str, Any],
+    *,
+    require_postgres: bool = False,
 ) -> dict[str, Any]:
+    """Return a content-free retrieval-readiness result.
+
+    ``require_postgres`` is the release/worker gate.  It never treats the
+    file-backed vector store as success evidence when PostgreSQL cannot be
+    queried.  The compatibility path keeps the existing local-store behavior
+    for older non-PostgreSQL installations.
+    """
     expected = {str(value) for value in chunk_ids if value}
     present = {chunk_id for chunk_id in expected if chunk_id in text_chunks}
     invalid = {
@@ -96,6 +105,7 @@ async def evaluate_content_readiness(
         or is_path_placeholder(chunk_content(text_chunks[chunk_id]))
     }
     vector_ids: set[str] = set()
+    store_status = "not_checked"
     if expected:
         # PostgreSQL is authoritative when the application has initialized a
         # PG pool.  JSON/NanoVectorDB deployments use the local vector file.
@@ -108,6 +118,7 @@ async def evaluate_content_readiness(
             workspace = "./rag_storage" if kb_name == "default" else f"./rag_storage_{kb_name}"
             chunk_table = await resolve_vector_chunk_table(pool, workspace)
             if chunk_table is None:
+                store_status = "vector_table_missing"
                 _logger.warning(
                     "vector chunk table not found: kb=%s workspace=%s",
                     kb_name, workspace,
@@ -119,10 +130,12 @@ async def evaluate_content_readiness(
                 )
                 vector_ids = {str(row["id"]) for row in rows}
                 pg_checked = True
+                store_status = "postgres"
         except Exception:
             pg_checked = False
+            store_status = "postgres_unavailable"
 
-        if not pg_checked:
+        if not pg_checked and not require_postgres:
             for vector_path in _nanovector_vector_paths(kb_name):
                 try:
                     payload = json.loads(vector_path.read_text(encoding="utf-8"))
@@ -134,11 +147,24 @@ async def evaluate_content_readiness(
                             if isinstance(row, dict)
                             and (row.get("__id__") or row.get("id")) in expected
                         )
+                    store_status = "file"
                 except (OSError, TypeError, ValueError, json.JSONDecodeError):
                     continue
-    ready = bool(expected) and present == expected and vector_ids == expected and not invalid
+    reason_code = ""
+    if not expected or present != expected:
+        reason_code = "missing_text_chunks"
+    elif invalid:
+        reason_code = "invalid_chunk_content"
+    elif require_postgres and store_status != "postgres":
+        reason_code = "retrieval_store_unavailable"
+    elif vector_ids != expected:
+        reason_code = "missing_vectors"
+    ready = not reason_code
     return {
         "ready": ready,
+        "reason_code": reason_code,
+        "store_status": store_status,
+        "strict": require_postgres,
         "expected_count": len(expected),
         "text_count": len(present),
         "vector_count": len(vector_ids),
@@ -146,6 +172,33 @@ async def evaluate_content_readiness(
         "missing_vector_ids": sorted(expected - vector_ids),
         "invalid_content_ids": sorted(invalid),
     }
+
+
+async def evaluate_document_retrieval_health(
+    kb_name: str,
+    doc_id: str,
+) -> dict[str, Any]:
+    """Evaluate one document without returning its text or storage paths."""
+    from raganything.services.kb_service import _load_doc_status_json, _load_text_chunks_json
+
+    statuses = await _load_doc_status_json(kb_name)
+    info = (statuses or {}).get(doc_id)
+    if not isinstance(info, dict):
+        return {
+            "ready": False,
+            "reason_code": "prerequisite_failed",
+            "expected_count": 0,
+            "text_count": 0,
+            "vector_count": 0,
+        }
+    chunk_ids = [str(value) for value in info.get("chunks_list") or [] if value]
+    text_chunks = await _load_text_chunks_json(kb_name)
+    return await evaluate_content_readiness(
+        kb_name,
+        chunk_ids,
+        text_chunks,
+        require_postgres=True,
+    )
 
 
 async def cleanup_failed_invalid_residue(

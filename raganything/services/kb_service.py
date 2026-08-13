@@ -4709,6 +4709,16 @@ class DocumentStatusPendingError(RuntimeError):
     """The worker succeeded, but its PG document row is not visible yet."""
 
 
+class DocumentRetrievalNotReadyError(RuntimeError):
+    """Text was processed but authoritative retrieval artifacts are incomplete."""
+
+    def __init__(self, doc_id: str, quality: dict[str, Any]):
+        self.doc_id = doc_id
+        self.quality = quality
+        self.reason_code = str(quality.get("reason_code") or "retrieval_not_ready")
+        super().__init__(f"retrieval_not_ready:{self.reason_code}")
+
+
 class DocumentTaggingStageError(RuntimeError):
     """The document body is durable, but required automatic tagging failed."""
 
@@ -4737,47 +4747,47 @@ async def _finalize_tagging_failure(
     claim_owner: str | None = None,
     claim_generation: int | None = None,
 ) -> None:
-    """Fail only the upload/tag barrier while preserving the processed document."""
-    from raganything.services.state_service import fail_task
+    """Record optional tagging failure without invalidating retrieval readiness."""
+    from raganything.services.state_service import complete_task
     from raganything.services.ws_service import add_event, ws_broadcast
 
+    warning = "Document retrieval completed, but automatic tagging needs repair"
     upload_row = await pg_update_upload_status_by_task_id(
         task_id,
-        "failed",
+        "completed",
         kb_name=kb_name,
         error_message=error_message,
-        outcome="terminal_failed",
+        outcome="degraded",
+        warning_message=warning,
         claim_owner=claim_owner,
         claim_generation=claim_generation,
     )
     if claim_owner is not None and upload_row is None:
         kb_logger.info("Ignoring stale tagging failure: task=%s", task_id)
         return
-    await fail_task(
+    await complete_task(
         task_id,
-        error_message,
-        outcome="terminal_failed",
-        failure_stage="tagging",
-        retryable=False,
+        outcome="degraded",
+        warning=warning,
     )
     await add_event(
-        "upload_error",
+        "upload_complete",
         file=filename,
         task_id=task_id,
         kb=kb_name,
         doc_id=doc_id,
-        error=error_message,
-        failure_stage="tagging",
+        outcome="degraded",
+        warning=warning,
         user_id=user_id,
     )
     await ws_broadcast({
-        "type": "upload_error",
+        "type": "upload_done",
         "task_id": task_id,
         "filename": filename,
         "kb": kb_name,
         "doc_id": doc_id,
-        "error": error_message,
-        "failure_stage": "tagging",
+        "outcome": "degraded",
+        "warning": warning,
     })
     if file_hash is not None:
         _unregister_processing_file(kb_name, file_hash)
@@ -5707,6 +5717,18 @@ async def _process_uploaded_file(
             kb_name, persisted_filename,
         )
 
+        if document_id and _pg_storage_ready():
+            from raganything.services.document_quality import evaluate_document_retrieval_health
+
+            readiness = await evaluate_document_retrieval_health(kb_name, document_id)
+            if not readiness.get("ready"):
+                kb_logger.warning(
+                    "Retrieval readiness rejected upload: task=%s kb=%s doc=%s reason=%s expected=%s text=%s vectors=%s",
+                    task_id, kb_name, document_id[:16], readiness.get("reason_code"),
+                    readiness.get("expected_count"), readiness.get("text_count"), readiness.get("vector_count"),
+                )
+                raise DocumentRetrievalNotReadyError(document_id, readiness)
+
         await emit_progress(task_id, 96, "文档主体处理完成，正在生成标签")
         # Tags are the final upload stage. Keep the task non-terminal until the
         # durable tag job reaches a successful or explicit terminal state.
@@ -5874,6 +5896,61 @@ async def _process_uploaded_file(
                 claim_generation,
                 verified_degraded=(e.doc_id, e.metadata),
             )
+            return
+
+        if isinstance(e, DocumentRetrievalNotReadyError):
+            from raganything.services.upload_retry import schedule_upload_retry
+
+            readiness_error = (
+                f"retrieval_not_ready:{e.reason_code} "
+                f"expected={int(e.quality.get('expected_count') or 0)} "
+                f"text={int(e.quality.get('text_count') or 0)} "
+                f"vectors={int(e.quality.get('vector_count') or 0)}"
+            )
+            retry_job = await schedule_upload_retry(
+                task_id=task_id,
+                kb_name=kb_name,
+                file_path=file_path,
+                filename=filename,
+                file_hash=file_hash or "",
+                user_id=user_id,
+                stage="retrieval_readiness",
+                root_type=e.reason_code,
+                error=readiness_error,
+                chunking_strategy=actual_strategy,
+                retry_job_id=retry_job_id,
+                lease_token=retry_lease_token,
+                claim_owner=claim_owner,
+                claim_generation=claim_generation,
+            )
+            if retry_job is not None:
+                task = processing_tasks.setdefault(task_id, {"id": task_id})
+                task.update({
+                    "status": "retry_wait",
+                    "retryable": True,
+                    "failure_stage": "retrieval_readiness",
+                    "error": readiness_error,
+                    "error_message": readiness_error,
+                    "readiness": {
+                        key: e.quality.get(key)
+                        for key in ("reason_code", "expected_count", "text_count", "vector_count")
+                    },
+                })
+                await ws_broadcast({
+                    "type": "upload_retry_wait", "task_id": task_id,
+                    "filename": filename, "kb": kb_name,
+                    "failure_stage": "retrieval_readiness",
+                })
+                if file_hash is not None:
+                    _unregister_processing_file(kb_name, file_hash)
+                return
+            kb_logger.info(
+                "Ignoring stale retrieval-readiness retry: task=%s retry_job=%s",
+                task_id,
+                retry_job_id,
+            )
+            if file_hash is not None:
+                _unregister_processing_file(kb_name, file_hash)
             return
 
         if (

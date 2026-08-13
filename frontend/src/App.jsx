@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, lazy, Suspense, Component } from 'react'
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Database, Settings, Activity, Zap, Cpu, Hash, Bot, Shield, LogOut, User, Sun, Moon, BookOpen, ChevronDown, Factory, GitBranch, ScrollText, AlertTriangle } from 'lucide-react'
+import { Database, Settings, Activity, Zap, Cpu, Hash, Bot, Shield, LogOut, User, Sun, Moon, BookOpen, ChevronDown, Factory, GitBranch, ScrollText, AlertTriangle, Link2 } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import { api } from './utils/api'
@@ -20,6 +20,7 @@ const AgentChatPage               = lazy(() => import('./pages/AgentChatPage'))
 const LoginPage                   = lazy(() => import('./pages/LoginPage'))
 const AdminUsersPage              = lazy(() => import('./pages/AdminUsersPage'))
 const AdminAuditLogsPage          = lazy(() => import('./pages/AdminAuditLogsPage'))
+const DemoSharesPage               = lazy(() => import('./pages/DemoSharesPage'))
 const AutoRepairDashboardPage  = lazy(() => import('./pages/AutoRepairDashboardPage'))
 const AutoRepairKnowledgePage  = lazy(() => import('./pages/AutoRepairKnowledgePage'))
 const AutoRepairAgentPage      = lazy(() => import('./pages/AutoRepairAgentPage'))
@@ -37,6 +38,7 @@ const ROUTE_PREFETCH = {
   '/preferences': () => import('./pages/PreferencesPage'),
   '/admin/users': () => import('./pages/AdminUsersPage'),
   '/admin/audit-logs': () => import('./pages/AdminAuditLogsPage'),
+  '/admin/demo-shares': () => import('./pages/DemoSharesPage'),
 }
 
 // ---- 路由级加载骨架 ----
@@ -658,6 +660,18 @@ export default function App() {
                 <span className="hidden sm:inline">审计日志</span>
               </NavLink>
             )}
+            {isAdmin && (
+              <NavLink
+                to="/admin/demo-shares"
+                onMouseEnter={() => prefetchRouteChunk('/admin/demo-shares')}
+                className={({ isActive }) =>
+                  `topnav-link ${isActive ? 'active' : ''}`
+                }
+              >
+                <Link2 size={15} />
+                <span className="hidden sm:inline">演示链接</span>
+              </NavLink>
+            )}
           </nav>
 
           {/* 右侧：统计与用户 */}
@@ -714,6 +728,7 @@ export default function App() {
                   <Route path="/monitor" element={<ProtectedRoute requiredPermission="monitor:read"><MonitorPage onToast={showToast} /></ProtectedRoute>} />
                   <Route path="/admin/users" element={<ProtectedRoute requiredPermission="users:read"><AdminUsersPage /></ProtectedRoute>} />
                   <Route path="/admin/audit-logs" element={<ProtectedRoute requiredPermission="audit:read"><AdminAuditLogsPage /></ProtectedRoute>} />
+                  <Route path="/admin/demo-shares" element={<ProtectedRoute requiredPermission="settings:read"><DemoSharesPage onToast={showToast} /></ProtectedRoute>} />
                 </Routes>
               </div>
             </SuspenseWithTimeout>

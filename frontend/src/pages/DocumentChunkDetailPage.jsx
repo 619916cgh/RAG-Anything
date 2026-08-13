@@ -107,8 +107,8 @@ export default function DocumentChunkDetailPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { hasPermission } = useAuth()
-  const canWrite = hasPermission('kb:write')
   const kbAccess = useConfirmedKnowledgeBase(kbName)
+  const canWrite = hasPermission('kb:write') && kbAccess.capabilities?.operate === true
   const selectedTagId = searchParams.get('tag')
   const isEditing = canWrite && searchParams.get('mode') === 'edit'
   const backPath = listPath(kbName, docId, selectedTagId)

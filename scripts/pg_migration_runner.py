@@ -608,9 +608,21 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_project_dotenv(root: Path) -> None:
+    """Match server startup by loading the project .env without overriding env vars."""
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(dotenv_path=root / ".env", override=False)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
+        project_root = args.root or Path(__file__).resolve().parents[1]
+        _load_project_dotenv(project_root)
         executor = PsqlExecutor(psql_bin=args.psql, cwd=args.root)
         runner = MigrationRunner(
             args.root, manifest_path=args.manifest, executor=executor

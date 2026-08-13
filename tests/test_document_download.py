@@ -4,6 +4,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from pathlib import Path
+from fastapi import HTTPException
 
 
 class TestDownloadTokenAuth:
@@ -185,6 +186,8 @@ class TestDownloadTokenAuth:
                     current_user=mock_user,
                 )
 
+        assert exc_info.value.status_code == 404
+
 
 @pytest.mark.asyncio
 async def test_download_resolution_uses_clean_name_but_keeps_staged_file(monkeypatch, tmp_path):
@@ -216,4 +219,32 @@ async def test_download_resolution_uses_clean_name_but_keeps_staged_file(monkeyp
 
     assert resolved == (staged_file.resolve(), "battery.mp4")
 
-        assert exc_info.value.status_code == 404
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role_name, visible", [
+    ("super_admin", True),
+    ("dept_admin", True),
+    ("teacher", True),
+    ("assistant", False),
+    ("student", False),
+])
+async def test_download_access_uses_role_derived_read_visibility(monkeypatch, role_name, visible):
+    from raganything.routers import knowledge
+
+    async def fake_load_kb_meta():
+        return {"owner-kb": {"owner_id": 99, "owner_username": "owner"}}
+
+    monkeypatch.setattr("raganything.services.kb_service.load_kb_meta", fake_load_kb_meta)
+    actor = {
+        "id": 1,
+        "is_admin": role_name == "super_admin",
+        "role": {"name": role_name},
+        "allowed_kbs": [],
+    }
+
+    if visible:
+        assert await knowledge._verify_kb_access_for_download("owner-kb", actor) is None
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await knowledge._verify_kb_access_for_download("owner-kb", actor)
+        assert exc.value.status_code == 403

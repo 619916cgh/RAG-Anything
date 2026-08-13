@@ -395,22 +395,16 @@ function abortError() {
   return error
 }
 
-function waitForSharedRequest(request, signal) {
-  if (!signal) return request
-  if (signal.aborted) return Promise.reject(abortError())
-
-  return new Promise((resolve, reject) => {
-    const handleAbort = () => reject(abortError())
-    signal.addEventListener('abort', handleAbort, { once: true })
-    request.then(resolve, reject).finally(() => {
-      signal.removeEventListener('abort', handleAbort)
-    })
-  })
-}
-
 async function loadKnowledgeDetailSnapshot(
   kbName,
-  { page = 1, pageSize = 10, q = '', forceStats = false, timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS } = {},
+  {
+    page = 1,
+    pageSize = 10,
+    q = '',
+    forceStats = false,
+    timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS,
+    signal,
+  } = {},
 ) {
   const encodedKB = encodeURIComponent(kbName)
   const documentParams = new URLSearchParams({
@@ -420,13 +414,14 @@ async function loadKnowledgeDetailSnapshot(
   })
   if (q) documentParams.set('q', q)
   const [documentsResult, statsResult] = await Promise.allSettled([
-    fetchJson(`/knowledge/document-summaries?${documentParams.toString()}`, { timeoutMs }),
-    knowledgeDetailStatsCache.load(
+    fetchJson(`/knowledge/document-summaries?${documentParams.toString()}`, { timeoutMs, signal }),
+    knowledgeDetailStatsCache.acquire(
       kbName,
-      () => fetchJson(`/knowledge/stats?kb=${encodedKB}`, { timeoutMs }),
-      { force: forceStats },
+      ({ signal: statsSignal }) => fetchJson(`/knowledge/stats?kb=${encodedKB}`, { timeoutMs, signal: statsSignal }),
+      { force: forceStats, signal },
     ),
   ])
+  if (signal?.aborted) throw abortError()
   const accessDenied = [documentsResult, statsResult].some(result => (
     result.status === 'rejected'
     && (result.reason?.status === 401 || result.reason?.status === 403)
@@ -447,18 +442,18 @@ export function prefetchKnowledgeDetail(
   const cached = knowledgeDetailCache.read(kbName, pageQuery)
   const cachedHasError = cached?.value?.documents?.status === 'error'
     || cached?.value?.stats?.status === 'error'
-  const sharedRequest = knowledgeDetailCache.load(
+  return knowledgeDetailCache.acquire(
     kbName,
-    () => loadKnowledgeDetailSnapshot(kbName, {
-      page,
-      pageSize,
-      q,
-      forceStats: force,
-      timeoutMs,
-    }),
-    { force: force || cachedHasError, ...pageQuery },
+    ({ signal: internalSignal }) => loadKnowledgeDetailSnapshot(kbName, {
+        page,
+        pageSize,
+        q,
+        forceStats: force,
+        timeoutMs,
+        signal: internalSignal,
+      }),
+    { force: force || cachedHasError, ...pageQuery, signal },
   )
-  return waitForSharedRequest(sharedRequest, signal)
 }
 
 function invalidateAfter(promise, kbName) {

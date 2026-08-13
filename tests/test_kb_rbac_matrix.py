@@ -1,7 +1,7 @@
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 
-from raganything.permissions import Permission
+from raganything.permissions import DEFAULT_ROLES, Permission
 from raganything.routers import knowledge
 
 
@@ -97,13 +97,58 @@ async def test_viewer_list_kbs_does_not_autocreate_personal_kb(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role_name, visible", [
+    ("super_admin", True),
+    ("dept_admin", True),
+    ("teacher", True),
+    ("assistant", False),
+    ("student", False),
+])
+async def test_kb_list_and_switch_share_role_derived_read_visibility(monkeypatch, role_name, visible):
+    async def fake_load_kb_meta():
+        return {"team-kb": {"name": "Team KB", "owner_id": 99, "owner_username": "owner"}}
+
+    async def fake_stats(_names):
+        return {}
+
+    async def deny_personal_kb(_user_id, _permission):
+        return False
+
+    monkeypatch.setattr(knowledge, "load_kb_meta", fake_load_kb_meta)
+    monkeypatch.setattr(knowledge, "_compute_kb_stats_batch_fast", fake_stats)
+    monkeypatch.setattr(knowledge, "_auth_has_permission", deny_personal_kb)
+    actor = {
+        "id": 1,
+        "username": role_name,
+        "is_admin": role_name == "super_admin",
+        "role": {"name": role_name, "permissions": DEFAULT_ROLES[role_name]["permissions"]},
+        "allowed_kbs": [],
+        "kb_access_levels": {},
+    }
+
+    listed = await knowledge.list_kbs(current_user=actor)
+    assert bool(listed["knowledge_bases"]) is visible
+
+    if visible:
+        capabilities = listed["knowledge_bases"][0]["capabilities"]
+        assert capabilities["read"] is True
+        if role_name != "super_admin":
+            assert capabilities["operate"] is False
+            assert capabilities["rename"] is False
+            assert capabilities["manage_members"] is False
+            assert capabilities["delete"] is False
+        assert (await knowledge.switch_kb(name="team-kb", current_user=actor))["active"] == "team-kb"
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await knowledge.switch_kb(name="team-kb", current_user=actor)
+        assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_kb_write_routes_require_kb_write_permission():
     guarded_routes = [
         ("POST", "/upload"),
         ("POST", "/upload/batch"),
-        ("POST", "/upload/folder"),
-        ("POST", "/upload/content"),
-        ("POST", "/upload/url"),
         ("DELETE", "/upload/tasks/{task_id}"),
         ("DELETE", "/knowledge/documents/{doc_id}"),
         ("POST", "/knowledge/documents/batch-delete"),

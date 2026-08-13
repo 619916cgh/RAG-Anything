@@ -224,11 +224,11 @@ test('detail prefetch shares in-flight document and statistics requests', async 
   api.clearKnowledgeDetailCache()
   const first = api.prefetchKnowledgeDetail('manuals')
   const second = api.prefetchKnowledgeDetail('manuals')
-  assert.strictEqual(first, second)
 
-  const result = await first
+  const [result, secondResult] = await Promise.all([first, second])
   assert.equal(calls.length, 2)
   assert.equal(result.documents.status, 'ready')
+  assert.deepEqual(secondResult, result)
   assert.deepEqual(result.documents.data, [{ id: 'doc-1' }])
   assert.equal(result.stats.data.documents, 1)
 })
@@ -265,6 +265,69 @@ test('cancelling one detail consumer does not abort or poison the shared prefetc
   assert.equal(calls.length, 2)
   assert.equal(result.documents.status, 'ready')
   assert.equal(api.getCachedKnowledgeDetail('manuals').stats.data.documents, 1)
+})
+
+test('cancelling the final detail consumer aborts document and statistics fetches without caching an error snapshot', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const signals = []
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = (url, options = {}) => new Promise((_resolve, reject) => {
+    signals.push({ url: String(url), signal: options.signal })
+    options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true })
+  })
+  t.after(() => {
+    api.clearKnowledgeDetailCache()
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  api.clearKnowledgeDetailCache()
+  const controller = new AbortController()
+  const request = api.prefetchKnowledgeDetail('manuals', { signal: controller.signal })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(signals.length, 2)
+  controller.abort()
+  await assert.rejects(request, error => error?.name === 'AbortError')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.ok(signals.every(call => call.signal.aborted))
+  assert.equal(api.getCachedKnowledgeDetail('manuals'), null)
+})
+
+test('a document-page cancellation does not abort statistics shared by another page', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const requests = []
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
+    const target = String(url)
+    const request = { target, signal: options.signal, resolve }
+    requests.push(request)
+    options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true })
+  })
+  t.after(() => {
+    api.clearKnowledgeDetailCache()
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  api.clearKnowledgeDetailCache()
+  const cancelled = new AbortController()
+  const first = api.prefetchKnowledgeDetail('manuals', { page: 1, signal: cancelled.signal })
+  const second = api.prefetchKnowledgeDetail('manuals', { page: 2 })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const stats = requests.find(request => request.target.includes('/knowledge/stats'))
+  assert.equal(requests.filter(request => request.target.includes('/knowledge/stats')).length, 1)
+  cancelled.abort()
+  assert.equal(stats.signal.aborted, false)
+  for (const request of requests) {
+    if (request.target.includes('/document-summaries')) {
+      if (!request.signal.aborted) request.resolve(jsonResponse({ documents: [] }))
+    } else request.resolve(jsonResponse({ documents: 2 }))
+  }
+  await assert.rejects(first, error => error?.name === 'AbortError')
+  const result = await second
+  assert.equal(result.stats.status, 'ready')
 })
 
 test('upload task deletion and retry cancellation invalidate every cached document page', async t => {

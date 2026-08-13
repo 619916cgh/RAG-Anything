@@ -76,10 +76,8 @@ async def _all_pages(kb_service, summaries):
 async def test_summary_route_enriches_only_current_page_documents(monkeypatch):
     from raganything.routers import knowledge
 
-    async def cleanup():
-        return None
-
-    async def active_tasks():
+    async def active_tasks(**kwargs):
+        assert kwargs == {"kb_name": "demo", "limit": 200}
         return []
 
     async def load_page(*_args, **_kwargs):
@@ -125,7 +123,6 @@ async def test_summary_route_enriches_only_current_page_documents(monkeypatch):
         assert set(task_ids) == {"task-current"}
         return {"task-current": "processing"}
 
-    monkeypatch.setattr(knowledge, "cleanup_completed_tasks", cleanup)
     monkeypatch.setattr(knowledge, "get_all_tasks", active_tasks)
     monkeypatch.setattr(knowledge, "processing_tasks", {})
     monkeypatch.setattr(knowledge, "load_document_summary_page", load_page)
@@ -151,9 +148,6 @@ async def test_summary_route_enriches_only_current_page_documents(monkeypatch):
 async def test_summary_route_preserves_same_name_runtime_phase_overlay(monkeypatch):
     from raganything.routers import knowledge
 
-    async def noop():
-        return None
-
     async def load_page(*_args, **_kwargs):
         return {
             "documents": [{
@@ -176,8 +170,7 @@ async def test_summary_route_preserves_same_name_runtime_phase_overlay(monkeypat
             "q": "",
         }
 
-    monkeypatch.setattr(knowledge, "cleanup_completed_tasks", noop)
-    monkeypatch.setattr(knowledge, "get_all_tasks", lambda: _async_tasks([]))
+    monkeypatch.setattr(knowledge, "get_all_tasks", lambda **_kwargs: _async_tasks([]))
     monkeypatch.setattr(knowledge, "processing_tasks", {
         "task-manual": {
             "id": "task-manual",
@@ -198,6 +191,36 @@ async def test_summary_route_preserves_same_name_runtime_phase_overlay(monkeypat
     row = result["documents"][0]
     assert row["phase"] == "embedding"
     assert row["upload_task_id"] == "task-manual"
+
+
+@pytest.mark.asyncio
+async def test_summary_route_does_not_clean_terminal_tasks_during_an_authorized_read(monkeypatch):
+    from raganything.routers import knowledge
+
+    cleanup_calls = 0
+
+    async def cleanup():
+        nonlocal cleanup_calls
+        cleanup_calls += 1
+
+    async def load_page(*_args, **_kwargs):
+        return {
+            "documents": [], "total": 0, "page": 1, "page_size": 10,
+            "total_pages": 1, "has_next": False, "has_prev": False, "q": "",
+        }
+
+    monkeypatch.setattr(knowledge, "cleanup_completed_tasks", cleanup)
+    monkeypatch.setattr(knowledge, "get_all_tasks", lambda **_kwargs: _async_tasks([]))
+    monkeypatch.setattr(knowledge, "processing_tasks", {})
+    monkeypatch.setattr(knowledge, "load_document_summary_page", load_page)
+    monkeypatch.setattr(knowledge, "_document_tag_health_contract", lambda *_: _async_value({}))
+    monkeypatch.setattr(knowledge, "pg_get_upload_statuses_by_task_ids", lambda *_: _async_value({}))
+
+    await knowledge.list_document_summaries(
+        page=1, page_size=10, q="", kb="demo", current_user={"id": 7},
+    )
+
+    assert cleanup_calls == 0
 
 
 async def _async_value(value):

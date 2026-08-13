@@ -220,6 +220,24 @@ def test_ingestion_parsers_by_type_defaults_to_empty_map():
     assert resolved.ingestion.parsers_by_type == {}
 
 
+def test_legacy_video_settings_are_ignored_and_not_projected():
+    resolved, sources, _ = resolve_settings(
+        stored={"ingestion": {"enable_video": True}},
+        platform={"defaults": {"ingestion": {"enable_video": True}}},
+        knowledge_base_settings={"ingestion": {"enable_video": True}},
+        request_overrides={"ingestion": {"enable_video": True}},
+        revision=1,
+    )
+
+    assert resolved.ingestion.enable_video is False
+    assert "enable_video" not in sources["ingestion"]
+    projected = user_settings._project_sections(
+        {"ingestion": {"enable_video": True, "enable_image": True}},
+        ("ingestion",),
+    )
+    assert projected == {"ingestion": {"enable_image": True}}
+
+
 def test_parser_supported_types_matrix():
     assert user_settings._parser_supported_types("docling") == ("pdf", "office")
     assert user_settings._parser_supported_types("mineru") == ("pdf", "office", "image")

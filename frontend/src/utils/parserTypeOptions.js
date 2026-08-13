@@ -35,6 +35,7 @@ export function resolveParserOptionsByType(parsers, fileType) {
         id: parser.id,
         name: parser.name || parser.id,
         available: parser.available,
+        reason: parser.reason,
       })
     }
   }

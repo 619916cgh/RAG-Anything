@@ -85,6 +85,7 @@ from raganything.services.document_tagging import (
     enqueue_document_tagging,
     wait_for_document_tagging,
 )
+from raganything.services.document_quality import evaluate_document_retrieval_health
 from raganything.services.kb_tag_repo import (
     TagValidationError,
     delete_chunk_tags,
@@ -1734,13 +1735,12 @@ async def list_document_summaries(
 ):
     """Return one authorized, enriched document summary page for a KB."""
     try:
-        await cleanup_completed_tasks()
         task_by_id: dict[str, dict[str, Any]] = {}
-        for task in await get_all_tasks():
+        for task in await get_all_tasks(kb_name=kb, limit=200):
             if not isinstance(task, dict):
                 continue
             task_id = str(task.get("id") or task.get("task_id") or "")
-            if task_id and task.get("kb", task.get("kb_name", "")) == kb:
+            if task_id:
                 task_by_id[task_id] = {**task, "id": task_id}
         # `processing_tasks` includes phase details used by the legacy list.
         # Merge it by ID instead of repeatedly scanning it for every row.
@@ -4773,6 +4773,62 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
     return {"deleted": deleted, "not_found": not_found, "errors": errors,
             "artifact_cleanup_pending": artifact_cleanup_pending,
             "total_deleted": len(deleted), "total_failed": len(errors)}
+
+
+@router.get("/knowledge/retrieval-health")
+async def get_retrieval_health(
+    kb: str = Depends(verify_kb_access),
+    _perm: None = Depends(require_permission(Permission.KB_READ)),
+):
+    """Return bounded retrieval health for the caller's readable KB only."""
+    statuses = await _load_doc_status_json(kb)
+    rows: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for doc_id in sorted(statuses or {}):
+        quality = await evaluate_document_retrieval_health(kb, str(doc_id))
+        reason = str(quality.get("reason_code") or "")
+        if quality.get("ready"):
+            continue
+        counts[reason] = counts.get(reason, 0) + 1
+        rows.append({
+            "doc_id": str(doc_id),
+            "reason_code": reason,
+            "expected_count": int(quality.get("expected_count") or 0),
+            "text_count": int(quality.get("text_count") or 0),
+            "vector_count": int(quality.get("vector_count") or 0),
+        })
+    return {"kb": kb, "healthy": not rows, "counts": counts, "documents": rows}
+
+
+@router.post("/knowledge/documents/{doc_id}/repair-retrieval")
+async def repair_document_retrieval(
+    doc_id: str,
+    kb: str = Depends(verify_kb_operate_access),
+    _perm: None = Depends(require_permission(Permission.KB_WRITE)),
+):
+    """Queue one operate-scoped, idempotent retrieval repair."""
+    statuses = await _load_doc_status_json(kb)
+    document_ids = [str(value) for value in statuses or {} if str(value).startswith(doc_id)]
+    if doc_id in (statuses or {}):
+        full_id = doc_id
+    elif len(document_ids) == 1:
+        full_id = document_ids[0]
+    elif not document_ids:
+        raise HTTPException(404, "document not found")
+    else:
+        raise HTTPException(409, "document id prefix is ambiguous")
+    quality = await evaluate_document_retrieval_health(kb, full_id)
+    if quality.get("ready"):
+        return {"status": "healthy", "doc_id": full_id, "repair_job": None}
+    from raganything.services.document_repair import enqueue_retrieval_repair
+
+    job = await enqueue_retrieval_repair(
+        kb, full_id, reason_code=str(quality.get("reason_code") or "prerequisite_failed"),
+    )
+    return {
+        "status": "queued", "doc_id": full_id,
+        "reason_code": quality.get("reason_code"), "repair_job": job,
+    }
 
 
 @router.post("/knowledge/documents/{doc_id}/retry")

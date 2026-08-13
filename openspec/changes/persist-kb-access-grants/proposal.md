@@ -7,7 +7,8 @@ The access guard already recognizes `allowed_kbs`, but PostgreSQL user records d
 - Add a durable, normalized knowledge-base access-grant relation for users and backfill no implicit cross-owner grants.
 - Let authorized user administrators grant and revoke a user's access to named knowledge bases through the existing user-management surface and API.
 - Make authentication projection, knowledge-base listing, and every KB-scoped access guard consistently use persisted grants in addition to ownership and existing super-admin access.
-- Preserve the existing role capability model: a grant supplies scope only; `kb:read` and `kb:write` still determine which actions are allowed, and `dept_admin` receives no automatic global scope.
+- Preserve the existing role capability model: a grant supplies scope only; `kb:read` and `kb:write` still determine which actions are allowed.
+- Derive all-KB read scope for `super_admin`, `dept_admin`, and `teacher` without creating durable grant rows; `assistant` and `student` remain limited to ownership and explicit grants.
 
 ## Capabilities
 
@@ -15,7 +16,7 @@ The access guard already recognizes `allowed_kbs`, but PostgreSQL user records d
 - `knowledge-base-access-grants`: durable, auditable per-user grants that project into authenticated KB scope.
 
 ### Modified Capabilities
-- `kb-access-control`: allow an explicitly granted non-owner to access and list only their granted KBs, while preserving owner and super-admin behavior.
+- `kb-access-control`: allow an explicitly granted non-owner to access and list their granted KBs, and give `super_admin`, `dept_admin`, and `teacher` role-derived read access to every KB while preserving write and management scope.
 - `admin-user-crud`: allow authorized administrators to manage a user's KB access grants with validation and audit records.
 
 ## Impact

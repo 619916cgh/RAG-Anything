@@ -50,7 +50,7 @@ async def test_doc_status_merges_chunking_strategy_metadata():
 
 
 @pytest.mark.asyncio
-async def test_batch_upload_resolves_default_strategy_before_queueing(monkeypatch, tmp_path):
+async def test_batch_upload_resolves_each_file_without_request_strategy(monkeypatch, tmp_path):
     import raganything.routers.shared as shared
     from raganything.routers import knowledge
 
@@ -60,7 +60,23 @@ async def test_batch_upload_resolves_default_strategy_before_queueing(monkeypatc
     monkeypatch.setattr(knowledge, "_is_file_being_processed", lambda *_args: None)
     monkeypatch.setattr(knowledge, "_register_processing_file", lambda *_args: None)
     monkeypatch.setattr(knowledge, "pg_register_upload", AsyncMock(return_value={"id": 1}))
-    monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", AsyncMock())
+    snapshot = AsyncMock(side_effect=[
+        SimpleNamespace(
+            chunking_strategy="sentence",
+            enable_image=True,
+            enable_table=True,
+            enable_equation=True,
+            enable_video=False,
+        ),
+        SimpleNamespace(
+            chunking_strategy="semantic",
+            enable_image=True,
+            enable_table=True,
+            enable_equation=True,
+            enable_video=False,
+        ),
+    ])
+    monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", snapshot)
     monkeypatch.setattr(knowledge, "_resolve_upload_vlm_snapshot", AsyncMock(return_value=SimpleNamespace(
         profile=SimpleNamespace(id="vlm-test"), fingerprint="vlm-fingerprint"
     )))
@@ -79,14 +95,20 @@ async def test_batch_upload_resolves_default_strategy_before_queueing(monkeypatc
     endpoint = getattr(knowledge.upload_files, "__wrapped__", knowledge.upload_files)
     result = await endpoint(
         request=None,
-        files=[UploadFile(filename="lesson.txt", file=BytesIO(b"content"))],
+        files=[
+            UploadFile(filename="lesson-one.txt", file=BytesIO(b"content-one")),
+            UploadFile(filename="lesson-two.txt", file=BytesIO(b"content-two")),
+        ],
         kb="demo-kb",
         chunking_strategy="",
         current_user={"id": 7},
     )
 
     assert result["chunking_strategy"] == "sentence"
-    assert queue.get_nowait()["chunking_strategy"] == "sentence"
+    assert [call.kwargs["chunking_strategy"] for call in snapshot.await_args_list] == ["", ""]
+    queued_tasks = [queue.get_nowait(), queue.get_nowait()]
+    assert [task["chunking_strategy"] for task in queued_tasks] == ["sentence", "semantic"]
+    assert [task["chunking_strategy"] for task in result["tasks"]] == ["sentence", "semantic"]
 
 
 @pytest.mark.asyncio
@@ -189,77 +211,3 @@ async def test_retry_reuses_document_chunking_strategy(monkeypatch, tmp_path):
     assert deleted == ["doc-failed"]
     assert result["chunking_strategy"] == "semantic"
     assert queue.get_nowait()["chunking_strategy"] == "semantic"
-
-
-@pytest.mark.asyncio
-async def test_url_upload_uses_requested_strategy_and_target_kb(monkeypatch, tmp_path):
-    from raganything.routers import knowledge
-
-    monkeypatch.chdir(tmp_path)
-    events = []
-
-    class Response:
-        status_code = 200
-        content = b"document"
-        headers = {"content-type": "text/plain"}
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def get(self, _url):
-            return Response()
-
-    class LightRAG:
-        def __init__(self):
-            self.chunking_func = object()
-
-    process_document_complete = AsyncMock()
-    finalize_storages = AsyncMock()
-    instance = SimpleNamespace(
-        lightrag=LightRAG(),
-        process_document_complete=process_document_complete,
-        finalize_storages=finalize_storages,
-    )
-
-    async def fake_event(*args, **kwargs):
-        events.append((args, kwargs))
-
-    monkeypatch.setattr(knowledge.httpx, "AsyncClient", lambda **_kwargs: Client())
-    monkeypatch.setattr(knowledge, "get_kb", AsyncMock(return_value=instance))
-    monkeypatch.setattr(knowledge, "add_event", fake_event)
-    monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", AsyncMock())
-
-    async def settle_upload(*_args, **_kwargs):
-        return []
-
-    monkeypatch.setattr(knowledge, "_settle_in_process_upload", settle_upload)
-    monkeypatch.setattr(knowledge, "_get_snapshot_task_kb", AsyncMock(return_value=instance))
-
-    async def run_with_quota(_task_id, operation):
-        return await operation()
-
-    monkeypatch.setattr(
-        "raganything.services.user_settings.run_ingestion_with_quota",
-        run_with_quota,
-    )
-
-    result = await knowledge.upload_from_url(
-        url="https://example.test/lesson",
-        kb="target-kb",
-        chunking_strategy="recursive",
-        current_user={"id": 7},
-    )
-
-    knowledge._get_snapshot_task_kb.assert_awaited_once()
-    assert knowledge._get_snapshot_task_kb.await_args.args[1] == "target-kb"
-    assert result["chunking_strategy"] == "recursive"
-    assert process_document_complete.await_args.kwargs["chunking_strategy"] == "recursive"
-    assert [event[0][0] for event in events] == [
-        "url_download_start",
-        "url_download_complete",
-        "url_process_complete",
-    ]

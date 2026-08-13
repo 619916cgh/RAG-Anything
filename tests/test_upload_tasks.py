@@ -179,50 +179,6 @@ async def test_cancellation_keeps_task_pending_when_worker_survives_kill(monkeyp
 
     assert proc.signals == ["terminate", "kill"]
     cleanup.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_content_upload_uses_a_persisted_snapshot_and_isolated_instance(monkeypatch):
-    from raganything.routers import knowledge
-
-    snapshots = []
-    inserted = []
-    finalized = []
-
-    async def fake_snapshot(task_id, user_id, **overrides):
-        snapshots.append((task_id, user_id, overrides))
-        return SimpleNamespace(chunking_strategy="recursive")
-
-    class IsolatedInstance:
-        lightrag = None
-
-        async def insert_content_list(self, content_list, **kwargs):
-            inserted.append((content_list, kwargs))
-
-        async def finalize_storages(self):
-            finalized.append(True)
-
-    async def fake_instance(task_id, kb):
-        assert snapshots and task_id == snapshots[0][0]
-        assert kb == "demo"
-        return IsolatedInstance()
-
-    monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", fake_snapshot)
-    monkeypatch.setattr(knowledge, "_get_snapshot_task_kb", fake_instance)
-
-    result = await knowledge.upload_content(
-        knowledge.PasteContentRequest(title="note", content="snapshot scoped"),
-        kb="demo",
-        current_user={"id": 9},
-        chunking_strategy="recursive",
-        enable_image="false",
-    )
-
-    assert result["status"] == "completed"
-    assert snapshots[0][1] == 9
-    assert snapshots[0][2]["enable_image"] == "false"
-    assert inserted[0][1]["chunking_strategy"] == "recursive"
-    assert finalized == [True]
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
@@ -2512,7 +2468,6 @@ async def test_create_upload_settings_snapshot_persists_resolved_with_permitted_
             "enable_image": True,
             "enable_table": False,
             "enable_equation": True,
-            "enable_video": False,
         }
     }
     assert seen["resolve"][2] == ("models", "ingestion")

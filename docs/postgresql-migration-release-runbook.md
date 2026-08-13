@@ -14,6 +14,9 @@ identity. Numeric prefixes are not unique and must not be used as status keys.
 4. Provide database connection details through the normal PostgreSQL environment
    variables, a pgpass file, or another approved secret mechanism. Do not pass
    a DSN, password, or token on this command line or paste one into a release log.
+   When run from this checkout, the migration runner also loads the project
+   `.env` if present, without overriding explicit environment variables; production
+   and Compose deployments must continue using their approved secret injection.
 
 ## Preflight
 

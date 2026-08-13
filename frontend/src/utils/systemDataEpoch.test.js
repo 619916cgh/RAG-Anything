@@ -86,3 +86,24 @@ test('an epoch change in another tab reloads the current tab', () => {
 
   assert.equal(resets, 1)
 })
+
+test('the epoch monitor does not poll while the document is hidden', async () => {
+  const target = new EventTarget()
+  const documentTarget = { visibilityState: 'hidden', addEventListener() {}, removeEventListener() {} }
+  let checks = 0
+  const stop = startSystemDataEpochMonitor({
+    intervalMs: 0,
+    target,
+    documentTarget,
+    synchronize: async () => {
+      checks += 1
+      return false
+    },
+  })
+
+  target.dispatchEvent(new Event('focus'))
+  await Promise.resolve()
+  stop()
+
+  assert.equal(checks, 0)
+})

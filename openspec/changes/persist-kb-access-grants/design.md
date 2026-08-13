@@ -13,7 +13,7 @@
 
 **Non-Goals:**
 
-- Do not give a role implicit access to additional KBs, create department hierarchies, or change KB ownership.
+- Do not create department hierarchies, change KB ownership, or derive write/manage/delete scope from default visibility.
 - Do not create per-grant read/write privilege levels; existing `kb:read` and `kb:write` remain the action gate.
 - Do not rewrite old task snapshots, ingestion defaults, or platform settings.
 
@@ -29,7 +29,7 @@ Extend the admin user representation and `PUT /api/admin/users/{id}` with an opt
 
 ### 3. Resolve access from role capability plus scope
 
-After authentication, the repository returns `allowed_kbs` from the grant table.  `verify_kb_access` and `list_kbs` accept a KB when the caller is super-admin, its owner, or has an active grant.  The caller must still pass the endpoint's `kb:read` or `kb:write` guard, so a student grant enables read-only paths while an assistant grant enables writes within the same KB.  A `dept_admin` remains limited to owner-or-granted scope.
+After authentication, the repository returns `allowed_kbs` from the grant table. `super_admin`, `dept_admin`, and `teacher` receive role-derived all-KB read scope, applied consistently by the read guard, list, switch, download, and stats paths. This scope is not persisted in `allowed_kbs`. All writes still require the existing owner/super-admin/explicit-`operate` scope plus the endpoint permission, so default-visible KBs remain read-only for dept_admin and teacher.
 
 ### 4. Present grants only to user administrators
 
@@ -39,7 +39,7 @@ The administrator user editor fetches the platform-visible KB catalog and displa
 
 - [An administrator revokes their own only grant] -> This is allowed because it does not affect global administrator quorum; subsequent requests lose KB scope through session invalidation.
 - [A granted KB is deleted] -> KB deletion removes grants with a database foreign-key-style cleanup or repository cleanup in the same transaction; no dangling grant produces access.
-- [Old issued tokens contain stale scopes] -> `session_generation` increments on grant mutation and the current validation path rejects the old session.
+- [Old issued tokens contain stale explicit scopes] -> `session_generation` increments on grant mutation and the current validation path rejects the old session. Role-derived read scope is evaluated from the current role on every request.
 - [Concurrent admin edits overwrite grants] -> Replacement occurs under the target-user transaction lock; the latest completed update is the single committed grant set.
 
 ## Migration Plan

@@ -50,6 +50,7 @@ from raganything.processor import (
 )
 from raganything.utils.pdf_fallback import extract_pdf_embedded_images
 from raganything.utils.process_lock import FileLock, get_file_lock_path
+from raganything.utils.media import is_supported_video_file
 
 # Keep in sync with kb_service.EMB_DIM; the worker subprocess inherits the parent's os.environ.
 EMB_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
@@ -558,7 +559,18 @@ async def _flush_background_tasks_and_finalize(rag, filename: str) -> None:
 
 
 def _is_video_file(filename: str) -> bool:
-    return Path(filename).suffix.lower() in {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+    """Backward-compatible worker alias for the shared video type check."""
+    return is_supported_video_file(filename)
+
+
+def _automatic_video_ingestion(file_path: str, ingestion: dict) -> dict:
+    """Derive the internal video snapshot fields from the staged filename."""
+    if not _is_video_file(file_path) or "enable_video" in ingestion:
+        return ingestion
+    upgraded = {**ingestion, "enable_video": True}
+    if not upgraded.get("video_index_profile_version"):
+        upgraded["video_index_profile_version"] = "v2"
+    return upgraded
 
 
 def _probe_video_indexing_gate(file_path: str, ingestion: dict) -> None:
@@ -597,6 +609,13 @@ async def process_file(
     ingestion = task_settings.get("ingestion", {})
     if not isinstance(ingestion, dict):
         raise RuntimeError("settings_snapshot_invalid")
+    # Video processing is derived from the staged file, not from a user-facing
+    # toggle. Keep explicit legacy values intact so historical tasks retain
+    # their semantics; snapshots from before the field existed are upgraded
+    # in memory to the current v2 profile for a safe retry.
+    ingestion = _automatic_video_ingestion(file_path, ingestion)
+    if ingestion is not task_settings.get("ingestion"):
+        task_settings = {**task_settings, "ingestion": ingestion}
     strategy = ingestion.get("chunking_strategy")
     if not isinstance(strategy, str) or not strategy:
         raise RuntimeError("settings_snapshot_invalid")

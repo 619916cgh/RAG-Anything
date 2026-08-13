@@ -9,6 +9,7 @@ import {
 import ReactMarkdown from 'react-markdown'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, streamSSE } from '../utils/api'
+import { formatCompleteAgentRelationMarkdown, parseAgentRelationMarker } from '../utils/agentRelationMarkdown'
 import { useAuth } from '../context/AuthContext'
 import { ControlledMediaImage } from '../components/ControlledMedia'
 import VideoSegmentPlayer from '../components/VideoSegmentPlayer'
@@ -37,9 +38,16 @@ const markdownComponents = {
   h3: ({ children, ...props }) => (
     <h3 className="text-sm font-semibold text-ink-body mt-4 mb-1.5" {...props}>{children}</h3>
   ),
-  p: ({ children, ...props }) => (
-    <p className="text-sm text-ink-body dark:text-cloud-300 leading-relaxed my-2" {...props}>{children}</p>
-  ),
+  p: ({ children, ...props }) => {
+    const value = Array.isArray(children) ? children.join('') : children
+    const relation = parseAgentRelationMarker(value)
+    if (relation) {
+      return <div className="agent-chat-relation" aria-label={`${relation.source} ${relation.relation} ${relation.target}`}>
+        <span>{relation.source}</span><i>{relation.relation}</i><b>→</b><span>{relation.target}</span>
+      </div>
+    }
+    return <p className="text-sm text-ink-body dark:text-cloud-300 leading-relaxed my-2" {...props}>{children}</p>
+  },
   strong: ({ children, ...props }) => (
     <strong className="font-semibold text-sky-600 dark:text-sky-400" {...props}>{children}</strong>
   ),
@@ -289,7 +297,9 @@ export default function AgentChatPage({ onToast }) {
       const nextThreads = response.threads || []
       setThreads(nextThreads)
       if (nextThreads.length > 0 && autoSelect) {
-        await loadThread(nextThreads[0].id)
+        // The list response already identifies the first thread. Avoid a
+        // second list request after loading its messages on the first visit.
+        await loadThread(nextThreads[0].id, { refreshList: false })
       }
     } catch (e) {
       console.warn('[AgentChat] Failed to load conversations:', e.message)
@@ -298,7 +308,7 @@ export default function AgentChatPage({ onToast }) {
     }
   }
 
-  const loadThread = async (threadId) => {
+  const loadThread = async (threadId, { refreshList = true } = {}) => {
     if (abortRef.current && activeThreadIdRef.current && activeThreadIdRef.current !== threadId) {
       abortRef.current.abort()
     }
@@ -316,7 +326,7 @@ export default function AgentChatPage({ onToast }) {
         cleanupMessageBlobUrls(mapped)
       }
       // 同步刷新会话线程列表
-      loadThreads()
+      if (refreshList) loadThreads()
     } catch (e) {
       console.warn('[AgentChat] Failed to load thread:', e.message)
       onToast?.(e.message || '加载会话失败', 'error')
@@ -1204,7 +1214,7 @@ export default function AgentChatPage({ onToast }) {
 
                           {/* Markdown 内容 */}
                           <div className="markdown-content break-words">
-                            <ReactMarkdown components={markdownComponents}>{m.content}</ReactMarkdown>
+                            <ReactMarkdown components={markdownComponents}>{m.done && !m.error && !m.cancelled ? formatCompleteAgentRelationMarkdown(m.content) : m.content}</ReactMarkdown>
                             {showTypingCursor && (
                               <span className="inline-block w-1.5 h-4 bg-sky-500 dark:bg-sky-400 ml-0.5 animate-pulse align-middle rounded-sm" />
                             )}
