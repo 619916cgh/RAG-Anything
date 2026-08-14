@@ -4,6 +4,10 @@
 ARG DEBIAN_MIRROR_HOST=deb.debian.org
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
+# Slow or proxied package sources can take longer than the default read window.
+# These are transport controls only; lock contents and hash verification remain fixed.
+ARG PIP_NETWORK_TIMEOUT=600
+ARG PIP_NETWORK_RETRIES=12
 
 FROM node:20-alpine AS frontend-build
 
@@ -24,6 +28,8 @@ LABEL org.opencontainers.image.description="All-in-One Multimodal RAG System"
 ARG DEBIAN_MIRROR_HOST
 ARG PIP_INDEX_URL
 ARG PYTORCH_CPU_INDEX_URL
+ARG PIP_NETWORK_TIMEOUT
+ARG PIP_NETWORK_RETRIES
 
 # Native dependencies include ffmpeg/ffprobe for video indexing. Debian's
 # mirrors can drop an individual package fetch during a long LibreOffice
@@ -57,7 +63,7 @@ COPY requirements.cpu-linux-py311-x86_64.lock .
 COPY scripts/verify_cpu_runtime.py /usr/local/bin/verify_cpu_runtime.py
 # The lock is resolved for Linux/Python 3.11/x86_64 with uv's CPU Torch
 # backend. The CPU index remains separate from the general package mirror.
-RUN python -m pip --isolated install --no-cache-dir --timeout 120 --retries 5 \
+RUN python -m pip --isolated install --no-cache-dir --timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES} \
     --index-url ${PIP_INDEX_URL} \
     --extra-index-url ${PYTORCH_CPU_INDEX_URL} \
     --require-hashes \
@@ -102,6 +108,8 @@ FROM python:3.11-slim-bookworm AS marker-runtime
 ARG DEBIAN_MIRROR_HOST
 ARG PIP_INDEX_URL
 ARG PYTORCH_CPU_INDEX_URL
+ARG PIP_NETWORK_TIMEOUT
+ARG PIP_NETWORK_RETRIES
 RUN sed -i "s|http://deb.debian.org|https://${DEBIAN_MIRROR_HOST}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -114,7 +122,7 @@ RUN sed -i "s|http://deb.debian.org|https://${DEBIAN_MIRROR_HOST}|g" /etc/apt/so
 WORKDIR /marker
 COPY requirements.marker.cpu-linux-py311-x86_64.lock .
 COPY scripts/verify_cpu_runtime.py /usr/local/bin/verify_cpu_runtime.py
-RUN python -m pip --isolated install --no-cache-dir --timeout 120 --retries 5 \
+RUN python -m pip --isolated install --no-cache-dir --timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES} \
     --index-url ${PIP_INDEX_URL} \
     --extra-index-url ${PYTORCH_CPU_INDEX_URL} \
     --require-hashes \

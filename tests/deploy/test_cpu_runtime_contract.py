@@ -43,6 +43,9 @@ def test_dockerfile_uses_cpu_locks_before_source_overlay() -> None:
     assert app_runtime < app_lock < app_source < source_copy
     assert "--extra-index-url ${PYTORCH_CPU_INDEX_URL}" in content
     assert "--require-hashes" in content
+    assert "ARG PIP_NETWORK_TIMEOUT=600" in content
+    assert "ARG PIP_NETWORK_RETRIES=12" in content
+    assert "--timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES}" in content
     assert "verify_cpu_runtime.py --runtime app" in content
     assert "FROM python:3.11-slim-bookworm AS marker-runtime" in content
     assert "FROM marker-runtime AS marker" in content
