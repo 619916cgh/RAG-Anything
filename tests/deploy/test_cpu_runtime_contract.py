@@ -31,6 +31,8 @@ def test_app_lock_pins_cpu_torch_and_torchvision() -> None:
     content = APP_LOCK.read_text(encoding="utf-8")
     assert re.search(r"^torch==\d+\.\d+\.\d+\+cpu\b", content, re.MULTILINE)
     assert re.search(r"^torchvision==\d+\.\d+\.\d+\+cpu\b", content, re.MULTILINE)
+    assert "uvicorn==0.52.1" in content
+    assert "uvicorn==0.52.3" not in content
 
 
 def test_dockerfile_uses_cpu_locks_before_source_overlay() -> None:
