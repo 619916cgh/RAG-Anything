@@ -22,6 +22,7 @@ import {
   isCancellableUploadDocument,
 } from '../utils/documentHealth'
 import { formatDate } from '../utils/dateFormat'
+import { getGraphConnectionDisplayName, getGraphNodeDisplayName } from '../utils/graphPresentation'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
 import SideDrawer from '../components/SideDrawer'
 import { UserDialogConfirmation } from '../components/UserDialog'
@@ -1539,7 +1540,7 @@ export default function KnowledgeDetailPage() {
       nodeGroup.append('circle').attr('r', d => sizeScale(d.degree)).attr('fill', d => colorScale(d.id))
         .attr('stroke', '#d6e5f2').attr('stroke-width', 1).attr('opacity', 0.85)
       nodeGroup.append('text')
-        .text(d => (d.label || d.id || '').slice(0, 10))
+        .text(d => getGraphNodeDisplayName(d).slice(0, 10))
         .attr('font-size', d => Math.max(7, Math.min(11, (sizeScale(d.degree) || 5) * 0.7)))
         .attr('fill', '#2d4d66').attr('text-anchor', 'middle').attr('dy', d => sizeScale(d.degree) + 12)
         .attr('font-family', "'Microsoft YaHei', 'SimHei', sans-serif")
@@ -2370,7 +2371,7 @@ export default function KnowledgeDetailPage() {
                     </div>
                   ) : (
                     <h3 className="text-sm font-semibold text-ink-body truncate flex-1">
-                      "{nodeDetails.node.label || nodeDetails.node.id}"
+                      "{getGraphNodeDisplayName(nodeDetails.node)}"
                     </h3>
                   )}
                   <button
@@ -2387,7 +2388,7 @@ export default function KnowledgeDetailPage() {
                   <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                     <button
                       className="btn-ghost text-2xs py-0.5 px-1.5 text-ink-muted hover:text-sky-600"
-                      onClick={() => { setRenamingNode(nodeDetails.node.id); setRenameValue(nodeDetails.node.label || nodeDetails.node.id) }}
+                      onClick={() => { setRenamingNode(nodeDetails.node.id); setRenameValue(getGraphNodeDisplayName(nodeDetails.node)) }}
                       title="重命名"
                     ><Pencil size={10}/> <span className="ml-0.5">重命名</span></button>
                     <button
@@ -2412,7 +2413,7 @@ export default function KnowledgeDetailPage() {
                   {nodeDetails.connections.map((c, i) => (
                     <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cloud-100 text-xs group">
                       <span className="text-sky-500 font-mono shrink-0 text-2xs">{c.direction}</span>
-                      <span className="text-ink-body truncate flex-1">{c.other}</span>
+                      <span className="text-ink-body truncate flex-1">{getGraphConnectionDisplayName(graph.nodes, c.other)}</span>
                       {c.label && <span className="text-2xs text-ink-muted shrink-0">{c.label.slice(0, 12)}</span>}
                       {canManageGraph && c._userRelationId && (
                         <button
@@ -2450,7 +2451,7 @@ export default function KnowledgeDetailPage() {
                             fetchNodeDetail(n.id)
                           }}
                         >
-                          {n.label || n.id}
+                          {getGraphNodeDisplayName(n)}
                         </button>
                       ))}
                     </div>
@@ -2468,7 +2469,7 @@ export default function KnowledgeDetailPage() {
                       className="px-2.5 py-1.5 rounded-lg bg-cloud-100 text-xs flex items-center justify-between hover:bg-sky-50 hover:text-sky-700 cursor-pointer transition-colors"
                       onClick={() => {
                         let node = graph.nodes.find(n => n.id === e.name)
-                        if (!node) node = { id: e.name, label: e.name, degree: 0 }
+                        if (!node) node = { id: e.name, degree: 0 }
                         setGraphSearch(e.name); setSelectedNode(node); prevGraphFingerprint.current = ''
                         const connections = graph.edges.filter(ed => _sid(ed, 'source') === node.id || _sid(ed, 'target') === node.id)
                         const connectionList = connections.map(ed => ({
@@ -2689,7 +2690,7 @@ export default function KnowledgeDetailPage() {
           <div className="relative card p-6 w-80 text-center" onClick={e => e.stopPropagation()}>
             <Trash2 size={32} className="mx-auto mb-3 text-rose-500" />
             <p className="text-ink-primary font-medium mb-1">确认删除实体</p>
-            <p className="text-xs text-ink-muted mb-1 truncate">"{showDeleteNodeConfirm.label || showDeleteNodeConfirm.id}"</p>
+            <p className="text-xs text-ink-muted mb-1 truncate">"{getGraphNodeDisplayName(showDeleteNodeConfirm)}"</p>
             <p className="text-2xs text-rose-500 mb-4">删除后可从图谱中移除该实体</p>
             <div className="flex gap-3 justify-center">
               <button className="btn-secondary text-sm" onClick={() => setShowDeleteNodeConfirm(null)}>取消</button>

@@ -71,6 +71,7 @@ from raganything.services.kb_service import (
     load_kb_meta,
     pg_get_latest_content_updates_batch,
 )
+from raganything.utils.kb_display_name import get_knowledge_base_display_name
 from raganything.services.odl_media_delivery import catalog_media_payload
 from raganything.services.query_timing import QueryTiming
 from raganything.services.query_execution import QueryExecutionScope, await_before_deadline
@@ -89,6 +90,24 @@ _VIDEO_SEGMENT_CONTEXT_PATTERN = re.compile(
     r"media_id=(?P<media_id>[^\s\]]+)\s+start_ms=(?P<start_ms>\d+)\s+"
     r"end_ms=(?P<end_ms>\d+)\s+document_id=(?P<document_id>[^\s\]]+)\]"
 )
+
+
+async def _present_agents(agents: list[dict]) -> list[dict]:
+    """Attach safe KB presentation names without changing internal identifiers."""
+    try:
+        metadata = await load_kb_meta()
+    except Exception:
+        metadata = {}
+    return [
+        {
+            **agent,
+            "kb_display_name": get_knowledge_base_display_name(
+                metadata.get(str(agent.get("kb_name") or "")),
+                agent.get("kb_name"),
+            ),
+        }
+        for agent in agents
+    ]
 
 
 def _video_segment_citations_from_context(context: object, kb_name: str) -> list[dict]:
@@ -802,7 +821,7 @@ async def list_agents(
         is_admin=current_user.get("is_admin", False),
     )
     return {
-        "agents": agents,
+        "agents": await _present_agents(agents),
         "total": len(agents),
     }
 
@@ -856,7 +875,7 @@ async def create_agent(
         owner_id=current_user["id"],
         owner_username=current_user["username"],
     )
-    return {"status": "ok", "agent": agent}
+    return {"status": "ok", "agent": (await _present_agents([agent]))[0]}
 
 
 @router.put("/agents/{agent_id}")
@@ -881,7 +900,7 @@ async def update_agent(
     agent = await pg_update_agent(agent_id, updates)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    return {"status": "ok", "agent": agent}
+    return {"status": "ok", "agent": (await _present_agents([agent]))[0]}
 
 
 @router.delete("/agents/{agent_id}")

@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { Plus, Loader2, AlertCircle } from 'lucide-react'
+import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
 /**
  * Shared KB selector for manufacturing pages.
@@ -65,7 +66,7 @@ export default function AutoRepairKBSelector({
         className="px-3 py-1.5 rounded-lg border border-cloud-300 text-sm bg-white text-ink-body cursor-pointer disabled:opacity-50"
       >
         {kbList.length === 0 && <option value="">暂无可用知识库</option>}
-        {kbList.map(k => <option key={k.name} value={k.name}>{k.label || k.name}</option>)}
+        {kbList.map(k => <option key={k.name} value={k.name}>{getKnowledgeBaseDisplayName(k)}</option>)}
       </select>
 
       {canCreate && (

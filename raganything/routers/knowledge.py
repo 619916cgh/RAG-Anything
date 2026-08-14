@@ -107,6 +107,13 @@ from raganything.services.kb_chunk_repo import (
 from . import shared as _shared
 
 
+_OPAQUE_GRAPH_ENTITY_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def _is_opaque_graph_entity_id(value: object) -> bool:
+    return isinstance(value, str) and bool(_OPAQUE_GRAPH_ENTITY_ID_RE.fullmatch(value.strip()))
+
+
 def _lease_kb_cache_for_operation(handler):
     """Keep a KB's storage handles alive for the duration of a request."""
 
@@ -3241,11 +3248,12 @@ async def list_entities(request: Request, limit: int = 50, kb: str = Depends(ver
         if valid_doc_ids and k not in valid_doc_ids:
             continue
         names = v.get("entity_names", [])
-        for name in names:
+        visible_names = [name for name in names if not _is_opaque_graph_entity_id(name)]
+        for name in visible_names:
             if name not in seen and len(entities) < limit:
                 seen.add(name)
                 entities.append({"id": name[:16], "name": name, "type": infer_entity_type(name)})
-        total += v.get("count", len(names))
+        total += len(visible_names)
 
     # 类型筛选
     type_filter = request.query_params.get("type", "")
@@ -3271,6 +3279,8 @@ async def graph_data(kb: str = Depends(verify_kb_access), current_user: dict = D
         if name.endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif", ".pdf", ".docx")):
             return False
         if len(name) > 80:
+            return False
+        if _is_opaque_graph_entity_id(name):
             return False
         return True
 
@@ -3482,14 +3492,27 @@ async def graph_node_detail(
     """Get details for a single graph entity (auto-extracted + user-edited)."""
     from raganything.services.pg_graph_edit_repo import (
         get_user_relations_for_entity,
+        list_user_entities,
     )
 
     workspace = kb_dir(kb)
 
+    is_manual_opaque_entity = False
+    if _is_opaque_graph_entity_id(entity_name):
+        user_entities = await list_user_entities(workspace)
+        is_manual_opaque_entity = any(entity.get("name") == entity_name for entity in user_entities)
+        if not is_manual_opaque_entity:
+            raise HTTPException(404, "实体不存在")
+
     # Fetch auto-extracted data
-    entities_data = await _pg_fetch_graph_entities(workspace)
-    relations_data = await _pg_fetch_graph_relations(workspace)
-    valid_doc_ids = await _pg_fetch_doc_ids(workspace)
+    if is_manual_opaque_entity:
+        # An automatic opaque entity has no user-facing graph presence.  A
+        # manually-created entity using the same business code stays manual.
+        entities_data, relations_data, valid_doc_ids = {}, {}, set()
+    else:
+        entities_data = await _pg_fetch_graph_entities(workspace)
+        relations_data = await _pg_fetch_graph_relations(workspace)
+        valid_doc_ids = await _pg_fetch_doc_ids(workspace)
 
     # Find which documents contain this entity
     source_docs: list[str] = []
@@ -3506,6 +3529,8 @@ async def graph_node_detail(
         if valid_doc_ids and k not in valid_doc_ids:
             continue
         for src, tgt in v.get("relation_pairs", []):
+            if _is_opaque_graph_entity_id(src) or _is_opaque_graph_entity_id(tgt):
+                continue
             if src == entity_name and tgt != entity_name:
                 auto_relations.append({"source": src, "target": tgt, "type": "auto"})
                 connected_entities.add(tgt)

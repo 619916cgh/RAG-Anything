@@ -11,6 +11,7 @@ import { getKnowledgeBaseUpdateTimestamp, sortKnowledgeBases } from '../utils/kb
 import { canEditKnowledgeBase } from '../utils/knowledgeBaseEditor'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
 import { formatDate } from '../utils/dateFormat'
+import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
 const PAGE_SIZE_STORAGE_KEY = 'raganything:pagination:knowledge-bases'
 const KB_GRID_ROWS = 3
@@ -61,6 +62,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
   return (
     <div ref={gridRef} className={gridClassName} style={gridStyle}>
       {kbs.map(kb => {
+        const displayName = getKnowledgeBaseDisplayName(kb)
         const stats = kbStats[kb.name]
         const documentCount = Number(stats?.documents || 0)
         const entityCount = Number(stats?.entities || 0)
@@ -82,7 +84,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
               className="resource-card-kb-hitarea"
               onClick={() => onSwitch(kb.name)}
               onFocus={() => onPrefetch(kb.name)}
-              aria-label={`打开知识库 ${kb.label || kb.name}`}
+              aria-label={`打开知识库 ${displayName}`}
             />
 
             <div className="resource-card-kb-head">
@@ -91,7 +93,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
               </div>
               <div className="resource-card-kb-copy">
                 <h3 className="resource-card-kb-title text-ink-primary">
-                  {kb.label || kb.name}
+                  {displayName}
                 </h3>
 
               </div>
@@ -141,7 +143,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
                 onKeyDown={e => e.stopPropagation()}
                 className="absolute right-2 top-2 z-10 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-sky-50 hover:text-sky-700"
                 title="编辑知识库"
-                aria-label={`编辑 ${kb.label || kb.name}`}
+                aria-label={`编辑 ${displayName}`}
               >
                 <Pencil size={15} aria-hidden="true" />
               </button>
@@ -155,7 +157,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
                 disabled={deletingKB}
                 className="resource-card-kb-delete absolute z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-lg text-ink-muted hover:text-rose-500 hover:bg-rose-50"
                 title="删除知识库"
-                aria-label={`删除 ${kb.label || kb.name}`}
+                aria-label={`删除 ${displayName}`}
               >
                 <Trash2 size={13} />
               </button>
@@ -181,7 +183,7 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
               <Trash2 size={32} className="mx-auto mb-3 text-rose-500" />
               <p className="text-ink-primary font-medium text-center mb-1">确认删除知识库</p>
               <p className="text-sm text-ink-muted text-center mb-2">
-                「{deleteTarget.label || deleteTarget.name}」
+                「{getKnowledgeBaseDisplayName(deleteTarget)}」
               </p>
               <p className="text-xs text-rose-500 text-center mb-4">将清除所有文档、实体和向量数据，不可恢复</p>
               <div className="flex gap-3 justify-center">
@@ -421,7 +423,7 @@ export default function KnowledgePage() {
     setDeletingKB(true)
     try {
       await api.deleteKB(name)
-      showToast(`知识库 "${name}" 已删除`, 'success')
+      showToast(`知识库 "${getKnowledgeBaseDisplayName(knowledgeBase)}" 已删除`, 'success')
       onDone?.()
       loadKBs()
     } catch (e) {

@@ -646,3 +646,26 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 
 - All source, tests, migrations, OpenSpec artifacts, deployment configuration, and documentation changes in the working tree were consolidated into one Git snapshot at the user's request. Reproducible root-level test output files and an unrelated malformed temporary file were removed instead of versioned; local environment files, runtime data, uploads, and model caches remain ignored.
 - This commit establishes a complete source boundary for the next cloud release archive. It does not itself deploy code or change the production acceptance boundary recorded above.
+
+## 63. 2026-08-13 committed-source cloud release
+
+- Commit `65531a0` was packaged with `git archive`, uploaded to the production host, and verified against its SHA-256 before extraction into an isolated release directory. App and Nginx candidates were built from that same source; the app import preflight confirmed the KB access dependency and router import, and Nginx configuration syntax passed with the Compose `app` hostname mapped for standalone validation.
+- The current app and Nginx images were each preserved under `rollback-before-65531a0459cf` before replacement. App switched first and remained healthy for more than three minutes with restart count zero; Nginx then switched. Direct and reverse-proxy `/api/health` checks both returned HTTP 200. The staged committed source was subsequently copied to `/opt/rag-anything` and verified, without copying `.env`, volumes, uploads, indexes, outputs, or model caches. No production migration was run.
+- This proves image build, startup, source synchronization, and HTTP health only. Worker ingestion/retrieval, real migration paths, five-role direct API/browser checks, video E2E, and production approval remain separate acceptance work.
+
+## 64. 2026-08-13 production Docker image reclamation
+
+- After explicit approval, unused Docker build cache, superseded release/rollback image tags, staging directories, release archive, and finally all images not referenced by containers were removed from the production host. The cleanup did not touch environment files, PostgreSQL or Redis volumes, uploads, indexes, outputs, model caches, running containers, or application data.
+- Observed root filesystem availability increased from approximately 7.3 GB to 34 GB (67% used). Immediately after the image prune, the five running service containers remained up; app direct and reverse-proxy health endpoints both returned HTTP 200.
+- The removed rollback tags mean reverting to the preceding version now requires rebuilding it from source. Build cache was also removed, so a subsequent image build may download dependencies again. This is operational capacity evidence only; it does not substitute for Worker, migration, RBAC, video, browser, or production-approval acceptance.
+
+## 65. 2026-08-14 frontend opaque identifier display audit
+
+- Read-only audit found that KB internal names can be rendered as visible fallback text on KB cards/selectors and in agent, chat, and demo-share views; agent cards also show an internal agent ID. Prefer the maintained KB `label`/display name for all user-facing output, remove the agent-card ID, and retain internal identifiers only as route/API values or explicitly marked, copyable technical details for authorized administrators. Graph entity views fall back from `label` to `id`; the backend should reject opaque 32-hex values as entity display values or supply a separate display name instead of relying on a frontend-wide masking rule. Do not mask or remove the one-time public-demo URL token: it is an intentional capability secret, is not persisted in plaintext, and must be copied by its creator.
+- No persistent behavior change was made; this conclusion is source-level only and does not establish whether existing production records are missing display labels.
+
+## 66. 2026-08-14 user-facing opaque identifier removal
+
+- User-facing KB cards, selectors, agent directory/chat, demo-share management, and public-demo bootstrap now resolve a separate safe KB display name. Empty legacy metadata, or a display name equal to a 32-character hexadecimal internal workspace name, renders as `未命名知识库`; the raw name remains only the API, route, and React-key identifier. Agent directory cards no longer render agent IDs, while newly created demo tokens retain their intentional one-time copy flow.
+- `GET /agents` and demo-share responses include `kb_display_name` (plus the share-list `agent_name`) so clients do not infer presentation text from internal fields. Automatic graph entities that exactly match 32 hexadecimal characters and their automatic edges are filtered before user graph edits merge; manually created business-code entities and relations remain visible. Missing graph labels render as `未命名实体`, including relation-side references.
+- Source-level verification passed: focused Python tests (22), all frontend unit tests (211), frontend production build, and `git diff --check`. This excludes browser interaction, live PostgreSQL graph records, and production deployment acceptance; monitor and health-probe technical identifiers were intentionally left out of scope.

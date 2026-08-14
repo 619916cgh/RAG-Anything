@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Copy, Link2, Loader2, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../utils/api'
+import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
 export default function DemoSharesPage({ onToast }) {
   const { isAdmin } = useAuth()
@@ -51,7 +52,7 @@ export default function DemoSharesPage({ onToast }) {
       <label htmlFor="demo-agent">演示智能体</label>
       <select id="demo-agent" className="input-field" value={agentId} onChange={event => setAgentId(event.target.value)} disabled={busy}>
         <option value="">选择已绑定知识库的智能体</option>
-        {shareableAgents.map(agent => <option value={agent.id} key={agent.id}>{agent.name} - {agent.kb_name}</option>)}
+        {shareableAgents.map(agent => <option value={agent.id} key={agent.id}>{agent.name} - {getKnowledgeBaseDisplayName(agent)}</option>)}
       </select>
       <button className="btn-primary" onClick={create} disabled={!agentId || busy}>{busy ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}创建链接</button>
     </section>
@@ -59,7 +60,7 @@ export default function DemoSharesPage({ onToast }) {
     {error && <p className="preferences-alert preferences-alert-error">{error}</p>}
     <section className="demo-shares-list" aria-label="现有演示链接">
       {shares.map(share => <article key={share.share_id} className="demo-share-row">
-        <div><strong>{share.agent_id}</strong><span>{share.kb_name}</span><small>{share.revoked_at ? '已撤销' : '有效'} · {share.max_requests_per_minute}/分钟 · 最多 {share.max_concurrent_queries} 并发</small></div>
+        <div><strong>{share.agent_name || '智能体'}</strong><span>{getKnowledgeBaseDisplayName(share)}</span><small>{share.revoked_at ? '已撤销' : '有效'} · {share.max_requests_per_minute}/分钟 · 最多 {share.max_concurrent_queries} 并发</small></div>
         {!share.revoked_at && <button className="btn-danger" disabled={busy} onClick={() => revoke(share.share_id)} aria-label="撤销演示链接" title="撤销演示链接"><Trash2 size={16} /></button>}
       </article>)}
       {!shares.length && <p className="public-demo-status">尚未创建演示链接。</p>}

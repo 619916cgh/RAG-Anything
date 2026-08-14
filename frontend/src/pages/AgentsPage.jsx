@@ -12,6 +12,7 @@ import ResourceSortControl from '../components/ResourceSortControl'
 import { useAuth } from '../context/AuthContext'
 import { sortAgents } from '../utils/agentSorting'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
+import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
 const MODE_LABELS = { rrf: '融合', hybrid: '混合', local: '精确', global: '全局', naive: '快速' }
 const AGENT_MODE_LABELS = { none: '普通', react: 'ReAct', cot: 'CoT' }
@@ -458,7 +459,6 @@ export default function AgentsPage({ onToast }) {
                   </div>
                   <div className="min-w-0">
                     <h3 className="font-semibold text-ink-primary text-base truncate">{agent.name}</h3>
-                    <p className="text-2xs text-ink-muted font-mono truncate">ID: {agent.id}</p>
                   </div>
                 </div>
                 <div className="resource-card-agent-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
@@ -487,7 +487,7 @@ export default function AgentsPage({ onToast }) {
 
               <div className="resource-card-agent-tags flex flex-wrap gap-1.5">
                 <span className="tag tag-purple">
-                  <Database size={10} /> {agent.kb_name}
+                  <Database size={10} /> {getKnowledgeBaseDisplayName(agent)}
                 </span>
                 <span className="tag tag-blue">
                   <Cpu size={10} /> {agent.llm_model}
@@ -620,7 +620,7 @@ export default function AgentsPage({ onToast }) {
                     <label className="text-xs text-ink-muted mb-1 block">关联知识库</label>
                     <select className="input-field" value={form.kb_name}
                       onChange={e => setForm({ ...form, kb_name: e.target.value })}>
-                      {kbs.map(kb => <option key={kb.name} value={kb.name}>{kb.label}</option>)}
+                      {kbs.map(kb => <option key={kb.name} value={kb.name}>{getKnowledgeBaseDisplayName(kb)}</option>)}
                     </select>
                   </div>
                   <div>

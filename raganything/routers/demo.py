@@ -36,6 +36,8 @@ from raganything.services.kb_service import (
 )
 from raganything.services.odl_media_delivery import resolve_catalog_media
 from raganything.services.pg_agent_repo import pg_get_agent
+from raganything.services.pg_agent_repo import pg_list_agents
+from raganything.utils.kb_display_name import get_knowledge_base_display_name
 from raganything.services.prompt_builder import PromptBuilder
 from raganything.services.query_execution import QueryExecutionScope, await_before_deadline
 from raganything.utils.security import validate_query_input
@@ -56,6 +58,16 @@ class DemoShareCreate(BaseModel):
 class DemoQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str = Field(min_length=1, max_length=10_000)
+
+
+def _present_share(share: DemoShare, metadata: dict, agents_by_id: dict[str, dict]) -> dict:
+    payload = public_share_payload(share)
+    payload["kb_display_name"] = get_knowledge_base_display_name(
+        metadata.get(share.kb_name),
+        share.kb_name,
+    )
+    payload["agent_name"] = str(agents_by_id.get(share.agent_id, {}).get("name") or "智能体")
+    return payload
 
 
 def _require_super_admin(current_user: dict) -> dict:
@@ -224,7 +236,11 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
 @router.get("/demo/shares")
 async def list_shares(current_user: dict = Depends(get_current_user)):
     _require_super_admin(current_user)
-    return {"shares": [public_share_payload(share) for share in await list_demo_shares()]}
+    shares = await list_demo_shares()
+    metadata = await load_kb_meta()
+    agents = await pg_list_agents(user_id=current_user["id"], is_admin=True)
+    agents_by_id = {str(agent.get("id")): agent for agent in agents}
+    return {"shares": [_present_share(share, metadata, agents_by_id) for share in shares]}
 
 
 @router.post("/demo/shares")
@@ -238,7 +254,10 @@ async def create_share(payload: DemoShareCreate, current_user: dict = Depends(ge
     if kb_name not in metadata:
         raise HTTPException(422, "智能体绑定的知识库不存在")
     share, token = await create_demo_share(payload.agent_id, kb_name, int(current_user["id"]))
-    return {"share": public_share_payload(share), "token": token}
+    return {
+        "share": _present_share(share, metadata, {str(agent.get("id")): agent}),
+        "token": token,
+    }
 
 
 @router.delete("/demo/shares/{share_id}")
@@ -258,7 +277,7 @@ async def demo_bootstrap(share_id: str, x_demo_token: str | None = Header(defaul
     ingestion = ingestion if isinstance(ingestion, dict) else {}
     return {
         "agent": {"name": agent.get("name", "演示助手"), "icon": agent.get("icon", ""), "welcome_message": agent.get("welcome_message", "")},
-        "knowledge_base": {"name": kb_meta.get("display_name") or share.kb_name, "parser": ingestion.get("parser") or "系统默认", "chunking_strategy": ingestion.get("chunking_strategy") or "系统默认"},
+        "knowledge_base": {"name": get_knowledge_base_display_name(kb_meta, share.kb_name), "parser": ingestion.get("parser") or "系统默认", "chunking_strategy": ingestion.get("chunking_strategy") or "系统默认"},
     }
 
 

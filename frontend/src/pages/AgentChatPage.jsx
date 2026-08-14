@@ -13,6 +13,7 @@ import { formatCompleteAgentRelationMarkdown, parseAgentRelationMarker } from '.
 import { useAuth } from '../context/AuthContext'
 import { ControlledMediaImage } from '../components/ControlledMedia'
 import VideoSegmentPlayer from '../components/VideoSegmentPlayer'
+import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
 // ── 模式定义 ───────────────────────────────────────────
 const RETRIEVAL_MODES = [
@@ -764,7 +765,7 @@ export default function AgentChatPage({ onToast }) {
                 <span className="text-2xl shrink-0">{agent.icon}</span>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-ink-primary dark:text-cloud-200 truncate">{agent.name}</p>
-                  <p className="text-2xs text-ink-muted dark:text-cloud-500 truncate">{agent.kb_name}</p>
+                  <p className="text-2xs text-ink-muted dark:text-cloud-500 truncate">{getKnowledgeBaseDisplayName(agent)}</p>
                 </div>
               </div>
             </div>
@@ -845,7 +846,7 @@ export default function AgentChatPage({ onToast }) {
             {/* 智能体信息底部 */}
             <div className="pt-3 mt-auto border-t border-cloud-200 dark:border-sky-800/30 space-y-1">
               <p className="text-2xs text-ink-muted dark:text-cloud-500 flex items-center gap-1">
-                <Database size={10} className="shrink-0" /> {agent.kb_name}
+                <Database size={10} className="shrink-0" /> {getKnowledgeBaseDisplayName(agent)}
               </p>
               <p className="text-2xs text-ink-muted dark:text-cloud-500 flex items-center gap-1">
                 <Cpu size={10} className="shrink-0" /> {agent.llm_model}
@@ -1480,7 +1481,7 @@ export default function AgentChatPage({ onToast }) {
               )}
             </div>
             <span className="text-2xs text-ink-muted dark:text-cloud-500">
-              {agent.kb_name} · {agent.llm_model}
+              {getKnowledgeBaseDisplayName(agent)} · {agent.llm_model}
             </span>
           </div>
         </div>
