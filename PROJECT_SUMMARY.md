@@ -690,3 +690,8 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 
 - The renewed remote build completed CPU dependency downloads through the PyTorch CPU wheel, then failed because the committed `uvicorn==0.52.3` lock entry has no Python 3.11 distribution on the configured indexes. Official PyPI metadata confirms `uvicorn==0.52.1` supports Python 3.11 and provides the verified wheel and source hashes used in the replacement lock entry. This was a lock availability defect, not a CUDA, parser, disk, or service-start failure; no candidate image was accepted or switched.
 - The app CPU lock now pins `uvicorn==0.52.1` with official hashes, and the CPU runtime contract test rejects the unavailable `0.52.3` pin. The app and Nginx production containers remained healthy throughout; a fresh committed archive and a renewed isolated runtime build are still required for production runtime acceptance.
+
+## 71. 2026-08-14 isolated PyTorch package source
+
+- The third CPU runtime build reached the middle of the dependency lock and then timed out again at `files.pythonhosted.org` despite using the Tsinghua index. The failure was caused by using the official PyTorch CPU repository as a general `--extra-index-url`, allowing ordinary packages to select links outside the configured mirror; no image was accepted or switched and production health stayed HTTP 200.
+- Added `requirements.cpu-pytorch-linux-py311-x86_64.lock` and split app/Marker installation into a hash-verified, `--no-deps` CPU Torch/Torchvision step from the official CPU index followed by a hash-verified general lock step using only `PIP_INDEX_URL`. Focused runtime contract tests (4) and strict OpenSpec validation pass; a new complete archive and isolated build are required.

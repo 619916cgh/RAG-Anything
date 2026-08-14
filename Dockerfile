@@ -60,12 +60,17 @@ WORKDIR /app
 
 # Python 婵炴挻纰嶇换鍡欑矉?
 COPY requirements.cpu-linux-py311-x86_64.lock .
+COPY requirements.cpu-pytorch-linux-py311-x86_64.lock .
 COPY scripts/verify_cpu_runtime.py /usr/local/bin/verify_cpu_runtime.py
-# The lock is resolved for Linux/Python 3.11/x86_64 with uv's CPU Torch
-# backend. The CPU index remains separate from the general package mirror.
+# Keep PyTorch's index isolated. As an extra index it can supply generic
+# dependencies that redirect to public PyPI and bypass the selected mirror.
 RUN python -m pip --isolated install --no-cache-dir --timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES} \
+    --index-url ${PYTORCH_CPU_INDEX_URL} \
+    --require-hashes \
+    --no-deps \
+    -r requirements.cpu-pytorch-linux-py311-x86_64.lock \
+    && python -m pip --isolated install --no-cache-dir --timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES} \
     --index-url ${PIP_INDEX_URL} \
-    --extra-index-url ${PYTORCH_CPU_INDEX_URL} \
     --require-hashes \
     -r requirements.cpu-linux-py311-x86_64.lock \
     && python /usr/local/bin/verify_cpu_runtime.py --runtime app
@@ -121,10 +126,15 @@ RUN sed -i "s|http://deb.debian.org|https://${DEBIAN_MIRROR_HOST}|g" /etc/apt/so
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /marker
 COPY requirements.marker.cpu-linux-py311-x86_64.lock .
+COPY requirements.cpu-pytorch-linux-py311-x86_64.lock .
 COPY scripts/verify_cpu_runtime.py /usr/local/bin/verify_cpu_runtime.py
 RUN python -m pip --isolated install --no-cache-dir --timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES} \
+    --index-url ${PYTORCH_CPU_INDEX_URL} \
+    --require-hashes \
+    --no-deps \
+    -r requirements.cpu-pytorch-linux-py311-x86_64.lock \
+    && python -m pip --isolated install --no-cache-dir --timeout ${PIP_NETWORK_TIMEOUT} --retries ${PIP_NETWORK_RETRIES} \
     --index-url ${PIP_INDEX_URL} \
-    --extra-index-url ${PYTORCH_CPU_INDEX_URL} \
     --require-hashes \
     -r requirements.marker.cpu-linux-py311-x86_64.lock \
     && python /usr/local/bin/verify_cpu_runtime.py --runtime marker

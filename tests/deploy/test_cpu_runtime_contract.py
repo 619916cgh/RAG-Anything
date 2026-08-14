@@ -7,6 +7,7 @@ import re
 ROOT = Path(__file__).resolve().parents[2]
 APP_LOCK = ROOT / "requirements.cpu-linux-py311-x86_64.lock"
 MARKER_LOCK = ROOT / "requirements.marker.cpu-linux-py311-x86_64.lock"
+PYTORCH_LOCK = ROOT / "requirements.cpu-pytorch-linux-py311-x86_64.lock"
 DOCKERFILE = ROOT / "Dockerfile"
 RUNTIME_CHECK = ROOT / "scripts" / "verify_cpu_runtime.py"
 FORBIDDEN = re.compile(r"^(?:nvidia-|cuda-|triton(?:==|-))", re.IGNORECASE)
@@ -21,7 +22,7 @@ def _requirement_names(lock_path: Path) -> list[str]:
 
 
 def test_cpu_locks_are_hash_verified_and_exclude_gpu_packages() -> None:
-    for lock_path in (APP_LOCK, MARKER_LOCK):
+    for lock_path in (APP_LOCK, MARKER_LOCK, PYTORCH_LOCK):
         content = lock_path.read_text(encoding="utf-8")
         assert "--hash=sha256:" in content
         assert not [name for name in _requirement_names(lock_path) if FORBIDDEN.match(name)]
@@ -43,7 +44,10 @@ def test_dockerfile_uses_cpu_locks_before_source_overlay() -> None:
     source_copy = content.index("COPY . .", app_source)
 
     assert app_runtime < app_lock < app_source < source_copy
-    assert "--extra-index-url ${PYTORCH_CPU_INDEX_URL}" in content
+    assert "requirements.cpu-pytorch-linux-py311-x86_64.lock" in content
+    assert "--index-url ${PYTORCH_CPU_INDEX_URL}" in content
+    assert "--no-deps" in content
+    assert "--extra-index-url ${PYTORCH_CPU_INDEX_URL}" not in content
     assert "--require-hashes" in content
     assert "ARG PIP_NETWORK_TIMEOUT=600" in content
     assert "ARG PIP_NETWORK_RETRIES=12" in content
