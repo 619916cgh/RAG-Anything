@@ -3,6 +3,7 @@
 # (e.g. DEBIAN_MIRROR_HOST=mirrors.aliyun.com, PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple).
 ARG DEBIAN_MIRROR_HOST=deb.debian.org
 ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
 
 FROM node:20-alpine AS frontend-build
 
@@ -15,13 +16,14 @@ RUN npm run build
 # Bookworm still provides OpenJDK 17, which is required by the
 # OpenDataLoader runtime. The floating slim tag moved to trixie, where that
 # package is no longer available.
-FROM python:3.11-slim-bookworm AS base
+FROM python:3.11-slim-bookworm AS app-runtime
 
 LABEL org.opencontainers.image.title="RAG-Anything"
 LABEL org.opencontainers.image.description="All-in-One Multimodal RAG System"
 
 ARG DEBIAN_MIRROR_HOST
 ARG PIP_INDEX_URL
+ARG PYTORCH_CPU_INDEX_URL
 
 # Native dependencies include ffmpeg/ffprobe for video indexing. Debian's
 # mirrors can drop an individual package fetch during a long LibreOffice
@@ -51,15 +53,19 @@ RUN set -eux; \
 WORKDIR /app
 
 # Python 婵炴挻纰嶇换鍡欑矉?
-COPY requirements.txt .
-# BuildKit or a deployment host may inject PIP_CONSTRAINT/PIP_REQUIRE_HASHES.
-# Install from the declared requirements source only; --isolated ignores those
-# ambient settings without disabling Pip's integrity checks.
+COPY requirements.cpu-linux-py311-x86_64.lock .
+COPY scripts/verify_cpu_runtime.py /usr/local/bin/verify_cpu_runtime.py
+# The lock is resolved for Linux/Python 3.11/x86_64 with uv's CPU Torch
+# backend. The CPU index remains separate from the general package mirror.
 RUN python -m pip --isolated install --no-cache-dir --timeout 120 --retries 5 \
     --index-url ${PIP_INDEX_URL} \
-    -r requirements.txt
+    --extra-index-url ${PYTORCH_CPU_INDEX_URL} \
+    --require-hashes \
+    -r requirements.cpu-linux-py311-x86_64.lock \
+    && python /usr/local/bin/verify_cpu_runtime.py --runtime app
 
 # 闁圭厧鐡ㄥ濠氬极閵堝棛顩烽柨婵嗘川閸?
+FROM app-runtime AS app-source
 COPY . .
 
 # 闂佸憡鎸哥粔鍫曨敂椤掑嫬鍑犻柛鏇ㄥ亞缁?
@@ -79,7 +85,7 @@ CMD ["python", "server.py"]
 # Compatibility verification target for the OpenDataLoader runtime bundled in
 # the default image. Build explicitly with:
 # docker build --target opendataloader -t raganything:opendataloader .
-FROM base AS default
+FROM app-source AS default
 
 FROM nginx:alpine AS frontend
 COPY nginx.conf /etc/nginx/conf.d/default.conf
@@ -92,9 +98,10 @@ RUN java -version 2>&1 | grep -Eq 'version "17\.|openjdk 17\.' \
 # Marker is intentionally isolated: marker-pdf requires Pillow<11 while the
 # MinerU runtime in `base` requires Pillow>=11. Build and deploy this target
 # as a separate parser worker image; never install marker-pdf into `base`.
-FROM python:3.11-slim AS marker
+FROM python:3.11-slim-bookworm AS marker-runtime
 ARG DEBIAN_MIRROR_HOST
 ARG PIP_INDEX_URL
+ARG PYTORCH_CPU_INDEX_URL
 RUN sed -i "s|http://deb.debian.org|https://${DEBIAN_MIRROR_HOST}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -105,11 +112,18 @@ RUN sed -i "s|http://deb.debian.org|https://${DEBIAN_MIRROR_HOST}|g" /etc/apt/so
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /marker
-COPY raganything/parser/marker_worker.py /marker/marker_worker.py
+COPY requirements.marker.cpu-linux-py311-x86_64.lock .
+COPY scripts/verify_cpu_runtime.py /usr/local/bin/verify_cpu_runtime.py
 RUN python -m pip --isolated install --no-cache-dir --timeout 120 --retries 5 \
     --index-url ${PIP_INDEX_URL} \
-    "marker-pdf[full]>=1.8,<2.0" \
-    "Pillow<11"
+    --extra-index-url ${PYTORCH_CPU_INDEX_URL} \
+    --require-hashes \
+    -r requirements.marker.cpu-linux-py311-x86_64.lock \
+    && python /usr/local/bin/verify_cpu_runtime.py --runtime marker
+
+FROM marker-runtime AS marker
+WORKDIR /marker
+COPY raganything/parser/marker_worker.py /marker/marker_worker.py
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8765/healthz', timeout=5)"
 EXPOSE 8765
