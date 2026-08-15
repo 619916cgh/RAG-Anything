@@ -80,6 +80,8 @@ def test_local_release_requires_commit_and_ssh_key() -> None:
 
     assert "ValidatePattern('^[0-9a-fA-F]{40}$')" in content
     assert "git archive" in content
+    assert "--format=zip" in content
+    assert "Expand-Archive" in content
     assert "Password-based fast release is intentionally unsupported" in content
     assert "BatchMode=yes" in content
     assert "deploy\\fast-release\\manifests" in content

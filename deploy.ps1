@@ -96,9 +96,9 @@ try {
     $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ("rag-fast-{0}-{1}" -f $resolvedCommit.Substring(0, 12), [guid]::NewGuid().ToString('N'))
     $payloadRoot = Join-Path $stagingRoot 'payload'
     New-Item -ItemType Directory -Path $payloadRoot | Out-Null
-    $sourceTar = Join-Path $stagingRoot 'source.tar'
-    Invoke-Native { git archive --format=tar --output=$sourceTar $resolvedCommit }
-    Invoke-Native { tar -xf $sourceTar -C $payloadRoot }
+    $sourceZip = Join-Path $stagingRoot 'source.zip'
+    Invoke-Native { git archive --format=zip --output=$sourceZip $resolvedCommit }
+    Expand-Archive -LiteralPath $sourceZip -DestinationPath $payloadRoot
 
     Push-Location (Join-Path $payloadRoot 'frontend')
     try {
@@ -144,11 +144,11 @@ try {
         created_utc         = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
-    $controlArchive = Join-Path $stagingRoot 'release-control.tar'
-    Invoke-Native { git archive --format=tar --output=$controlArchive $baseline deploy/fast-release/remote-release.sh }
+    $controlArchive = Join-Path $stagingRoot 'release-control.zip'
+    Invoke-Native { git archive --format=zip --output=$controlArchive $baseline deploy/fast-release/remote-release.sh }
     $controlRoot = Join-Path $stagingRoot 'control'
     New-Item -ItemType Directory -Path $controlRoot | Out-Null
-    Invoke-Native { tar -xf $controlArchive -C $controlRoot }
+    Expand-Archive -LiteralPath $controlArchive -DestinationPath $controlRoot
     $remoteScriptLocal = Join-Path $controlRoot 'deploy\fast-release\remote-release.sh'
 
     $target = "{0}@{1}" -f [string]$settings.User, [string]$settings.Host
