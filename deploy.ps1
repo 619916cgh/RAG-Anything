@@ -4,7 +4,7 @@ param(
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string]$Commit,
 
-    [string]$Config = (Join-Path $PSScriptRoot 'deploy\fast-release\deploy.config.psd1')
+    [string]$Config = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +35,15 @@ function Get-RelativePayloadPath {
     return $resolved.Substring($prefix.Length).Replace('\', '/')
 }
 
-$repoRoot = (Resolve-Path $PSScriptRoot).Path
+$scriptRoot = if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    Split-Path -Parent $MyInvocation.MyCommand.Definition
+} else {
+    $PSScriptRoot
+}
+if ([string]::IsNullOrWhiteSpace($Config)) {
+    $Config = Join-Path $scriptRoot 'deploy\fast-release\deploy.config.psd1'
+}
+$repoRoot = (Resolve-Path $scriptRoot).Path
 Push-Location $repoRoot
 $stagingRoot = $null
 try {

@@ -83,3 +83,4 @@ def test_local_release_requires_commit_and_ssh_key() -> None:
     assert "Password-based fast release is intentionally unsupported" in content
     assert "BatchMode=yes" in content
     assert "deploy\\fast-release\\manifests" in content
+    assert "Split-Path -Parent $MyInvocation.MyCommand.Definition" in content
