@@ -127,7 +127,7 @@ compose() {
 
 # This creates only a disposable app container and imports the modules that
 # previously diverged under partial file uploads. It does not invoke migration.
-compose "$candidate_app_image" "$candidate_nginx_image" run --rm --no-deps --no-build --entrypoint python app \
+compose "$candidate_app_image" "$candidate_nginx_image" run --rm --no-deps --entrypoint python app \
     -c 'import server; from raganything.routers import knowledge'
 
 old_app_id="$(docker inspect raganything-app --format '{{.Image}}')"

@@ -65,6 +65,7 @@ def test_remote_release_only_switches_app_then_nginx_and_rolls_back() -> None:
     assert 'allowedComposeServices' not in content
     assert "up -d --no-deps --no-build --force-recreate app" in content
     assert "up -d --no-deps --no-build --force-recreate nginx" in content
+    assert "run --rm --no-deps --no-build" not in content
     assert content.index("force-recreate app") < content.index("force-recreate nginx")
     assert "trap rollback ERR INT TERM" in content
     assert "rollback_app_image" in content
