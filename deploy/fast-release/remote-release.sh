@@ -162,10 +162,23 @@ assert_full_health() {
     curl -fsS --max-time 10 http://127.0.0.1/api/health >/dev/null
 }
 
+wait_for_health() {
+    local check_name="$1"
+    local deadline=$(( $(date +%s) + health_window_seconds ))
+    while (( $(date +%s) <= deadline )); do
+        if "$check_name"; then
+            return 0
+        fi
+        sleep "$health_interval_seconds"
+    done
+    "$check_name"
+}
+
 switched=1
 compose "$candidate_app_image" "$candidate_nginx_image" up -d --no-deps --no-build --force-recreate app
-assert_direct_health
+wait_for_health assert_direct_health
 compose "$candidate_app_image" "$candidate_nginx_image" up -d --no-deps --no-build --force-recreate nginx
+wait_for_health assert_full_health
 
 deadline=$(( $(date +%s) + health_window_seconds ))
 while (( $(date +%s) <= deadline )); do
