@@ -84,6 +84,7 @@ def test_local_release_requires_commit_and_ssh_key() -> None:
     assert "git archive" in content
     assert "--format=zip" in content
     assert "Expand-Archive" in content
+    assert "[Text.UTF8Encoding]::new($false)" in content
     assert "Password-based fast release is intentionally unsupported" in content
     assert "BatchMode=yes" in content
     assert "deploy\\fast-release\\manifests" in content

@@ -150,6 +150,12 @@ try {
     New-Item -ItemType Directory -Path $controlRoot | Out-Null
     Expand-Archive -LiteralPath $controlArchive -DestinationPath $controlRoot
     $remoteScriptLocal = Join-Path $controlRoot 'deploy\fast-release\remote-release.sh'
+    $remoteScriptText = [IO.File]::ReadAllText($remoteScriptLocal)
+    [IO.File]::WriteAllText(
+        $remoteScriptLocal,
+        $remoteScriptText.Replace("`r`n", "`n").Replace("`r", "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
 
     $target = "{0}@{1}" -f [string]$settings.User, [string]$settings.Host
     $sshCommon = @('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', '-i', [string]$settings.IdentityFile)
