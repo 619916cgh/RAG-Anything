@@ -71,6 +71,8 @@ def test_remote_release_only_switches_app_then_nginx_and_rolls_back() -> None:
     assert "rollback_nginx_image" in content
     assert "assert_direct_health" in content
     assert "assert_full_health" in content
+    assert 'minimum_free_gb="${10}"' in content
+    assert 'input_manifest="${13}"' in content
     assert "Release manifest commit does not match" in content
     assert "Release manifest checksum does not match" in content
     assert "migrate" not in content.lower().replace("does not invoke migration", "")

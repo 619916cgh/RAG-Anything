@@ -18,10 +18,10 @@ app_runtime_image="$6"
 app_runtime_id="$7"
 nginx_runtime_image="$8"
 nginx_runtime_id="$9"
-minimum_free_gb="$10"
-health_window_seconds="$11"
-health_interval_seconds="$12"
-input_manifest="$13"
+minimum_free_gb="${10}"
+health_window_seconds="${11}"
+health_interval_seconds="${12}"
+input_manifest="${13}"
 
 for value in "$commit" "$expected_archive_sha" "$app_runtime_id" "$nginx_runtime_id"; do
     [[ "$value" =~ ^(sha256:)?[0-9a-f]{40,64}$ ]] || {
