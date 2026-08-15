@@ -117,3 +117,7 @@ node_modules/
 ~$*
 package-lock.json
 .local-backups/
+
+# Local fast-release connection and immutable-image configuration.
+deploy/fast-release/deploy.config.psd1
+deploy/fast-release/manifests/

@@ -1,0 +1,25 @@
+{
+  "disallowedCandidatePatterns": [
+    "(^|/)Dockerfile(?:\\..*)?$",
+    "(^|/)docker-compose(?:\\..*)?\\.ya?ml$",
+    "(^|/)requirements(?:\\..*)?$",
+    "(^|/)(?:pyproject\\.toml|uv\\.lock|Pipfile(?:\\.lock)?|poetry\\.lock)$",
+    "^frontend/(?:package(?:-lock)?\\.json|pnpm-lock\\.yaml|yarn\\.lock|vite\\.config\\..*)$",
+    "^migrations/",
+    "^migration_manifest\\.json$",
+    "^config/(?:model_profiles|vision_models)\\.json$",
+    "^deploy/fast-release/",
+    "^deploy\\.ps1$",
+    "^scripts/pg_migration_runner\\.py$"
+  ],
+  "forbiddenPayloadPatterns": [
+    "(^|/)\\.env(?:\\..*)?$",
+    "(^|/)uploads(?:/|$)",
+    "(^|/)rag_storage[^/]*(?:/|$)",
+    "(^|/)output[^/]*(?:/|$)",
+    "(^|/)models(?:/|$)",
+    "(^|/)node_modules(?:/|$)",
+    "(^|/)\\.git(?:/|$)"
+  ],
+  "allowedComposeServices": ["app", "nginx"]
+}

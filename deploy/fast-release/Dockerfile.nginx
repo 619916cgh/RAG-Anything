@@ -1,0 +1,7 @@
+ARG NGINX_RUNTIME_IMAGE
+FROM ${NGINX_RUNTIME_IMAGE}
+
+LABEL org.opencontainers.image.title="RAG-Anything fast release frontend"
+
+COPY payload/nginx.conf /etc/nginx/conf.d/default.conf
+COPY payload/frontend/dist/ /usr/share/nginx/html/

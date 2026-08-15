@@ -7,11 +7,11 @@
 
 ## 2. Commit Fast Release
 
-- [ ] 2.1 Add thin app and Nginx release Dockerfiles that consume only an immutable runtime base plus a complete staged release payload.
-- [ ] 2.2 Add ignored local deployment configuration with a tracked example and SSH-key bootstrap guidance that does not contain credentials.
-- [ ] 2.3 Implement commit-only PowerShell staging, eligibility checks, archive hashing, remote upload, and sanitized manifest generation.
-- [ ] 2.4 Implement the remote lock, capacity preflight, import smoke, app-first/Nginx-second switch, health stability window, and rollback trap.
-- [ ] 2.5 Add focused tests for release eligibility, payload boundaries, remote service allowlist, and rollback behavior.
+- [x] 2.1 Add thin app and Nginx release Dockerfiles that consume only an immutable runtime base plus a complete staged release payload.
+- [x] 2.2 Add ignored local deployment configuration with a tracked example and SSH-key bootstrap guidance that does not contain credentials.
+- [x] 2.3 Implement commit-only PowerShell staging, eligibility checks, archive hashing, remote upload, and sanitized manifest generation.
+- [x] 2.4 Implement the remote lock, capacity preflight, import smoke, app-first/Nginx-second switch, health stability window, and rollback trap.
+- [x] 2.5 Add focused tests for release eligibility, payload boundaries, remote service allowlist, and rollback behavior.
 
 ## 3. Verification and Handoff
 
