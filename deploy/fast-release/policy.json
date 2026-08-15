@@ -13,7 +13,7 @@
     "^scripts/pg_migration_runner\\.py$"
   ],
   "forbiddenPayloadPatterns": [
-    "(^|/)\\.env(?:\\..*)?$",
+    "(^|/)\\.env(?:\\.(?!example$)[^/]+)?$",
     "(^|/)uploads(?:/|$)",
     "(^|/)rag_storage[^/]*(?:/|$)",
     "(^|/)output[^/]*(?:/|$)",

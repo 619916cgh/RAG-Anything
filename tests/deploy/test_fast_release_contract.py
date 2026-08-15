@@ -35,6 +35,7 @@ def test_policy_forbids_sensitive_or_persistent_payload_paths() -> None:
 
     for path in (
         ".env",
+        ".env.local",
         "uploads/example.pdf",
         "rag_storage/default",
         "output/report.json",
@@ -43,6 +44,7 @@ def test_policy_forbids_sensitive_or_persistent_payload_paths() -> None:
         ".git/config",
     ):
         assert any(pattern.search(path) for pattern in patterns), path
+    assert not any(pattern.search(".env.example") for pattern in patterns)
 
 
 def test_thin_release_images_copy_only_staged_payload() -> None:
