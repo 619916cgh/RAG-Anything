@@ -47,11 +47,11 @@ done
     echo "Required release inputs are missing." >&2
     exit 66
 }
-grep -Fq "\"commit_sha\": \"$commit\"" "$input_manifest" || {
+grep -Eq "\"commit_sha\"[[:space:]]*:[[:space:]]*\"$commit\"" "$input_manifest" || {
     echo "Release manifest commit does not match the requested release." >&2
     exit 65
 }
-grep -Fq "\"payload_sha256\": \"$expected_archive_sha\"" "$input_manifest" || {
+grep -Eq "\"payload_sha256\"[[:space:]]*:[[:space:]]*\"$expected_archive_sha\"" "$input_manifest" || {
     echo "Release manifest checksum does not match the requested release." >&2
     exit 65
 }
