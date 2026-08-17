@@ -63,6 +63,83 @@ test('streams authenticated terminal SSE events without reading past done', asyn
   assert.equal(requestHeaders.Authorization, 'Bearer token-1')
 })
 
+test('reports a distinct timeout when an SSE response has no first event', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  let cancelled = false
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: { getReader: () => ({
+      read: () => new Promise(() => {}),
+      cancel: async () => { cancelled = true },
+      releaseLock: () => {},
+    }) },
+  })
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage })
+
+  await assert.rejects(
+    streamSSE('/api/agents/a/query/stream', { firstEventTimeoutMs: 5, idleTimeoutMs: 5 }),
+    error => error?.code === 'SSE_FIRST_EVENT_TIMEOUT',
+  )
+  assert.equal(cancelled, true)
+})
+
+test('resets the SSE idle deadline for lifecycle events', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const encoder = new TextEncoder()
+  let reads = 0
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: { getReader: () => ({
+      read: () => {
+        reads += 1
+        return reads === 1
+          ? Promise.resolve({ done: false, value: encoder.encode('data: {"type":"heartbeat"}\n') })
+          : new Promise(() => {})
+      },
+      cancel: async () => {},
+      releaseLock: () => {},
+    }) },
+  })
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage })
+
+  await assert.rejects(
+    streamSSE('/api/agents/a/query/stream', { firstEventTimeoutMs: 50, idleTimeoutMs: 5 }),
+    error => error?.code === 'SSE_IDLE_TIMEOUT',
+  )
+  assert.equal(reads, 2)
+})
+
+test('preserves caller cancellation instead of converting it to an SSE timeout', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: { getReader: () => ({
+      read: () => new Promise(() => {}),
+      cancel: async () => {},
+      releaseLock: () => {},
+    }) },
+  })
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage })
+
+  const controller = new AbortController()
+  const request = streamSSE('/api/agents/a/query/stream', {
+    signal: controller.signal,
+    firstEventTimeoutMs: 50,
+    idleTimeoutMs: 50,
+  })
+  controller.abort()
+  await assert.rejects(request, error => error?.name === 'AbortError')
+})
+
 test('retries one unauthorized API request after a single-flight refresh', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage

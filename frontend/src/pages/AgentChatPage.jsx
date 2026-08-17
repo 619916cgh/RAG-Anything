@@ -419,6 +419,15 @@ export default function AgentChatPage({ onToast }) {
     const { type, content, elapsed, images } = event
     const isVisibleThread = !threadId || activeThreadIdRef.current === threadId
     switch (type) {
+      case 'accepted':
+        if (isVisibleThread) {
+          setMessages(prev => prev.map(m =>
+            m.id === msgId ? { ...m, thinking: [...(m.thinking || []), '正在准备知识库查询...'] } : m
+          ))
+        }
+        break
+      case 'heartbeat':
+        break
       case 'thinking':
         if (!isVisibleThread) break
         if (event.thought) {

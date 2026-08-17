@@ -8,6 +8,8 @@ const KB_STATS_TIMEOUT_MS = 8_000
 const KB_LIST_TIMEOUT_MS = 8_000
 const KB_LIST_CACHE_TTL_MS = 5_000
 const KB_DETAIL_PREFETCH_TIMEOUT_MS = 6_000
+export const SSE_FIRST_EVENT_TIMEOUT_MS = 20_000
+export const SSE_IDLE_TIMEOUT_MS = 45_000
 
 let currentKB = ''
 let kbListInFlight = null
@@ -278,28 +280,88 @@ function streamErrorMessage(payload, fallback) {
 
 export async function streamSSE(url, {
   method = 'POST', body, headers = {}, signal, onEvent, onParseError,
+  firstEventTimeoutMs = SSE_FIRST_EVENT_TIMEOUT_MS,
+  idleTimeoutMs = SSE_IDLE_TIMEOUT_MS,
 } = {}) {
+  const controller = new AbortController()
+  let timeoutKind = ''
+  let deadlineTimer = null
+  let firstEventReceived = false
+  const abortFromCaller = () => controller.abort()
+  const clearDeadline = () => {
+    if (deadlineTimer) clearTimeout(deadlineTimer)
+    deadlineTimer = null
+  }
+  const armDeadline = () => {
+    clearDeadline()
+    const timeoutMs = firstEventReceived ? idleTimeoutMs : firstEventTimeoutMs
+    timeoutKind = firstEventReceived ? 'SSE_IDLE_TIMEOUT' : 'SSE_FIRST_EVENT_TIMEOUT'
+    deadlineTimer = setTimeout(() => controller.abort(), timeoutMs)
+  }
+  const cleanupRequest = () => {
+    clearDeadline()
+    signal?.removeEventListener('abort', abortFromCaller)
+  }
+  const makeTimeoutError = () => {
+    const timeoutError = new Error(timeoutKind === 'SSE_FIRST_EVENT_TIMEOUT'
+      ? '问答启动超时，请重试。'
+      : '问答响应超时，请重试。')
+    timeoutError.code = timeoutKind
+    return timeoutError
+  }
+  const waitForAbortable = promise => new Promise((resolve, reject) => {
+    const abort = () => finish(reject, abortError())
+    const finish = (settle, value) => {
+      controller.signal.removeEventListener('abort', abort)
+      settle(value)
+    }
+    if (controller.signal.aborted) {
+      abort()
+      return
+    }
+    controller.signal.addEventListener('abort', abort, { once: true })
+    Promise.resolve(promise).then(
+      value => finish(resolve, value),
+      error => finish(reject, error),
+    )
+  })
+  if (signal) {
+    if (signal.aborted) throw abortError()
+    signal.addEventListener('abort', abortFromCaller, { once: true })
+  }
+  armDeadline()
   let response
   try {
-    response = await fetchWithAuthRefresh(url, {
+    response = await waitForAbortable(fetchWithAuthRefresh(url, {
       method,
       body,
-      signal,
+      signal: controller.signal,
       headers: authHeaders({ 'Content-Type': 'application/json', ...headers }),
-    })
+    }))
   } catch (error) {
+    cleanupRequest()
+    if (signal?.aborted) throw abortError()
+    if (timeoutKind && controller.signal.aborted) {
+      throw makeTimeoutError()
+    }
     if (error?.name === 'AbortError') throw error
     if (error?.message === 'Failed to fetch') throw new Error('网络错误：请检查前后端服务是否正常')
     throw error
+  } finally {
+    if (!response) signal?.removeEventListener('abort', abortFromCaller)
   }
 
   if (!response.ok) {
+    cleanupRequest()
     const payload = await readResponseBody(response, response.statusText || `HTTP ${response.status}`)
     const error = new Error(streamErrorMessage(payload, response.statusText || `HTTP ${response.status}`))
     error.status = response.status
     throw error
   }
-  if (!response.body) throw new Error('问答连接意外中断，请重试。')
+  if (!response.body) {
+    cleanupRequest()
+    throw new Error('问答连接意外中断，请重试。')
+  }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -317,13 +379,15 @@ export async function streamSSE(url, {
       onParseError?.(error, raw)
       return
     }
+    firstEventReceived = true
+    armDeadline()
     onEvent?.(event)
     if (event?.type === 'done' || event?.type === 'error') terminal = true
   }
 
   try {
     while (!terminal) {
-      const { done, value } = await reader.read()
+      const { done, value } = await waitForAbortable(reader.read())
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
@@ -338,8 +402,15 @@ export async function streamSSE(url, {
       if (buffer.trim()) consumeLine(buffer)
     }
     if (!terminal) throw new Error('问答连接意外中断，请重试。')
+  } catch (error) {
+    if (signal?.aborted) throw abortError()
+    if (timeoutKind && controller.signal.aborted) {
+      throw makeTimeoutError()
+    }
+    throw error
   } finally {
-    if (terminal) await reader.cancel().catch(() => {})
+    cleanupRequest()
+    if (terminal || controller.signal.aborted) await reader.cancel().catch(() => {})
     reader.releaseLock()
   }
 }

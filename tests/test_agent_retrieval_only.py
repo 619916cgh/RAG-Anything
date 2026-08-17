@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -304,3 +305,81 @@ async def test_unconsumed_stream_does_not_create_kb(monkeypatch):
     )
     assert called["kb"] == 0
     await response.body_iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_query_stream_emits_accepted_before_cold_core_is_ready(monkeypatch):
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class Lease:
+        instance = SimpleNamespace()
+
+        async def release(self):
+            return None
+
+    async def acquire(_kb, **_kwargs):
+        started.set()
+        await release.wait()
+        return Lease()
+
+    _wire_query_prerequisites(monkeypatch)
+    monkeypatch.setattr(agent_router, "acquire_query_kb", acquire)
+    monkeypatch.setattr(vision_models, "activate_llm_selection", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(vision_models, "reset_llm_snapshot", lambda _token: None)
+    monkeypatch.setattr(vision_models, "activate_vlm_selection", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(vision_models, "reset_vlm_snapshot", lambda _token: None)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(query="test", retrieval_only=True),
+        _Request(),
+        current_user={"id": 7, "username": "user", "is_admin": False},
+        _perm=None,
+    )
+    iterator = response.body_iterator
+    first = await anext(iterator)
+    assert json.loads(first.split("data: ", 1)[1])["type"] == "accepted"
+
+    next_event = asyncio.create_task(anext(iterator))
+    await started.wait()
+    assert not next_event.done()
+    release.set()
+    event = await asyncio.wait_for(next_event, timeout=1)
+    assert json.loads(event.split("data: ", 1)[1])["type"] == "agent_info"
+    await iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_query_stream_timeout_keeps_error_when_context_cleanup_fails(monkeypatch):
+    release = asyncio.Event()
+
+    async def acquire(_kb, **_kwargs):
+        await release.wait()
+        return SimpleNamespace(instance=SimpleNamespace(), release=lambda: None)
+
+    _wire_query_prerequisites(monkeypatch)
+    monkeypatch.setenv("AGENT_RETRIEVAL_TIMEOUT", "0.01")
+    monkeypatch.setattr(agent_router, "acquire_query_kb", acquire)
+    monkeypatch.setattr(vision_models, "activate_llm_selection", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        vision_models,
+        "reset_llm_snapshot",
+        lambda _token: (_ for _ in ()).throw(ValueError("different Context")),
+    )
+    monkeypatch.setattr(vision_models, "activate_vlm_selection", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(vision_models, "reset_vlm_snapshot", lambda _token: None)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(query="test", retrieval_only=True),
+        _Request(),
+        current_user={"id": 7, "username": "user", "is_admin": False},
+        _perm=None,
+    )
+    body = await _body(response)
+    release.set()
+    await asyncio.sleep(0)
+    events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+    assert [event["type"] for event in events][-1] == "error"
+    assert any(event["type"] == "accepted" for event in events)

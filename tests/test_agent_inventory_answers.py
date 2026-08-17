@@ -74,12 +74,14 @@ async def test_inventory_answer_streams_and_persists_without_retrieval_or_llm(mo
     )
     events = [json.loads(line[6:]) for line in (await _body(response)).splitlines() if line.startswith("data: ")]
 
-    assert [event["type"] for event in events] == ["agent_info", "token", "done"]
-    assert "知识库文件库存：总数 6" in events[1]["content"]
-    assert "视频 6" in events[1]["content"]
-    assert events[2]["inventory"]["all"]["total"] == 6
-    assert events[2]["inventory"]["types"]["video"]["total"] == 6
-    assert "citations" not in events[2]
+    assert [event["type"] for event in events] == ["accepted", "agent_info", "token", "done"]
+    token_event = next(event for event in events if event["type"] == "token")
+    done_event = next(event for event in events if event["type"] == "done")
+    assert "知识库文件库存：总数 6" in token_event["content"]
+    assert "视频 6" in token_event["content"]
+    assert done_event["inventory"]["all"]["total"] == 6
+    assert done_event["inventory"]["types"]["video"]["total"] == 6
+    assert "citations" not in done_event
     assert [message["role"] for message in calls["messages"]] == ["user", "assistant"]
     assert calls["record"] == 1
 

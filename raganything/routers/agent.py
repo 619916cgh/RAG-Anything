@@ -1166,6 +1166,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         async def inventory_event_stream():
             timing_outcome = "ok"
             try:
+                yield f"data: {json.dumps({'type': 'accepted'}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.get('name', ''), 'icon': agent.get('icon', ''), 'thread_id': thread_id}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'token', 'content': answer}, ensure_ascii=False)}\n\n"
                 elapsed = 0.0
@@ -1443,20 +1444,31 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         handler = LogCaptureHandler(log_queue)
         lightrag_logger.addHandler(handler)
         query_kb_lease = None
+        acquire_task: asyncio.Task | None = None
         full_answer = ""
         timing_outcome = "ok"
         citation_context = ""
 
         try:
+            yield f"data: {json.dumps({'type': 'accepted'}, ensure_ascii=False)}\n\n"
             timing.start("query_core_acquire")
-            query_kb_lease = await await_before_deadline(
+            acquire_task = asyncio.create_task(
                 acquire_query_kb(
                     actual_kb,
                     corpus_revision=query_scope.get("corpus_revision"),
-                ),
-                retrieval_deadline,
-                cancel_on_timeout=False,
+                )
             )
+            while not acquire_task.done():
+                remaining = retrieval_deadline - time.monotonic()
+                if remaining <= 0:
+                    acquire_task.add_done_callback(_consume_background_task_result)
+                    raise TimeoutError("知识库检索超时，请重试。")
+                done, _ = await asyncio.wait(
+                    {acquire_task}, timeout=min(5.0, remaining)
+                )
+                if acquire_task not in done:
+                    yield f"data: {json.dumps({'type': 'heartbeat'}, ensure_ascii=False)}\n\n"
+            query_kb_lease = acquire_task.result()
             instance = query_kb_lease.instance
             timing.finish(
                 "query_core_acquire",
@@ -2342,12 +2354,26 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
         finally:
             _cancel_and_observe_task(ctx_task)
+            if acquire_task is not None and not acquire_task.done():
+                acquire_task.add_done_callback(_consume_background_task_result)
             if vlm_context_token is not None:
-                vision_models.reset_vlm_snapshot(vlm_context_token)
-            vision_models.reset_llm_snapshot(llm_context_token)
-            lightrag_logger.removeHandler(handler)
+                try:
+                    vision_models.reset_vlm_snapshot(vlm_context_token)
+                except Exception:
+                    lightrag_logger.warning("Interactive VLM context cleanup failed", exc_info=True)
+            try:
+                vision_models.reset_llm_snapshot(llm_context_token)
+            except Exception:
+                lightrag_logger.warning("Interactive LLM context cleanup failed", exc_info=True)
+            try:
+                lightrag_logger.removeHandler(handler)
+            except Exception:
+                lightrag_logger.warning("Interactive query log cleanup failed", exc_info=True)
             if query_kb_lease is not None:
-                await query_kb_lease.release()
+                try:
+                    await query_kb_lease.release()
+                except Exception:
+                    lightrag_logger.warning("Interactive query-core release failed", exc_info=True)
             if lease_heartbeat_task is not None:
                 lease_heartbeat_task.cancel()
                 try:
@@ -2356,8 +2382,14 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     pass
                 except Exception:
                     lightrag_logger.warning("Interactive quota heartbeat failed", exc_info=True)
-            await _release_interactive_lease()
-            timing.total(outcome=timing_outcome)
+            try:
+                await _release_interactive_lease()
+            except Exception:
+                lightrag_logger.warning("Interactive quota release failed", exc_info=True)
+            try:
+                timing.total(outcome=timing_outcome)
+            except Exception:
+                lightrag_logger.warning("Interactive query timing cleanup failed", exc_info=True)
 
     return StreamingResponse(
         authenticated_sse_events(event_stream(), current_user),
