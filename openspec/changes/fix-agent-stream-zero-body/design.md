@@ -24,6 +24,10 @@ The agent route creates an HTTP SSE response but waits for `acquire_query_kb()` 
 
 The generator will yield `accepted` before endpoint-local blocking preparation or slow query-core acquisition, then `heartbeat` at a bounded interval while core acquisition remains pending. The authenticated SSE wrapper flushes only this exact content-free event without a second account lookup; every event that can carry protected state retains the current-session check. This provides feedback without leaking query content or internal dependency state. Reusing a `thinking` payload was rejected because it would blur transport lifecycle and user-facing reasoning.
 
+### Edge streaming
+
+The Nginx route for agent query streams disables response, request, and proxy-cache buffering. A correct application-level yield alone is insufficient when the generic reverse-proxy location coalesces a small first SSE chunk until its buffer fills.
+
 ### Poll acquisition within the existing deadline
 
 The route will wait for the core in short intervals up to the current retrieval deadline, yielding heartbeats between intervals. On deadline expiry it detaches the shared acquisition task with its exception consumed, matching the current non-cancelling behavior. This is preferred to a second independent initialization because it preserves core-cache coordination.

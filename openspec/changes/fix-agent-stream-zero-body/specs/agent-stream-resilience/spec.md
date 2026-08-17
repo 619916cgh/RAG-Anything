@@ -15,6 +15,10 @@ The authenticated agent streaming endpoint SHALL emit an additive `accepted` SSE
 - **WHEN** the request dependencies have authenticated the caller and the subsequent account-session lookup is slow
 - **THEN** the client receives the exact content-free `accepted` event before that repeat lookup, while later protected events still require a current session
 
+#### Scenario: Edge proxy handles a small lifecycle event
+- **WHEN** the application emits a small `accepted` SSE chunk through Nginx
+- **THEN** the edge forwards the chunk without response buffering, request buffering, or proxy-cache coalescing
+
 ### Requirement: Pending agent streams remain observable
 The endpoint SHALL emit additive `heartbeat` SSE events at a bounded interval while query-core acquisition is pending and the request deadline has not elapsed.
 
