@@ -5,6 +5,7 @@ import {
   Pencil, RotateCcw, Search, Sigma, Table, Tag, Trash2, Video, X, Zap,
 } from 'lucide-react'
 import { api } from '../utils/api'
+import { formatDate } from '../utils/dateFormat'
 import { getChunkingStrategyPresentation } from '../utils/chunkingStrategyPresentation'
 import { getChunkPresentation } from '../utils/chunkPresentation'
 import { getDocumentTagPresentation } from '../utils/documentTagHealth'
@@ -38,16 +39,6 @@ const TYPE_META = {
 function formatNumber(value) {
   const number = Number(value || 0)
   return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '0'
-}
-
-function formatDate(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value).slice(0, 19)
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(date)
 }
 
 function MediaPreview({ chunk, type, onOpen, detailLabel }) {

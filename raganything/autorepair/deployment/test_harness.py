@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class TestHarness:
             "failed": failed,
             "skipped": skipped,
             "results": self._results,
-            "run_at": datetime.now().isoformat(),
+            "run_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def test_qa_basic(self) -> dict:

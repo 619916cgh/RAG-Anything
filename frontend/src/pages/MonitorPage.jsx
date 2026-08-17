@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { api } from '../utils/api'
-import { formatDate } from '../utils/dateFormat'
+import { formatDate, formatTime } from '../utils/dateFormat'
 import { useAuth } from '../context/AuthContext'
 
 // 图表颜色：Recharts 需要十六进制字面量，全部取自 DESIGN.md
@@ -321,7 +321,7 @@ export default function MonitorPage({ onToast }) {
               <div key={i} className="flex items-start gap-3 text-xs">
                 <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 bg-sky-400"/>
                 <div>
-                  <span className="text-ink-muted dark:text-cloud-500 font-mono">{e.time?.slice(11, 19) || ''}</span>
+                  <span className="text-ink-muted dark:text-cloud-500 font-mono">{formatTime(e.time)}</span>
                   <span className="text-sky-500 dark:text-sky-400 ml-2 font-medium">{formatEventLabel(e.event)}</span>
                   <span className="text-ink-muted dark:text-cloud-500 ml-2">{e.file || ''}</span>
                   {e.error && <p className="text-rose-500 mt-0.5">{e.error.slice(0, 80)}</p>}

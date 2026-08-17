@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class ProcessLibrary:
             "id": doc_id, "title": file_path.stem, "category": category,
             "parameters": params, "file_path": str(file_path.absolute()),
             "file_size_bytes": file_path.stat().st_size,
-            "ingested_at": datetime.now().isoformat(),
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
             "text_preview": text[:500], "full_text": text,
         }
 
@@ -238,4 +238,3 @@ class ProcessLibrary:
                         "unit": match[2] if len(match) > 2 else "",
                     })
         return params
-

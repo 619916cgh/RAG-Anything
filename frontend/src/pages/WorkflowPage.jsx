@@ -14,6 +14,7 @@ import WorkflowToolbar from '../components/workflow/WorkflowToolbar'
 import NodeConfigPanel from '../components/workflow/NodeConfigPanel'
 import WorkflowRunPanel from '../components/workflow/WorkflowRunPanel'
 import { useAuth } from '../context/AuthContext'
+import { formatDate } from '../utils/dateFormat'
 
 const API = '/api/workflows'
 
@@ -453,7 +454,7 @@ function WorkflowPageInner() {
                     <div key={w.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-cloud-200 border border-cloud-200">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-ink-body truncate">{w.name}</p>
-                        <p className="text-2xs text-ink-muted">{new Date(w.updated_at || w.created_at).toLocaleString()}</p>
+                        <p className="text-2xs text-ink-muted">{formatDate(w.updated_at || w.created_at)}</p>
                       </div>
                       <div className="flex gap-1.5 ml-3">
                         <button onClick={() => handleLoad(w.id)} className="px-3 py-1.5 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-coral-100 transition-colors">加载</button>

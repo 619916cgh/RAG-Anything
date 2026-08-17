@@ -7,7 +7,7 @@ Uses PostgreSQL ``dashboard_query_log`` table exclusively.
 import json
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class Dashboard:
             "top_queries": await self._get_top_queries(10, kb_name=kb_name),
             "user_activity": await self._get_user_activity(kb_name=kb_name),
             "query_trend": await self._get_query_trend(kb_name=kb_name),
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     # ── Metrics ───────────────────────────────────────

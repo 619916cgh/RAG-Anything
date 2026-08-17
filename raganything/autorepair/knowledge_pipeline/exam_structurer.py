@@ -7,7 +7,7 @@
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..knowledge_graph.parser import ExamParser
@@ -64,7 +64,7 @@ class ExamStructurer:
         output_data = {
             "metadata": {
                 "competition_track": competition_track,
-                "processed_at": datetime.now().isoformat(),
+                "processed_at": datetime.now(timezone.utc).isoformat(),
                 "source_files": len(files),
                 "total_questions": len(all_questions),
                 "total_knowledge_nodes": len(all_nodes),

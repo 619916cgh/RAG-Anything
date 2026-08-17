@@ -6,7 +6,7 @@
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -148,7 +148,7 @@ class OpsMonitor:
                 endpoint_counts.items(), key=lambda x: x[1], reverse=True
             )[:5],
             "alerts_this_month": alert_count or 0,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
     async def save_metrics_snapshot(self) -> str:

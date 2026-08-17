@@ -5,7 +5,7 @@
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class EnterpriseAdapter:
             "process_docs_imported": 0,
             "fault_cases_imported": 0,
             "errors": [],
-            "adapted_at": datetime.now().isoformat(),
+            "adapted_at": datetime.now(timezone.utc).isoformat(),
         }
 
         # 注册企业配置
@@ -128,5 +128,5 @@ class EnterpriseAdapter:
             "valid": len(issues) == 0,
             "issues": issues,
             "warnings": warnings,
-            "validated_at": datetime.now().isoformat(),
+            "validated_at": datetime.now(timezone.utc).isoformat(),
         }

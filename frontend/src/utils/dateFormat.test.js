@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatDate } from './dateFormat.js'
+import { formatDate, formatTime } from './dateFormat.js'
 
 test('rejects version-number-like values that previously rendered as 2000-01-01', () => {
   assert.equal(formatDate('0'), '')
@@ -19,6 +19,12 @@ test('renders the same Beijing instant from naive, +08:00 and UTC inputs', () =>
   assert.equal(formatDate('2026-08-03T14:30:00'), '2026/08/03 14:30')
   assert.equal(formatDate('2026-08-03T14:30:00+08:00'), '2026/08/03 14:30')
   assert.equal(formatDate('2026-08-03T06:30:00+00:00'), '2026/08/03 14:30')
+})
+
+test('formats UTC timestamps as the viewer local clock time', () => {
+  assert.equal(formatTime('2026-08-03T06:30:15+00:00'), '14:30:15')
+  assert.equal(formatTime('2026-08-03T14:30:15+08:00'), '14:30:15')
+  assert.equal(formatTime('not-a-date'), '')
 })
 
 test('returns empty string for missing or invalid input', () => {

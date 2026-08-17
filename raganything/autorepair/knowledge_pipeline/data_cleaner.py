@@ -13,7 +13,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ class DataCleaner:
     def _generate_report(self, failed_items: list[dict]) -> str:
         lines = [
             "# 数据清洗报告",
-            f"生成时间: {datetime.now().isoformat()}",
+                f"生成时间: {datetime.now(timezone.utc).isoformat()}",
             "",
             "## 统计",
             f"- 总记录: {self.clean_stats['total']}",

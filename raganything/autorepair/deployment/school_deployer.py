@@ -3,7 +3,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class SchoolDeployer:
             "school_name": school_name,
             "tracks": tracks or [],
             "status": "deploying",
-            "deployed_at": datetime.now().isoformat(),
+            "deployed_at": datetime.now(timezone.utc).isoformat(),
             "health": "pending",
         }
 
@@ -76,7 +76,7 @@ class SchoolDeployer:
             "query": query,
             "rating": rating,
             "comment": comment,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         if school_id not in self._feedback:
@@ -125,7 +125,7 @@ class SchoolDeployer:
             "deployed_at": deployment.get("deployed_at", ""),
             "feedback": feedback_summary,
             "recommendations": self._generate_recommendations(feedback_summary),
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def _generate_recommendations(self, feedback_summary: dict) -> list[str]:

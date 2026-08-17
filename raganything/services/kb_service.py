@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from raganything.services.runtime_settings import bootstrap_runtime_settings
@@ -5484,7 +5484,7 @@ async def _process_uploaded_file(
     # queue task dictionaries can be expanded without altering that authority.
     task_data = {
         "id": task_id, "file": filename, "status": "processing",
-        "started_at": datetime.now().isoformat(), "progress": 0,
+        "started_at": datetime.now(timezone.utc).isoformat(), "progress": 0,
         "kb": kb_name, "user_id": user_id,
         "phase": "initializing",
         "phase_status": "start",

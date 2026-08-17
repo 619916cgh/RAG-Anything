@@ -7,7 +7,7 @@ import io
 import os
 import sys
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from raganything.services.runtime_settings import bootstrap_runtime_settings
 
@@ -345,7 +345,7 @@ async def startup():
     # administrator's real database ID (which is not necessarily 1).
     default_created = "default" not in meta
     if default_created:
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         meta["default"] = {
             "name": "默认知识库",
             "created": now,

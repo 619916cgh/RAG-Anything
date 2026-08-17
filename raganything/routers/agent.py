@@ -9,7 +9,7 @@ import queue
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -1668,7 +1668,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         timing.start("persistence")
                         await pg_add_message(agent_id, thread_id, {
                             "role": "user", "content": req.query,
-                            "time": datetime.now().isoformat(),
+                            "time": datetime.now(timezone.utc).isoformat(),
                             **scope_metadata,
                         })
                         await pg_add_message(agent_id, thread_id, {
@@ -1676,7 +1676,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             "elapsed": elapsed, "mode": query_mode,
                             "agent_mode": agent_mode, "trace": [],
                             "fallback": True,
-                            "time": datetime.now().isoformat(),
+                            "time": datetime.now(timezone.utc).isoformat(),
                             **scope_metadata,
                             **_assistant_message_media([], _display_similar_images, image_description),
                         })
@@ -1684,7 +1684,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             "id": query_id, "query": req.query, "mode": query_mode,
                             "agent_mode": agent_mode, "answer": full_answer,
                             "reasoning_trace": {"steps": [], "total_steps": 0},
-                            "images": [], "time": datetime.now().isoformat(),
+                            "images": [], "time": datetime.now(timezone.utc).isoformat(),
                             "elapsed": elapsed, "kb": actual_kb,
                             "agent_id": agent_id, "thread_id": thread_id,
                             "user_id": current_user["id"], "username": current_user["username"],
@@ -1776,14 +1776,14 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 timing.start("persistence")
                 await pg_add_message(agent_id, thread_id, {
                     "role": "user", "content": req.query,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                 })
                 await pg_add_message(agent_id, thread_id, {
                     "role": "assistant", "content": full_answer,
                     "elapsed": elapsed, "mode": query_mode,
                     "agent_mode": agent_mode, "trace": client_trace_steps,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                     **_assistant_message_media(agent_images, _display_similar_images, image_description),
                 })
@@ -1793,7 +1793,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "id": query_id, "query": req.query, "mode": query_mode,
                     "agent_mode": agent_mode, "answer": full_answer,
                     "reasoning_trace": {"steps": client_trace_steps, "total_steps": len(client_trace_steps)},
-                    "images": agent_images, "time": datetime.now().isoformat(),
+                    "images": agent_images, "time": datetime.now(timezone.utc).isoformat(),
                     "elapsed": elapsed, "kb": actual_kb,
                     "agent_id": agent_id, "thread_id": thread_id,
                     "user_id": current_user["id"], "username": current_user["username"],
@@ -1914,7 +1914,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 await pg_add_message(agent_id, thread_id, {
                     "role": "user",
                     "content": req.query,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                 })
                 await pg_add_message(agent_id, thread_id, {
@@ -1923,7 +1923,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "elapsed": round(time.time() - start_time, 2),
                     "mode": query_mode,
                     "fallback": True,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                     **_assistant_message_media(agent_images, _display_similar_images, image_description),
                 })
@@ -1935,7 +1935,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "mode": query_mode,
                     "answer": full_answer,
                     "images": agent_images,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     "elapsed": round(time.time() - start_time, 2),
                     "kb": actual_kb,
                     "agent_id": agent_id,
@@ -2027,7 +2027,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 await pg_add_message(agent_id, thread_id, {
                     "role": "user",
                     "content": req.query,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                 })
                 await pg_add_message(agent_id, thread_id, {
@@ -2036,7 +2036,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "elapsed": round(time.time() - start_time, 2),
                     "mode": query_mode,
                     "fallback": True,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                     **_assistant_message_media(agent_images, _display_similar_images, image_description),
                 })
@@ -2048,7 +2048,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "mode": query_mode,
                     "answer": full_answer,
                     "images": agent_images,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.now(timezone.utc).isoformat(),
                     "elapsed": round(time.time() - start_time, 2),
                     "kb": actual_kb,
                     "agent_id": agent_id,
@@ -2171,7 +2171,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             await pg_add_message(agent_id, thread_id, {
                 "role": "user",
                 "content": req.query,
-                "time": datetime.now().isoformat(),
+                "time": datetime.now(timezone.utc).isoformat(),
                 **scope_metadata,
             })
             await pg_add_message(agent_id, thread_id, {
@@ -2180,7 +2180,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "elapsed": elapsed,
                 "mode": query_mode,
                 "fallback": is_fallback,
-                "time": datetime.now().isoformat(),
+                "time": datetime.now(timezone.utc).isoformat(),
                 **scope_metadata,
                 **_assistant_message_media(agent_images, _display_similar_images, image_description),
             })
@@ -2192,7 +2192,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "mode": query_mode,
                 "answer": full_answer,
                 "images": agent_images,
-                "time": datetime.now().isoformat(),
+                "time": datetime.now(timezone.utc).isoformat(),
                 "elapsed": elapsed,
                 "kb": actual_kb,
                 "agent_id": agent_id,

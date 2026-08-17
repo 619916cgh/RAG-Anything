@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronUp, ChevronDown, Clock, CheckCircle2, XCircle, History } from 'lucide-react'
+import { formatTime } from '../../utils/dateFormat'
 
 export default function WorkflowRunPanel({ runs, currentRun, onSelectRun }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -35,7 +36,7 @@ export default function WorkflowRunPanel({ runs, currentRun, onSelectRun }) {
               <span className="text-ink-muted">
                 {currentRun.status === 'completed' ? '完成' : currentRun.status === 'failed' ? '失败' : '运行中'}
               </span>
-              <span className="text-ink-muted">· {currentRun.started_at ? new Date(currentRun.started_at).toLocaleTimeString() : ''}</span>
+              <span className="text-ink-muted">· {formatTime(currentRun.started_at)}</span>
             </>
           )}
         </div>
@@ -50,7 +51,7 @@ export default function WorkflowRunPanel({ runs, currentRun, onSelectRun }) {
             >
               {runs.map((r) => (
                 <option key={r.run_id} value={r.run_id}>
-                  {new Date(r.started_at).toLocaleTimeString()} - {r.status === 'completed' ? '完成' : r.status === 'failed' ? '失败' : '运行中'} {r.workflow_name}
+                  {formatTime(r.started_at)} - {r.status === 'completed' ? '完成' : r.status === 'failed' ? '失败' : '运行中'} {r.workflow_name}
                 </option>
               ))}
             </select>

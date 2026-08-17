@@ -15,7 +15,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import deque
 
 RUNS_DIR = Path("./workflows/runs")
@@ -464,7 +464,7 @@ async def execute_workflow(
     node_order = topological_sort(nodes, edges)
 
     run_id = str(uuid.uuid4())
-    started_at = datetime.now().isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     node_results = []
     node_outputs = {}
     final_status = "completed"
@@ -474,7 +474,7 @@ async def execute_workflow(
     ctx._run_id_cache = run_id  # 供外部 status_callback 使用
 
     async def push_status(node_id, status, data=None):
-        node_results.append({"node_id": node_id, "status": status, "data": data or {}, "timestamp": datetime.now().isoformat()})
+        node_results.append({"node_id": node_id, "status": status, "data": data or {}, "timestamp": datetime.now(timezone.utc).isoformat()})
         if status_callback:
             await status_callback(node_id, status, data)
 
@@ -519,7 +519,7 @@ async def execute_workflow(
         last_out = node_outputs.get(node_order[-1], {}) if node_order else {}
         final_output = json.dumps(last_out, ensure_ascii=False, indent=2)
 
-    completed_at = datetime.now().isoformat()
+    completed_at = datetime.now(timezone.utc).isoformat()
     run_record = {
         "run_id": run_id, "workflow_id": workflow.get("id", "unknown"),
         "workflow_name": workflow.get("name", "unnamed"),
