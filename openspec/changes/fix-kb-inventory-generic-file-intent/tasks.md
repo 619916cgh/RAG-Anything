@@ -11,4 +11,4 @@
 ## 3. Verification And Release
 
 - [x] 3.1 Run focused tests, compilation, OpenSpec strict validation, and scoped diff checks.
-- [ ] 3.2 Correct the project summary diagnosis, commit only task-owned files, deploy the explicit commit through the fast-release gate, and perform independent read-only acceptance.
+- [x] 3.2 Correct the project summary diagnosis, commit only task-owned files, deploy the explicit commit through the fast-release gate, and perform independent read-only acceptance.
