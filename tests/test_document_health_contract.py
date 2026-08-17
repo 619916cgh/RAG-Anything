@@ -71,7 +71,7 @@ def test_processed_raw_status_with_pending_multimodal_work_is_not_healthy():
     assert result["health"] == "processing"
 
 
-def test_pending_or_failed_tags_override_public_completion():
+def test_pending_or_failed_tags_preserve_public_content_completion():
     pending = _apply_enrichment_status_overlay({
         "status": "processed", "health": "healthy", "tag_status": "running",
     })
@@ -80,11 +80,11 @@ def test_pending_or_failed_tags_override_public_completion():
         "tag_error_message": "tagger failed",
     })
 
-    assert pending["status"] == "handling"
-    assert pending["health"] == "processing"
-    assert failed["status"] == "degraded"
-    assert failed["health"] == "degraded"
-    assert failed["error_message"] == "tagger failed"
+    assert pending["status"] == "processed"
+    assert pending["health"] == "healthy"
+    assert failed["status"] == "processed"
+    assert failed["health"] == "healthy"
+    assert failed["tag_error_message"] == "tagger failed"
 
 
 @pytest.mark.asyncio

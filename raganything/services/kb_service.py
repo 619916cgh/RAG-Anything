@@ -2600,6 +2600,27 @@ async def load_document_summary_page(
     )
 
 
+async def load_document_summary_records(
+    kb_name: str,
+    *,
+    runtime_tasks: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Load every deduplicated list-view record without exposing document content."""
+    page = 1
+    records: list[dict[str, Any]] = []
+    while True:
+        summary_page = await load_document_summary_page(
+            kb_name,
+            page=page,
+            page_size=100,
+            runtime_tasks=runtime_tasks,
+        )
+        records.extend(summary_page["documents"])
+        if not summary_page["has_next"]:
+            return records
+        page += 1
+
+
 async def _load_doc_status_json(kb_name: str) -> dict[str, Any]:
     """Load doc_status data for a KB, dispatching PG → LightRAG API → JSON fallback.
 

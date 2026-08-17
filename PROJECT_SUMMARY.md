@@ -86,6 +86,7 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 - **知识库/智能体空态布局修复**：前端页面仅在加载中或存在当前分页结果时挂载资源卡片网格；零资源、搜索无匹配和列表加载失败直接渲染主内容空态，避免桌面 `1fr` 网格将空态推到底部。未改变五级 RBAC、资源所有权或写操作门控；学生、助教、教师、系部管理员和超级管理员沿用各自可见资源与 CTA 规则。
 - **图片召回与会话摘要 Schema**：`fix-agent-media-deadline-and-summary-schema` 已纳入集成检查点（未归档），实现独立媒体预算、超时保留已验证图片和幂等迁移 `027`；本地 PostgreSQL 已连续执行两次并核验摘要列与部分索引，仍待重启后的真实问答验收。
 - **视频语义分段索引**：进行中；新视频固定 v2、中文分段、无页码空块；legacy 处理器/整段模板退役，遗留未完成任务取消或以 `video_profile_retired` 失败，历史成品不回填。段字数回写且重试不累计；帧短暂不可读重试，持续失败以可重试 `video_frame_encode_failed` 输出，不走 Docling/OCR 兜底或误报完成。批量以完整任务 ID 隔离暂存，逐文件稳定序号并区分重复跳过/注册失败、清理未入队文件。聚焦 151 通过、2 跳过；真实 Worker/PG 待验收。v2 索引吞吐优化已落地（`optimize-video-index-throughput`）：新增阶段耗时指标（`video_v2_metrics`/`video_v2_segment_metrics`）、`VIDEO_SEGMENT_CONCURRENT`（默认 2、上限 4）受控并发处理独立片段、按片段序号确定性写入、v2 延迟整文档落盘消除逐块 JSON 全量重写。
+- **知识库库存与智能体数量问答**：`accurate-kb-inventory-answers` 已在未提交工作区实现。`GET /knowledge/inventory` 从去重后的文档摘要与运行时任务聚合全库、按类型的总数/可检索/内容入库中/标签处理中/失败；不返回文件标识、路径或内容。高置信中文库存问题在 KB 授权后直接走确定性 SSE/会话持久化，不申请模型、配额或检索实例；“视频中有多少零件”等内容问题仍走 RAG。标签 pending/failed 不再覆盖已可检索内容状态，详情页同时显示内容状态和标签状态，并使用同一库存接口显示全库分解。生产尚未部署；仅在备份、原视频与任务归属核验完成后才可恢复单个标签任务。
 
 ### 计划与待收敛 OpenSpec
 
@@ -521,6 +522,12 @@ RAG-Anything 是面向教育和专业实训场景的多模态知识库与智能�
 - Nginx now enables gzip only for text, CSS, JavaScript, JSON, XML, and SVG, leaving already-compressed font/media assets outside the explicit type list. No API, RBAC, database, migration, or persisted data behavior changed.
 - Local verification: frontend unit suite 176 passed, Vite production build passed, scoped diff check passed, and local API health/auth smoke passed. Production Nginx compression headers, authenticated browser waterfall, slow-network recovery, and large-KB document pagination/load testing remain unverified; the detail endpoint still returns an unpaginated document list and needs a separately designed backward-compatible pagination change.
 
+## 80. 2026-08-17 knowledge-base inventory and deterministic agent counts
+
+- Added a shared, aggregate-only inventory service and `GET /knowledge/inventory`. It reuses document-summary deduplication and runtime-task merging, classifies files by type, and reports total/retrievable/content-processing/tag-processing/failed without names, paths, IDs, or content. Read access remains enforced by the existing KB dependency plus `kb:read`.
+- High-confidence Chinese inventory prompts now bypass model profile resolution, quota leases, retrieval cores, RAG, and LLM calls after KB authorization. They still create or validate the caller-owned conversation, persist both messages, record the query, and emit normal `agent_info`/`token`/`done` SSE events with aggregate inventory metadata. Content questions such as “视频中有多少零件” remain on the ordinary RAG path.
+- Document completion now remains visibly retrievable while tags are pending, retrying, or failed; the knowledge detail page separately displays tag state and consumes the shared inventory endpoint for its full-KB status decomposition.
+- Local verification: focused backend suite 25 passed, frontend API/status suites 33 passed, Python compilation, frontend production build, OpenSpec strict validation, and scoped diff check passed. No server, production database, Worker, browser, migration, deployment, or task-retry action was performed. Production recovery remains gated on a confirmed backup plus read-only validation of the missing upload and the single tag task's ownership.
 ## 42. 2026-08-11 User-visible document-name cleanup
 
 - Uploaded files retain their unique staged names for storage, retry, deduplication, and download lookup. A shared display-only helper now removes legacy 8-hex and current 32-hex prefixes at user-facing boundaries.

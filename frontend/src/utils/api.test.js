@@ -203,7 +203,7 @@ test('document summary requests encode KB, page, size and literal search terms',
   )
 })
 
-test('detail prefetch shares in-flight document and statistics requests', async t => {
+test('detail prefetch shares in-flight document, statistics, and inventory requests', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage
   const calls = []
@@ -226,11 +226,12 @@ test('detail prefetch shares in-flight document and statistics requests', async 
   const second = api.prefetchKnowledgeDetail('manuals')
 
   const [result, secondResult] = await Promise.all([first, second])
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
   assert.equal(result.documents.status, 'ready')
   assert.deepEqual(secondResult, result)
   assert.deepEqual(result.documents.data, [{ id: 'doc-1' }])
   assert.equal(result.stats.data.documents, 1)
+  assert.equal(result.inventory.status, 'ready')
 })
 
 test('cancelling one detail consumer does not abort or poison the shared prefetch', async t => {
@@ -262,12 +263,12 @@ test('cancelling one detail consumer does not abort or poison the shared prefetc
 
   await assert.rejects(cancelledConsumer, error => error?.name === 'AbortError')
   const result = await survivingConsumer
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
   assert.equal(result.documents.status, 'ready')
   assert.equal(api.getCachedKnowledgeDetail('manuals').stats.data.documents, 1)
 })
 
-test('cancelling the final detail consumer aborts document and statistics fetches without caching an error snapshot', async t => {
+test('cancelling the final detail consumer aborts document, statistics, and inventory fetches without caching an error snapshot', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage
   const signals = []
@@ -286,7 +287,7 @@ test('cancelling the final detail consumer aborts document and statistics fetche
   const controller = new AbortController()
   const request = api.prefetchKnowledgeDetail('manuals', { signal: controller.signal })
   await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(signals.length, 2)
+  assert.equal(signals.length, 3)
   controller.abort()
   await assert.rejects(request, error => error?.name === 'AbortError')
   await new Promise(resolve => setTimeout(resolve, 0))

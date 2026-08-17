@@ -71,6 +71,7 @@ from raganything.services.kb_service import (
     load_kb_meta,
     pg_get_latest_content_updates_batch,
 )
+from raganything.services.knowledge_inventory import get_knowledge_inventory
 from raganything.utils.kb_display_name import get_knowledge_base_display_name
 from raganything.services.odl_media_delivery import catalog_media_payload
 from raganything.services.query_timing import QueryTiming
@@ -807,6 +808,68 @@ def _build_agent_llm(runtime_config: dict, selected_llm=None):
 
 router = APIRouter(tags=["agents"])
 
+async def _require_owned_conversation(
+    agent_id: str, thread_id: str, current_user: dict
+) -> dict:
+    """Return an existing conversation only to its exact creator."""
+    thread = await pg_get_conversation(agent_id, thread_id)
+    if not thread:
+        raise HTTPException(404, "对话线程不存在")
+    if thread.get("owner_id") != current_user.get("id"):
+        raise HTTPException(403, "无权访问该对话")
+    return thread
+
+
+_INVENTORY_TYPE_LABELS = {
+    "video": "视频", "pdf": "PDF 文档", "document": "文档",
+    "spreadsheet": "表格", "presentation": "演示文稿", "image": "图片", "audio": "音频",
+}
+_INVENTORY_TYPE_PATTERNS = (
+    ("video", re.compile(r"视频|录像|影片")), ("pdf", re.compile(r"pdf")),
+    ("document", re.compile(r"word|文档|文件|资料")), ("spreadsheet", re.compile(r"excel|表格|工作表")),
+    ("presentation", re.compile(r"ppt|演示文稿|幻灯片")), ("image", re.compile(r"图片|图像")),
+    ("audio", re.compile(r"音频|录音")),
+)
+
+
+def detect_knowledge_inventory_intent(query: str) -> str | None:
+    """Return a requested file type only for unambiguous KB stock questions."""
+    normalized = str(query or "").strip().lower()
+    if not normalized:
+        return None
+    has_inventory_object = bool(re.search(r"知识库|资料库|文档库|文件库|视频库", normalized))
+    has_quantity = bool(re.search(r"多少|几个|几份|数量|总数|统计|盘点", normalized))
+    if not (has_inventory_object and has_quantity):
+        return None
+    for file_type, pattern in _INVENTORY_TYPE_PATTERNS:
+        if pattern.search(normalized):
+            return file_type
+    trailing = re.search(r"(?:多少|几个|几份)\s*(?:个|份|本|条)?\s*([^\s，。！？?]*)", normalized)
+    if trailing and trailing.group(1):
+        return None
+    return "all"
+
+
+def format_knowledge_inventory_answer(inventory: dict, requested_type: str) -> str:
+    counts = inventory.get("all", {}) if requested_type == "all" else inventory.get("types", {}).get(requested_type, {})
+    label = "知识库文档" if requested_type == "all" else _INVENTORY_TYPE_LABELS[requested_type]
+    answer = (
+        f"{label}库存：总数 {counts.get('total', 0)}，"
+        f"已完成且可检索 {counts.get('retrievable', 0)}，"
+        f"正在入库 {counts.get('content_processing', 0)}，"
+        f"标签处理中 {counts.get('tag_processing', 0)}，"
+        f"失败 {counts.get('failed', 0)}。"
+    )
+    if requested_type == "all":
+        type_parts = [
+            f"{_INVENTORY_TYPE_LABELS.get(file_type, '其他文件')} {values.get('total', 0)}"
+            for file_type, values in inventory.get("types", {}).items()
+            if values.get("total", 0)
+        ]
+        if type_parts:
+            answer += " 各类型：" + "，".join(type_parts) + "。"
+    return answer
+
 
 # ── 智能体 CRUD ─────────────────────────────────────
 
@@ -1113,6 +1176,66 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
     except Exception:
         timing.total(outcome="error")
         raise
+
+    inventory_type = (
+        None if req.retrieval_only else detect_knowledge_inventory_intent(req.query)
+    )
+    if inventory_type is not None:
+        thread_id = req.thread_id
+        if thread_id:
+            await _require_owned_conversation(agent_id, thread_id, current_user)
+        else:
+            thread = await pg_create_conversation(
+                agent_id, title="新对话", owner_id=current_user["id"]
+            )
+            thread_id = thread["id"]
+        inventory = await get_knowledge_inventory(actual_kb)
+        answer = format_knowledge_inventory_answer(inventory, inventory_type)
+        timing.finish("settings_quota")
+
+        async def inventory_event_stream():
+            timing_outcome = "ok"
+            try:
+                yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.get('name', ''), 'icon': agent.get('icon', ''), 'thread_id': thread_id}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'content': answer}, ensure_ascii=False)}\n\n"
+                elapsed = 0.0
+                now = datetime.now(timezone.utc).isoformat()
+                await pg_add_message(agent_id, thread_id, {
+                    "role": "user", "content": req.query, "time": now,
+                })
+                await pg_add_message(agent_id, thread_id, {
+                    "role": "assistant", "content": answer, "mode": "inventory", "elapsed": elapsed, "time": now,
+                })
+                await record_query({
+                    "id": query_id,
+                    "query": req.query,
+                    "mode": "inventory",
+                    "answer": answer,
+                    "images": [],
+                    "time": now,
+                    "elapsed": elapsed,
+                    "kb": actual_kb,
+                    "agent_id": agent_id,
+                    "thread_id": thread_id,
+                    "user_id": current_user["id"],
+                    "username": current_user["username"],
+                }, max_history=100)
+                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'inventory': inventory}, ensure_ascii=False)}\n\n"
+            except Exception as exc:
+                timing_outcome = "error"
+                yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+            finally:
+                timing.total(outcome=timing_outcome)
+
+        return StreamingResponse(
+            authenticated_sse_events(inventory_event_stream(), current_user),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     from raganything.services import vision_models
     try:

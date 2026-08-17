@@ -39,6 +39,7 @@ export function createKnowledgeDetailState(kbName, snapshot = null) {
     kbName,
     documents: normaliseResource(snapshot?.documents, []),
     stats: normaliseResource(snapshot?.stats, {}),
+    inventory: normaliseResource(snapshot?.inventory, {}),
   }
 }
 
@@ -53,6 +54,11 @@ export function markKnowledgeDetailRefreshing(state) {
     stats: {
       ...state.stats,
       refreshing: state.stats.status === DETAIL_RESOURCE_STATUS.READY,
+      refreshError: '',
+    },
+    inventory: {
+      ...state.inventory,
+      refreshing: state.inventory.status === DETAIL_RESOURCE_STATUS.READY,
       refreshError: '',
     },
   }
@@ -103,6 +109,7 @@ export function mergeKnowledgeDetailSnapshot(previous, kbName, snapshot) {
     kbName,
     documents: mergeResource(base.documents, snapshot?.documents, []),
     stats: mergeResource(base.stats, snapshot?.stats, {}),
+    inventory: mergeResource(base.inventory, snapshot?.inventory, {}),
   }
 }
 

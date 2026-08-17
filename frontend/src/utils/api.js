@@ -413,16 +413,17 @@ async function loadKnowledgeDetailSnapshot(
     page_size: String(pageSize),
   })
   if (q) documentParams.set('q', q)
-  const [documentsResult, statsResult] = await Promise.allSettled([
+  const [documentsResult, statsResult, inventoryResult] = await Promise.allSettled([
     fetchJson(`/knowledge/document-summaries?${documentParams.toString()}`, { timeoutMs, signal }),
     knowledgeDetailStatsCache.acquire(
       kbName,
       ({ signal: statsSignal }) => fetchJson(`/knowledge/stats?kb=${encodedKB}`, { timeoutMs, signal: statsSignal }),
       { force: forceStats, signal },
     ),
+    fetchJson(`/knowledge/inventory?kb=${encodedKB}`, { timeoutMs, signal }),
   ])
   if (signal?.aborted) throw abortError()
-  const accessDenied = [documentsResult, statsResult].some(result => (
+  const accessDenied = [documentsResult, statsResult, inventoryResult].some(result => (
     result.status === 'rejected'
     && (result.reason?.status === 401 || result.reason?.status === 403)
   ))
@@ -430,6 +431,7 @@ async function loadKnowledgeDetailSnapshot(
   return {
     kbName,
     documents: documentPageResource(documentsResult),
+    inventory: detailResource(inventoryResult, value => value || {}),
     stats: detailResource(statsResult, value => value || {}),
   }
 }

@@ -1509,21 +1509,8 @@ async def _document_tag_health_contract(
 
 
 def _apply_enrichment_status_overlay(document: dict[str, Any]) -> dict[str, Any]:
-    """Prevent public completion while tags are pending or terminally failed."""
-    result = dict(document)
-    tag_status = str(result.get("tag_status") or "")
-    if tag_status in {"pending", "running", "retry_wait"}:
-        if result.get("status") in {"processed", "completed"}:
-            result["status"] = "handling"
-            if "health" in result:
-                result["health"] = "processing"
-    elif tag_status == "failed" and result.get("status") in {"processed", "completed"}:
-        result["status"] = "degraded"
-        if "health" in result:
-            result["health"] = "degraded"
-        if not result.get("error_message"):
-            result["error_message"] = str(result.get("tag_error_message") or "")
-    return result
+    """Keep content readiness independent from follow-up tag enrichment."""
+    return dict(document)
 
 
 async def _get_tags_for_chunks_best_effort(
@@ -3123,6 +3110,17 @@ def _stats_unavailable_payload() -> dict[str, int | bool]:
 async def knowledge_stats(kb: str = Depends(verify_kb_access), current_user: dict = Depends(get_current_user)):
     """知识库总体统计 — 与 list_documents 使用相同的数据源和去重逻辑"""
     return await _compute_kb_stats(kb)
+
+
+@router.get("/knowledge/inventory")
+async def knowledge_inventory(
+    kb: str = Depends(verify_kb_access),
+    _perm: None = Depends(require_permission(Permission.KB_READ)),
+):
+    """Return authorized aggregate inventory without document identifiers."""
+    from raganything.services.knowledge_inventory import get_knowledge_inventory
+
+    return await get_knowledge_inventory(kb)
 
 
 @router.post("/knowledge/stats/batch")

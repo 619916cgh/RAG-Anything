@@ -11,6 +11,10 @@ import {
 test('uses API health as the application-level document status', () => {
   assert.equal(getDocumentHealth({ status: 'failed', raw_status: 'failed', health: 'degraded' }), 'degraded')
   assert.equal(getDocumentHealth({ status: 'processed', health: 'healthy' }), 'processed')
+  assert.equal(getDocumentHealth({
+    status: 'processed', raw_status: 'processed', health: 'healthy',
+    content_ready: true, tag_status: 'running',
+  }), 'processed')
 })
 
 test('derives degraded for legacy content-ready responses with incomplete graph work', () => {

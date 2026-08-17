@@ -63,10 +63,10 @@ const STATUS = {
 }
 const STATUS_CN = {
   queued: '排队中',
-  processed: '已完成',
+  processed: '已可检索',
   processing: '处理中',
   handling: '入库中',
-  completed: '已完成',
+  completed: '已可检索',
   failed: '失败',
   retry_wait: '等待自动重试',
   cancelling: '正在停止并删除',
@@ -1000,6 +1000,7 @@ export default function KnowledgeDetailPage() {
     : createKnowledgeDetailState(kbName, cachedDetailForRoute)
   const docs = displayedDetailState.documents.data
   const stats = displayedDetailState.stats.data
+  const inventory = displayedDetailState.inventory.data
 
   useEffect(() => {
     const requested = searchParams.get('tab')
@@ -1945,6 +1946,11 @@ export default function KnowledgeDetailPage() {
       )}
       {displayedDetailState.stats.refreshError && (
         <p className="-mt-4 text-2xs text-amber-600" role="status">{displayedDetailState.stats.refreshError}</p>
+      )}
+      {displayedDetailState.inventory.status === 'ready' && (
+        <p className="-mt-2 text-2xs text-ink-muted" role="status">
+          库存：已可检索 {inventory.all?.retrievable ?? 0}，正在入库 {inventory.all?.content_processing ?? 0}，标签处理中 {inventory.all?.tag_processing ?? 0}，失败 {inventory.all?.failed ?? 0}
+        </p>
       )}
 
       {/* 标签栏 */}
