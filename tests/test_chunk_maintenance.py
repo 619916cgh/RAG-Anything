@@ -189,6 +189,55 @@ async def test_extended_chunks_contract_is_reloadable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_paged_chunks_use_direct_status_and_only_return_the_requested_page(monkeypatch):
+    instance = _instance()
+    await _wire(monkeypatch, instance)
+    status = await instance.lightrag.doc_status.get_by_id("doc-1")
+
+    async def direct_status(_kb, document_id):
+        assert document_id == "doc-1"
+        return status
+
+    async def unexpected_full_status(_kb):
+        raise AssertionError("paged exact-ID reads must not hydrate all doc status")
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_by_id", direct_status)
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", unexpected_full_status)
+
+    result = await knowledge.get_document_chunks(
+        "doc-1", page=2, page_size=1, kb="kb-1", current_user={"id": 7}
+    )
+
+    assert [chunk["chunk_id"] for chunk in result["chunks"]] == ["chunk-b"]
+    assert result["page"] == 2
+    assert result["page_size"] == 1
+    assert result["total"] == 2
+    assert result["document_total"] == 2
+    assert result["total_pages"] == 2
+
+
+@pytest.mark.asyncio
+async def test_paged_chunks_filter_and_keep_document_header_totals(monkeypatch):
+    instance = _instance()
+    await _wire(monkeypatch, instance)
+    status = await instance.lightrag.doc_status.get_by_id("doc-1")
+
+    async def direct_status(_kb, _document_id):
+        return status
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_by_id", direct_status)
+    result = await knowledge.get_document_chunks(
+        "doc-1", page=1, page_size=25, q="beta", kb="kb-1", current_user={"id": 7}
+    )
+
+    assert [chunk["chunk_id"] for chunk in result["chunks"]] == ["chunk-b"]
+    assert result["total"] == 1
+    assert result["total_tokens"] == 3
+    assert result["document_total"] == 2
+    assert result["document_total_tokens"] == 5
+
+
+@pytest.mark.asyncio
 async def test_get_document_chunk_returns_only_the_requested_chunk(monkeypatch):
     status = _status()
     status["metadata"]["multimodal_chunks"] = {

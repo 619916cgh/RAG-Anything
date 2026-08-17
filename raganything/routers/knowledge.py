@@ -10,6 +10,7 @@ import uuid
 import shutil
 import time
 import inspect
+import math
 from dataclasses import asdict
 from contextlib import asynccontextmanager
 from functools import wraps
@@ -20,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Any, Optional
+from prometheus_client import Histogram, REGISTRY
 
 # Import shared module-level state (for read access)
 from raganything.services.state_service import (
@@ -60,6 +62,7 @@ from raganything.services.kb_service import (
     bump_kb_corpus_revision,
     _unregister_processing_file,
     _load_doc_status_json,
+    _load_doc_status_by_id,
     _load_doc_status_summaries,
     load_document_summary_page,
     _generate_uploaded_document_tags,
@@ -99,6 +102,7 @@ from raganything.services.kb_tag_repo import (
 from raganything.services.kb_chunk_repo import (
     PersistedChunkQueryError,
     query_chunks_by_document_id,
+    query_document_chunk_page,
 )
 
 # Module reference for writing to shared mutable state (active_kb)
@@ -106,6 +110,33 @@ from . import shared as _shared
 
 
 _OPAQUE_GRAPH_ENTITY_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+_CHUNK_READ_PHASES = frozenset({
+    "core_acquire", "doc_status", "chunk_query", "tag_enrichment",
+    "video_enrichment", "serialization", "response_size", "total",
+})
+
+try:
+    _CHUNK_READ_DURATION = Histogram(
+        "rag_document_chunk_read_phase_duration_seconds",
+        "Document chunk read phase duration.", ("phase", "outcome"),
+    )
+    _CHUNK_READ_RESPONSE_BYTES = Histogram(
+        "rag_document_chunk_read_response_bytes",
+        "Document chunk read response size.", ("outcome",),
+    )
+except ValueError:
+    _CHUNK_READ_DURATION = REGISTRY._names_to_collectors[
+        "rag_document_chunk_read_phase_duration_seconds"
+    ]
+    _CHUNK_READ_RESPONSE_BYTES = REGISTRY._names_to_collectors[
+        "rag_document_chunk_read_response_bytes"
+    ]
+
+
+def _record_chunk_read_phase(phase: str, outcome: str, elapsed_seconds: float) -> None:
+    safe_phase = phase if phase in _CHUNK_READ_PHASES else "other"
+    safe_outcome = outcome if outcome in {"ok", "error"} else "error"
+    _CHUNK_READ_DURATION.labels(safe_phase, safe_outcome).observe(max(0.0, elapsed_seconds))
 
 
 def _is_opaque_graph_entity_id(value: object) -> bool:
@@ -2033,6 +2064,52 @@ async def _load_document_chunk_records(
     return result
 
 
+async def _resolve_chunk_document_direct(
+    kb: str, requested_id: str,
+) -> tuple[str, dict[str, Any]]:
+    """Resolve a full ID without hydrating the whole status catalog."""
+    status = await _load_doc_status_by_id(kb, requested_id)
+    if status is not None:
+        return requested_id, status
+    # Short historical IDs are uncommon. Keep their existing ambiguity behavior
+    # as a compatibility fallback rather than taxing every full-ID request.
+    all_status = await _load_doc_status_json(kb)
+    return _resolve_chunk_document(all_status or {}, requested_id)
+
+
+def _chunk_metadata_query_ids(status_info: dict[str, Any], query: str) -> list[str]:
+    normalized = query.strip().casefold()
+    if not normalized:
+        return []
+    metadata = status_info.get("metadata") or {}
+    multimodal = metadata.get("multimodal_chunks") if isinstance(metadata, dict) else {}
+    if not isinstance(multimodal, dict):
+        return []
+    matched: list[str] = []
+    for chunk_id, values in multimodal.items():
+        if not isinstance(values, dict):
+            continue
+        haystack = " ".join(
+            str(values.get(key) or "")
+            for key in ("modal_entity_name", "original_type", "page_idx")
+        ).casefold()
+        if normalized in haystack:
+            matched.append(str(chunk_id))
+    return matched
+
+
+def _chunk_matches_filter(chunk: dict[str, Any], query: str, tag_id: int | None) -> bool:
+    if tag_id is not None and not any(str(tag.get("id")) == str(tag_id) for tag in chunk.get("tags", [])):
+        return False
+    normalized = query.strip().casefold()
+    if not normalized:
+        return True
+    return normalized in " ".join(
+        str(chunk.get(key) or "")
+        for key in ("content", "chunk_id", "modal_entity_name", "original_type", "page_idx")
+    ).casefold()
+
+
 def _controlled_odl_chunk_media(
     *,
     status_info: dict[str, Any] | None,
@@ -2379,14 +2456,110 @@ async def _restore_chunk_mutation(
 @router.get("/knowledge/documents/{doc_id}/chunks")
 async def get_document_chunks(
     doc_id: str,
+    page: int | None = QueryParam(None, ge=1),
+    page_size: int | None = QueryParam(None, ge=1, le=100),
+    q: str | None = QueryParam(None, max_length=200),
+    tag_id: int | None = QueryParam(None, ge=1),
     kb: str = Depends(verify_kb_access),
     current_user: dict = Depends(get_current_user),
 ):
     """Return document metadata and ordered chunks for a reloadable detail page."""
+    # Direct route tests call this function without FastAPI's parameter
+    # injection, leaving Query objects in defaults. Treat those as absent.
+    page = page if isinstance(page, int) else None
+    page_size = page_size if isinstance(page_size, int) else None
+    q = q if isinstance(q, str) else None
+    tag_id = tag_id if isinstance(tag_id, int) else None
+    paged = any(value is not None for value in (page, page_size, q, tag_id))
+    started_at = time.perf_counter()
     try:
+        core_started = time.perf_counter()
         instance = await get_kb(kb)
         if not instance or not instance.lightrag:
             raise HTTPException(500, "Knowledge base is not initialized")
+        if paged:
+            page = page or 1
+            page_size = page_size or 25
+            query = (q or "").strip()
+            status_started = time.perf_counter()
+            full_id, status_info = await _resolve_chunk_document_direct(kb, doc_id)
+            _record_chunk_read_phase("doc_status", "ok", time.perf_counter() - status_started)
+            lightrag_logger.info("CHUNK_PAGE_TIMING phase=doc_status outcome=ok elapsed_ms=%.2f", (time.perf_counter() - status_started) * 1000)
+            query_started = time.perf_counter()
+            page_result = await query_document_chunk_page(
+                instance.lightrag, full_id, page=page, page_size=page_size,
+                query=query, tag_id=tag_id, kb_name=kb,
+                metadata_match_ids=_chunk_metadata_query_ids(status_info, query),
+            )
+            metadata = _multimodal_chunk_metadata(status_info)
+            if page_result is None:
+                # JSON and other legacy stores retain correctness, but do not
+                # claim the PostgreSQL large-document performance contract.
+                all_records = await _load_document_chunk_records(instance.lightrag, full_id, status_info, kb)
+                all_chunks = [
+                    _serialize_document_chunk(record, metadata, status_info=status_info, kb=kb)
+                    for record in all_records
+                ]
+                all_tags = await _get_tags_for_chunks_best_effort(kb, full_id, [item["chunk_id"] for item in all_chunks])
+                for item in all_chunks:
+                    item["tags"] = all_tags.get(item["chunk_id"], [])
+                filtered = [item for item in all_chunks if _chunk_matches_filter(item, query, tag_id)]
+                document_total = len(all_chunks)
+                document_total_tokens = sum(item["tokens"] for item in all_chunks)
+                total = len(filtered)
+                total_tokens = sum(item["tokens"] for item in filtered)
+                records = filtered[(page - 1) * page_size:page * page_size]
+                chunks = records
+                already_enriched = True
+            else:
+                total = page_result["total"]
+                total_tokens = page_result["total_tokens"]
+                document_total = page_result["document_total"]
+                document_total_tokens = page_result["document_total_tokens"]
+                records = page_result["records"]
+                serialization_started = time.perf_counter()
+                chunks = [
+                    _serialize_document_chunk(record, metadata, status_info=status_info, kb=kb)
+                    for record in records
+                ]
+                _record_chunk_read_phase("serialization", "ok", time.perf_counter() - serialization_started)
+                already_enriched = False
+            lightrag_logger.info("CHUNK_PAGE_TIMING phase=chunk_query outcome=ok elapsed_ms=%.2f", (time.perf_counter() - query_started) * 1000)
+            _record_chunk_read_phase("chunk_query", "ok", time.perf_counter() - query_started)
+            if not already_enriched:
+                tag_started = time.perf_counter()
+                tags_by_chunk = await _get_tags_for_chunks_best_effort(kb, full_id, [item["chunk_id"] for item in chunks])
+                for item in chunks:
+                    item["tags"] = tags_by_chunk.get(item["chunk_id"], [])
+                lightrag_logger.info("CHUNK_PAGE_TIMING phase=tag_enrichment outcome=ok elapsed_ms=%.2f", (time.perf_counter() - tag_started) * 1000)
+                _record_chunk_read_phase("tag_enrichment", "ok", time.perf_counter() - tag_started)
+                video_started = time.perf_counter()
+                await _attach_video_segment_metadata(kb, chunks)
+                lightrag_logger.info("CHUNK_PAGE_TIMING phase=video_enrichment outcome=ok elapsed_ms=%.2f", (time.perf_counter() - video_started) * 1000)
+                _record_chunk_read_phase("video_enrichment", "ok", time.perf_counter() - video_started)
+            document = _chunk_document_payload(full_id, status_info)
+            tag_health = await _document_tag_health_contract(kb, [full_id])
+            document.update(tag_health.get(full_id, {}))
+            document = _apply_enrichment_status_overlay(document)
+            if not document["content_summary"] and chunks:
+                document["content_summary"] = str(chunks[0].get("content") or "")[:240]
+            total_pages = max(1, math.ceil(total / page_size))
+            response = {
+                "doc_id": full_id, "document": document, "chunks": chunks,
+                "total": total, "total_tokens": total_tokens,
+                "document_total": document_total,
+                "document_total_tokens": document_total_tokens,
+                "page": min(page, total_pages), "page_size": page_size,
+                "total_pages": total_pages, "has_next": page < total_pages,
+                "graph_sync_state": _chunk_graph_sync_state(status_info),
+            }
+            lightrag_logger.info("CHUNK_PAGE_TIMING phase=core_acquire outcome=ok elapsed_ms=%.2f", (status_started - core_started) * 1000)
+            _record_chunk_read_phase("core_acquire", "ok", status_started - core_started)
+            response_bytes = len(json.dumps(response, ensure_ascii=False, default=str).encode("utf-8"))
+            _CHUNK_READ_RESPONSE_BYTES.labels("ok").observe(response_bytes)
+            lightrag_logger.info("CHUNK_PAGE_TIMING phase=response_size outcome=ok bytes=%s", response_bytes)
+            _record_chunk_read_phase("total", "ok", time.perf_counter() - started_at)
+            return response
         all_status = await _load_doc_status_json(kb)
         full_id, status_info = _resolve_chunk_document(all_status or {}, doc_id)
         records = await _load_document_chunk_records(instance.lightrag, full_id, status_info, kb)
@@ -2427,8 +2600,12 @@ async def get_document_chunks(
             "graph_sync_state": _chunk_graph_sync_state(status_info),
         }
     except HTTPException:
+        if paged:
+            _record_chunk_read_phase("total", "error", time.perf_counter() - started_at)
         raise
     except Exception as exc:
+        if paged:
+            _record_chunk_read_phase("total", "error", time.perf_counter() - started_at)
         lightrag_logger.error(
             "[get_document_chunks] doc_id=%s kb=%s error=%s", doc_id, kb, exc,
             exc_info=True,

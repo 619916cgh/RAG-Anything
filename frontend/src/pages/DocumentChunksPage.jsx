@@ -1,4 +1,4 @@
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, ArrowLeft, Check, Download, FileText, ImageIcon, Loader2,
@@ -18,6 +18,7 @@ import { neutralObjectError } from '../utils/permissionUiPolicy'
 import { useConfirmedKnowledgeBase } from '../hooks/useConfirmedKnowledgeBase'
 
 const PAGE_SIZE_STORAGE_KEY = 'raganything:pagination:document-chunks'
+const CHUNK_PAGE_SIZE_OPTIONS = Object.freeze([25, 50, 100])
 
 const STATUS_LABELS = {
   queued: '排队中',
@@ -163,8 +164,8 @@ export default function DocumentChunksPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_STORAGE_KEY))
-  const deferredQuery = useDeferredValue(query)
+  const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_STORAGE_KEY, CHUNK_PAGE_SIZE_OPTIONS, 25))
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [deleteCandidate, setDeleteCandidate] = useState(null)
   const [deletingId, setDeletingId] = useState('')
   const [retagging, setRetagging] = useState(false)
@@ -178,17 +179,28 @@ export default function DocumentChunksPage() {
   }, [docId, kbName, legacyChunkId, navigate, selectedTagId])
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  useEffect(() => {
     if (legacyChunkId || !kbAccess.confirmed) return undefined
     const controller = new AbortController()
     let active = true
     if (!backgroundRefreshRef.current) setLoading(true)
     setError(null)
-    api.getDocumentChunks(docId, { kb: kbName, signal: controller.signal })
+    api.getDocumentChunks(docId, { kb: kbName, page, pageSize, q: debouncedQuery, tagId: selectedTagId, signal: controller.signal })
       .then(result => {
-        if (active) setData({ ...result, chunks: Array.isArray(result.chunks) ? result.chunks : [] })
+        if (!active) return
+        const responsePage = Number(result.page) || 1
+        if (responsePage !== page) {
+          setPage(responsePage)
+          return
+        }
+        setData({ ...result, chunks: Array.isArray(result.chunks) ? result.chunks : [] })
       })
       .catch(requestError => {
-        if (active) setError(requestError)
+        if (active && requestError?.name !== 'AbortError') setError(requestError)
       })
       .finally(() => {
         if (active) {
@@ -200,7 +212,7 @@ export default function DocumentChunksPage() {
       active = false
       controller.abort()
     }
-  }, [docId, kbAccess.confirmed, kbName, legacyChunkId, reloadKey])
+  }, [debouncedQuery, docId, kbAccess.confirmed, kbName, legacyChunkId, page, pageSize, reloadKey, selectedTagId])
 
   const tagStatus = data?.document?.tag_status
   useEffect(() => {
@@ -223,32 +235,20 @@ export default function DocumentChunksPage() {
   }, [])
 
   const chunks = data?.chunks || []
-  const normalizedQuery = deferredQuery.trim().toLocaleLowerCase('zh-CN')
-  const scopedChunks = useMemo(() => {
-    if (!selectedTagId) return chunks
-    return chunks.filter(chunk => (chunk.tags || []).some(tag => String(tag.id) === String(selectedTagId)))
-  }, [chunks, selectedTagId])
-  const filteredChunks = useMemo(() => {
-    if (!normalizedQuery) return scopedChunks
-    return scopedChunks.filter(chunk => [chunk.content, chunk.chunk_id, chunk.modal_entity_name, chunk.original_type, chunk.page_idx].filter(value => value != null).join(' ').toLocaleLowerCase('zh-CN').includes(normalizedQuery))
-  }, [normalizedQuery, scopedChunks])
-  const totalPages = getTotalPages(filteredChunks.length, pageSize)
-  const currentPage = clampPage(page, totalPages)
-  const paginatedChunks = filteredChunks.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const normalizedQuery = debouncedQuery.toLocaleLowerCase('zh-CN')
+  const totalPages = Number(data?.total_pages) || getTotalPages(data?.total ?? 0, pageSize)
+  const currentPage = clampPage(data?.page ?? page, totalPages)
 
   useEffect(() => {
     setPage(1)
   }, [selectedTagId])
 
-  useEffect(() => {
-    if (page !== currentPage) setPage(currentPage)
-  }, [currentPage, page])
-
   const document = data?.document || navigationDoc || {}
   const filename = document.file || navigationDoc?.file || '未命名文档'
   const strategy = getChunkingStrategyPresentation(document.chunking_strategy)
-  const total = data?.total ?? chunks.length
-  const totalTokens = data?.total_tokens ?? chunks.reduce((sum, chunk) => sum + Number(chunk.tokens || 0), 0)
+  const total = data?.document_total ?? data?.total ?? chunks.length
+  const totalTokens = data?.document_total_tokens ?? data?.total_tokens ?? chunks.reduce((sum, chunk) => sum + Number(chunk.tokens || 0), 0)
+  const filteredTotal = data?.total ?? chunks.length
   const tagPresentation = getDocumentTagPresentation(document)
 
   const openChunk = useCallback(chunk => {
@@ -270,7 +270,7 @@ export default function DocumentChunksPage() {
   }, [docId, kbName, navigate, query])
 
   const updatePageSize = value => {
-    const next = storePageSize(PAGE_SIZE_STORAGE_KEY, value)
+    const next = storePageSize(PAGE_SIZE_STORAGE_KEY, value, CHUNK_PAGE_SIZE_OPTIONS, 25)
     setPageSize(next)
     setPage(1)
   }
@@ -285,15 +285,9 @@ export default function DocumentChunksPage() {
     setDeletingId(deleteCandidate.chunk_id)
     try {
       const result = await api.deleteDocumentChunk(docId, deleteCandidate.chunk_id, { kb: kbName })
-      setData(previous => ({
-        ...previous,
-        chunks: previous.chunks.filter(item => item.chunk_id !== deleteCandidate.chunk_id),
-        document: { ...previous.document, tag_status: 'pending' },
-        total: result.total ?? Math.max(0, (previous.total ?? previous.chunks.length) - 1),
-        total_tokens: result.total_tokens ?? Math.max(0, (previous.total_tokens ?? 0) - Number(deleteCandidate.tokens || 0)),
-        graph_sync_state: result.graph_sync_state ?? 'stale',
-      }))
       setDeleteCandidate(null)
+      backgroundRefreshRef.current = true
+      setReloadKey(value => value + 1)
       showToast('切块已永久删除，检索索引已刷新。', 'success')
     } catch (mutationError) {
       showToast(mutationError.message || '切块删除失败', 'error')
@@ -354,20 +348,20 @@ export default function DocumentChunksPage() {
 
       <section className="chunk-list-section" aria-labelledby="chunk-list-heading">
         <div className="chunk-toolbar">
-          <div className="chunk-toolbar-copy"><h3 id="chunk-list-heading">切块列表</h3><span>{normalizedQuery ? `显示 ${filteredChunks.length} / ${scopedChunks.length}` : selectedTagId ? `当前标签关联 ${scopedChunks.length} 个切块` : `共 ${chunks.length} 个切块`}</span></div>
+          <div className="chunk-toolbar-copy"><h3 id="chunk-list-heading">切块列表</h3><span>{normalizedQuery ? `显示 ${filteredTotal} / ${total}` : selectedTagId ? `当前标签关联 ${filteredTotal} 个切块` : `共 ${total} 个切块`}</span></div>
           <div className="chunk-toolbar-controls">
             <label className="chunk-search-field"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索切块</span><input type="search" name="chunk-search" autoComplete="off" value={query} onChange={updateQuery} placeholder="搜索正文、ID、页码或媒体类型" />{query ? <button type="button" onClick={clearListFilter} aria-label="清空搜索"><X size={15} /></button> : null}</label>
           </div>
         </div>
 
         <div className="chunk-list-scroll">
-          {chunks.length === 0 ? <div className="chunk-page-state"><FileText size={30} aria-hidden="true" /><h3>该文档还没有切块</h3><p>文档处理完成后，切块会显示在这里。</p></div> : filteredChunks.length === 0 ? <div className="chunk-page-state"><Search size={30} aria-hidden="true" /><h3>没有匹配的切块</h3><p>{normalizedQuery ? '尝试缩短关键词，或搜索切块 ID、页码和媒体类型。' : '当前标签下没有可显示的切块。'}</p><button type="button" className="btn-secondary" onClick={clearListFilter}>{normalizedQuery ? '清除搜索' : '查看全部切块'}</button></div> : (
+          {total === 0 ? <div className="chunk-page-state"><FileText size={30} aria-hidden="true" /><h3>该文档还没有切块</h3><p>文档处理完成后，切块会显示在这里。</p></div> : chunks.length === 0 ? <div className="chunk-page-state"><Search size={30} aria-hidden="true" /><h3>没有匹配的切块</h3><p>{normalizedQuery ? '尝试缩短关键词，或搜索切块 ID、页码和媒体类型。' : '当前标签下没有可显示的切块。'}</p><button type="button" className="btn-secondary" onClick={clearListFilter}>{normalizedQuery ? '清除搜索' : '查看全部切块'}</button></div> : (
             <div className="chunk-list">
-              {paginatedChunks.map((chunk, index) => <ChunkItem key={chunk.chunk_id} chunk={chunk} kbName={kbName} detailHref={detailPath(kbName, docId, chunk.chunk_id, selectedTagId)} displayIndex={chunk.chunk_order_index != null ? Number(chunk.chunk_order_index) + 1 : (currentPage - 1) * pageSize + index + 1} canWrite={canWrite} isOnlyChunk={total <= 1} deleting={deletingId === chunk.chunk_id} onOpen={openChunk} onStartEdit={startEdit} onRequestDelete={setDeleteCandidate} />)}
+              {chunks.map((chunk, index) => <ChunkItem key={chunk.chunk_id} chunk={chunk} kbName={kbName} detailHref={detailPath(kbName, docId, chunk.chunk_id, selectedTagId)} displayIndex={chunk.chunk_order_index != null ? Number(chunk.chunk_order_index) + 1 : (currentPage - 1) * pageSize + index + 1} canWrite={canWrite} isOnlyChunk={total <= 1} deleting={deletingId === chunk.chunk_id} onOpen={openChunk} onStartEdit={startEdit} onRequestDelete={setDeleteCandidate} />)}
             </div>
           )}
         </div>
-        {chunks.length > 0 ? <Pagination page={currentPage} totalPages={totalPages} onPageChange={setPage} pageSize={pageSize} onPageSizeChange={updatePageSize} className="chunk-pagination-dock" /> : null}
+        {total > 0 ? <Pagination page={currentPage} totalPages={totalPages} onPageChange={setPage} pageSize={pageSize} pageSizeOptions={CHUNK_PAGE_SIZE_OPTIONS} onPageSizeChange={updatePageSize} className="chunk-pagination-dock" /> : null}
       </section>
 
       <UserDialogConfirmation isOpen={Boolean(deleteCandidate)} title="确认永久删除此切块" description="删除后会立即从文本与向量检索中移除，且无法撤销。" confirmLabel={deletingId ? '删除中' : '永久删除'} cancelLabel="取消" onConfirm={deleteChunk} onCancel={() => !deletingId && setDeleteCandidate(null)} danger confirmDisabled={Boolean(deletingId)} closeDisabled={Boolean(deletingId)} lockScroll />

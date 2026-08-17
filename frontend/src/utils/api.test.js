@@ -174,6 +174,24 @@ test('explicit KB detail reads encode the target without changing ambient curren
   assert.equal(calls[0], '/api/knowledge/documents?kb=%E7%9B%AE%E6%A0%87%20KB%2F2')
 })
 
+test('document chunk reads keep the legacy URL and opt into encoded pagination', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const calls = []
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = async url => {
+    calls.push(String(url))
+    return jsonResponse({ chunks: [] })
+  }
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage })
+
+  await api.getDocumentChunks('doc / 1', { kb: 'KB A' })
+  await api.getDocumentChunks('doc / 1', { kb: 'KB A', page: 2, pageSize: 25, q: '发动机 &', tagId: 7 })
+
+  assert.equal(calls[0], '/api/knowledge/documents/doc%20%2F%201/chunks?kb=KB+A')
+  assert.equal(calls[1], '/api/knowledge/documents/doc%20%2F%201/chunks?kb=KB+A&page=2&page_size=25&q=%E5%8F%91%E5%8A%A8%E6%9C%BA+%26&tag_id=7')
+})
+
 test('document summary requests encode KB, page, size and literal search terms', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage

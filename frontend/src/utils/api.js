@@ -655,10 +655,14 @@ export const api = {
     `/knowledge/graph/edges/${id}?kb=${encodeURIComponent(kb)}`,
     { method: 'DELETE' },
   ), kb),
-  getDocumentChunks: (docId, { kb = currentKB, signal } = {}) => fetchJson(
-    `/knowledge/documents/${encodeURIComponent(docId)}/chunks?kb=${encodeURIComponent(kb)}`,
-    { signal }
-  ),
+  getDocumentChunks: (docId, { kb = currentKB, page, pageSize, q, tagId, signal } = {}) => {
+    const params = new URLSearchParams({ kb })
+    if (page != null) params.set('page', String(page))
+    if (pageSize != null) params.set('page_size', String(pageSize))
+    if (q != null && q !== '') params.set('q', q)
+    if (tagId != null && tagId !== '') params.set('tag_id', String(tagId))
+    return fetchJson(`/knowledge/documents/${encodeURIComponent(docId)}/chunks?${params.toString()}`, { signal })
+  },
   regenerateDocumentTags: (docId, { kb = currentKB } = {}) => invalidateAfter(fetchJson(
     `/knowledge/documents/${encodeURIComponent(docId)}/tags/regenerate?kb=${encodeURIComponent(kb)}`,
     { method: 'POST' },
