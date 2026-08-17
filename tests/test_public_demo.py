@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -158,6 +159,22 @@ async def test_demo_stream_uses_fixed_scope_and_never_persists_conversation(monk
     assert decoded[-1]["type"] == "done"
     assert decoded[-1]["sources"] == [{"name": "云端资料.pdf"}]
     assert calls == {"released": 1, "history": 0}
+
+
+@pytest.mark.asyncio
+async def test_demo_stream_accepts_before_cold_knowledge_base_acquisition(monkeypatch):
+    gate = asyncio.Event()
+
+    async def slow_acquire(*_args, **_kwargs):
+        await gate.wait()
+
+    monkeypatch.setattr(demo, "acquire_query_kb", slow_acquire)
+    events = demo._demo_events(_share(), {}, "question", object())
+    try:
+        first = json.loads((await anext(events))[6:])
+        assert first == {"type": "accepted", "demo": True}
+    finally:
+        await events.aclose()
 
 
 @pytest.mark.asyncio

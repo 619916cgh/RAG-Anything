@@ -156,6 +156,8 @@ def _sse(payload: dict) -> str:
 async def _demo_events(share: DemoShare, agent: dict, query: str, request: Request) -> AsyncIterator[str]:
     """Run a fixed-agent RAG query without conversation or query-history writes."""
     lease = None
+    # Flush an immediate lifecycle event before potentially cold KB acquisition.
+    yield _sse({"type": "accepted", "demo": True})
     try:
         # Keep the imported router module distinct from the fixed agent record.
         from raganything.routers import agent as agent_router
@@ -171,9 +173,24 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
             settings_fingerprint=f"demo-agent:{agent.get('id', '')}",
             llm_profile_fingerprint=f"demo-model:{runtime['llm_model']}", deadline_monotonic=deadline,
         )
-        lease = await await_before_deadline(
-            acquire_query_kb(share.kb_name, corpus_revision=revision), deadline, cancel_on_timeout=False,
+        acquire_task = asyncio.create_task(
+            acquire_query_kb(share.kb_name, corpus_revision=revision)
         )
+        try:
+            while not acquire_task.done():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    acquire_task.cancel()
+                    await asyncio.gather(acquire_task, return_exceptions=True)
+                    raise TimeoutError
+                done, _ = await asyncio.wait({acquire_task}, timeout=min(5.0, remaining))
+                if acquire_task not in done:
+                    yield _sse({"type": "heartbeat", "demo": True})
+            lease = acquire_task.result()
+        finally:
+            if not acquire_task.done():
+                acquire_task.cancel()
+                await asyncio.gather(acquire_task, return_exceptions=True)
         instance = lease.instance
         yield _sse({"type": "agent_info", "agent": agent.get("name", "演示助手"), "icon": agent.get("icon", ""), "demo": True})
         yield _sse({"type": "thinking", "content": "正在检索云端知识库..."})
