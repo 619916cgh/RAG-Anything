@@ -3,7 +3,7 @@ from fastapi import HTTPException
 
 
 @pytest.mark.asyncio
-async def test_knowledge_stats_batch_filters_to_owner_visible_kbs(monkeypatch):
+async def test_knowledge_stats_batch_includes_every_existing_kb(monkeypatch):
     from raganything.routers.knowledge import knowledge_stats_batch, KBStatsBatchRequest
 
     async def fake_load_kb_meta():
@@ -38,7 +38,6 @@ async def test_knowledge_stats_batch_filters_to_owner_visible_kbs(monkeypatch):
         "id": 1,
         "username": "alice",
         "is_admin": False,
-        "allowed_kbs": [],
     }
 
     result = await knowledge_stats_batch(
@@ -46,7 +45,7 @@ async def test_knowledge_stats_batch_filters_to_owner_visible_kbs(monkeypatch):
         current_user=current_user,
     )
 
-    assert set(result["stats"]) == {"kb-a", "kb-c"}
+    assert set(result["stats"]) == {"kb-a", "kb-b", "kb-c"}
     assert result["stats"]["kb-a"]["documents"] == 4
     assert result["stats"]["kb-c"]["documents"] == 4
 
@@ -80,7 +79,6 @@ async def test_knowledge_stats_batch_marks_timeout_as_unavailable(monkeypatch):
         "id": 1,
         "username": "alice",
         "is_admin": True,
-        "allowed_kbs": [],
     }
 
     result = await knowledge_stats_batch(
@@ -129,7 +127,6 @@ async def test_knowledge_stats_batch_prefers_batched_fast_path(monkeypatch):
         "id": 1,
         "username": "alice",
         "is_admin": False,
-        "allowed_kbs": [],
     }
 
     result = await knowledge_stats_batch(
@@ -152,7 +149,7 @@ async def test_list_kbs_embeds_stats_from_fast_batch_path(monkeypatch):
         }
 
     async def fake_batch_stats(names):
-        assert names == ["kb-a"]
+        assert names == ["kb-a", "kb-b"]
         return {
             "kb-a": {"documents": 3, "entities": 4, "relations": 5, "chunks": 6},
         }
@@ -174,11 +171,9 @@ async def test_list_kbs_embeds_stats_from_fast_batch_path(monkeypatch):
         "id": 1,
         "username": "alice",
         "is_admin": False,
-        "allowed_kbs": [],
     }
 
     result = await list_kbs(current_user=current_user)
 
-    assert result["knowledge_bases"][0]["name"] == "kb-a"
+    assert [kb["name"] for kb in result["knowledge_bases"]] == ["kb-a", "kb-b"]
     assert result["knowledge_bases"][0]["stats"]["documents"] == 3
-

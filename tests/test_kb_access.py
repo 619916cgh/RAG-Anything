@@ -1,106 +1,36 @@
 import pytest
 from fastapi import HTTPException
 
-from raganything.dependencies import verify_kb_access, verify_kb_operate_access
+from raganything import dependencies
 
 
-@pytest.mark.asyncio
-async def test_verify_kb_access_allows_owner_without_allowed_kbs(monkeypatch):
+@pytest.fixture(autouse=True)
+def global_kb_permissions(monkeypatch):
     async def fake_load_kb_meta():
-        return {
-            "owner-kb": {
-                "owner_id": 7,
-                "owner_username": "alice",
-            }
-        }
+        return {"teacher-kb": {"owner_id": 7, "owner_username": "teacher"}}
 
-    monkeypatch.setattr(
-        "raganything.services.kb_service.load_kb_meta",
-        fake_load_kb_meta,
-    )
-
-    current_user = {
-        "id": 7,
-        "username": "alice",
-        "is_admin": False,
-        "allowed_kbs": [],
-    }
-
-    result = await verify_kb_access(kb="owner-kb", current_user=current_user)
-
-    assert result == "owner-kb"
-
-
-@pytest.mark.asyncio
-async def test_verify_kb_access_rejects_non_owner_without_allowed_kbs(monkeypatch):
-    async def fake_load_kb_meta():
-        return {
-            "owner-kb": {
-                "owner_id": 7,
-                "owner_username": "alice",
-            }
-        }
-
-    monkeypatch.setattr(
-        "raganything.services.kb_service.load_kb_meta",
-        fake_load_kb_meta,
-    )
-
-    current_user = {
-        "id": 9,
-        "username": "bob",
-        "is_admin": False,
-        "allowed_kbs": [],
-    }
-
-    with pytest.raises(HTTPException) as exc:
-        await verify_kb_access(kb="owner-kb", current_user=current_user)
-
-    assert exc.value.status_code == 403
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role_name, expected_status", [
-    ("super_admin", 200),
-    ("dept_admin", 200),
-    ("teacher", 200),
-    ("assistant", 403),
-    ("student", 403),
-])
-async def test_role_derived_read_visibility_is_limited_to_three_roles(monkeypatch, role_name, expected_status):
-    async def fake_load_kb_meta():
-        return {"owner-kb": {"owner_id": 7, "owner_username": "alice"}}
+    async def fake_has_permission(user_id, permission):
+        return permission in {"kb:read", "kb:write", "kb:manage", "kb:delete"}
 
     monkeypatch.setattr("raganything.services.kb_service.load_kb_meta", fake_load_kb_meta)
-    actor = {
-        "id": 9,
-        "username": "bob",
-        "is_admin": False,
-        "role": {"name": role_name},
-        "allowed_kbs": [],
-        "kb_access_levels": {},
-    }
-
-    if expected_status == 200:
-        assert await verify_kb_access(kb="owner-kb", current_user=actor) == "owner-kb"
-        assert actor["allowed_kbs"] == []
-        assert actor["kb_access_levels"] == {}
-    else:
-        with pytest.raises(HTTPException) as exc:
-            await verify_kb_access(kb="owner-kb", current_user=actor)
-        assert exc.value.status_code == expected_status
+    monkeypatch.setattr(dependencies, "_auth_has_permission", fake_has_permission)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role_name", ["dept_admin", "teacher"])
-async def test_role_derived_read_visibility_never_allows_operations(monkeypatch, role_name):
-    async def fake_load_kb_meta():
-        return {"owner-kb": {"owner_id": 7, "owner_username": "alice"}}
+@pytest.mark.parametrize("role_name", ["super_admin", "dept_admin", "teacher", "assistant", "student"])
+async def test_all_roles_with_read_permission_can_access_another_users_kb(role_name):
+    actor = {"id": 9, "role": {"name": role_name}}
+    assert await dependencies.verify_kb_access("teacher-kb", actor) == "teacher-kb"
 
-    monkeypatch.setattr("raganything.services.kb_service.load_kb_meta", fake_load_kb_meta)
+
+@pytest.mark.asyncio
+async def test_kb_operation_is_global_permission_not_owner_or_grant():
+    actor = {"id": 9, "role": {"name": "assistant"}}
+    assert await dependencies.verify_kb_operate_access("teacher-kb", actor) == "teacher-kb"
+
+
+@pytest.mark.asyncio
+async def test_unknown_kb_returns_not_found():
     with pytest.raises(HTTPException) as exc:
-        await verify_kb_operate_access(
-            kb="owner-kb",
-            current_user={"id": 9, "role": {"name": role_name}, "allowed_kbs": [], "kb_access_levels": {}},
-        )
-    assert exc.value.status_code == 403
+        await dependencies.verify_kb_access("missing", {"id": 9})
+    assert exc.value.status_code == 404

@@ -70,9 +70,7 @@ from raganything.dependencies import (
     get_current_user,
     get_optional_user,
     get_current_user_from_token,
-    has_default_kb_read_access,
     require_permission,
-    verify_kb_manage_access,
     verify_kb_operate_access,
 )
 from raganything.permissions import Permission
@@ -424,32 +422,17 @@ class KBMetadataUpdate(BaseModel):
     expected_updated_at: str
 
 
-class KBMemberGrantUpdate(BaseModel):
-    access_level: str
-
-
 KB_STATS_BATCH_TIMEOUT_SECONDS = 6.0
 
 
 def _kb_editor_capabilities_from_metadata(kb: str, metadata: dict, current_user: dict) -> dict[str, bool]:
-    """Derive editor actions from the role and existing object scope."""
-    role_name = (current_user.get("role") or {}).get("name")
+    """Derive editor actions from global role permissions only."""
     role_permissions = (current_user.get("role") or {}).get("permissions") or []
-    is_owner = metadata.get("owner_id") == current_user.get("id")
     has_manage_permission = current_user.get("is_admin") or Permission.KB_MANAGE in role_permissions
-    has_operate_grant = (current_user.get("kb_access_levels") or {}).get(kb) == "operate"
-    can_edit = bool(
-        has_manage_permission
-        and (
-            current_user.get("is_admin")
-            or (role_name == "dept_admin" and (is_owner or has_operate_grant))
-            or (role_name == "teacher" and is_owner)
-        )
-    )
+    can_edit = bool(has_manage_permission)
     return {
         "edit": can_edit,
         "rename": can_edit,
-        "manage_members": can_edit,
     }
 
 
@@ -457,18 +440,12 @@ def _kb_capabilities_from_metadata(kb: str, metadata: dict, current_user: dict) 
     """Project read and mutation capabilities without persisting implicit scope."""
     role_permissions = (current_user.get("role") or {}).get("permissions") or []
     is_admin = bool(current_user.get("is_admin"))
-    is_owner = metadata.get("owner_id") == current_user.get("id")
-    access_level = (current_user.get("kb_access_levels") or {}).get(kb)
     editor = _kb_editor_capabilities_from_metadata(kb, metadata, current_user)
     return {
-        "read": True,
-        "operate": bool(
-            (is_admin or Permission.KB_WRITE in role_permissions)
-            and (is_admin or is_owner or access_level == "operate")
-        ),
+        "read": bool(is_admin or Permission.KB_READ in role_permissions),
+        "operate": bool(is_admin or Permission.KB_WRITE in role_permissions),
         "rename": editor["rename"],
-        "manage_members": editor["manage_members"],
-        "delete": bool(is_admin or (is_owner and Permission.KB_DELETE in role_permissions)),
+        "delete": bool(is_admin or Permission.KB_DELETE in role_permissions),
     }
 
 
@@ -478,7 +455,6 @@ async def _require_kb_editor_access(kb: str, current_user: dict) -> tuple[dict, 
         raise HTTPException(404, "knowledge base not found")
     if not await _auth_has_permission(int(current_user["id"]), Permission.KB_MANAGE):
         raise HTTPException(403, "权限不足，需要 kb:manage")
-    await verify_kb_manage_access(kb, current_user)
     capabilities = _kb_editor_capabilities_from_metadata(kb, metadata, current_user)
     if not capabilities["edit"]:
         raise HTTPException(403, "knowledge-base editor access is required")
@@ -3052,18 +3028,6 @@ async def _compute_kb_stats(kb: str) -> dict[str, int]:
     return stats
 
 
-def _is_kb_visible_to_user(kb_name: str, kb_info: dict, current_user: dict) -> bool:
-    if has_default_kb_read_access(current_user):
-        return True
-
-    allowed_kbs = current_user.get("allowed_kbs", [])
-    if kb_name in allowed_kbs:
-        return True
-
-    owner_id = kb_info.get("owner_id")
-    return owner_id is not None and owner_id == current_user["id"]
-
-
 async def _compute_kb_stats_batch_fast(allowed_names: list[str]) -> dict[str, dict[str, int]]:
     stats_map: dict[str, dict[str, int]] = {
         name: {"documents": 0, "entities": 0, "relations": 0, "chunks": 0}
@@ -3127,16 +3091,14 @@ async def knowledge_inventory(
 async def knowledge_stats_batch(
     req: KBStatsBatchRequest,
     current_user: dict = Depends(get_current_user),
+    _perm: None = Depends(require_permission(Permission.KB_READ)),
 ):
     started_at = time.perf_counter()
     requested_names = [name for name in req.kb_names if isinstance(name, str) and name]
     unique_names = list(dict.fromkeys(requested_names))
 
     meta = await load_kb_meta()
-    allowed_names = [
-        name for name in unique_names
-        if name in meta and _is_kb_visible_to_user(name, meta.get(name, {}), current_user)
-    ]
+    allowed_names = [name for name in unique_names if name in meta]
 
     try:
         batched_stats = await asyncio.wait_for(
@@ -3859,23 +3821,7 @@ async def _verify_kb_access_for_download(kb: str, current_user: dict) -> None:
     与 dependencies.verify_kb_access 逻辑一致，但作为普通函数调用而非 FastAPI 依赖，
     从而避免其内部的 get_current_user → HTTPBearer() 阻断 ?token=xxx 回退认证路径。
     """
-    from raganything.services.kb_service import load_kb_meta
-    from fastapi import HTTPException as _HTTPException
-
-    kb_meta = await load_kb_meta()
-    if kb not in kb_meta:
-        raise _HTTPException(404, f"知识库 '{kb}' 不存在")
-    if has_default_kb_read_access(current_user):
-        return
-    allowed_kbs = current_user.get("allowed_kbs", [])
-    if kb in allowed_kbs:
-        return
-    kb_info = kb_meta.get(kb, {})
-    owner_id = kb_info.get("owner_id")
-    if owner_id is not None and owner_id == current_user["id"]:
-        return
-    if kb not in allowed_kbs:
-        raise _HTTPException(403, "无权访问该知识库")
+    await verify_kb_access(kb, current_user)
 
 
 @router.get("/knowledge/documents/{doc_id}/download")
@@ -5113,15 +5059,16 @@ async def reprocess_multimodal(
 # ── KB management handlers ─────────────────────────────
 
 @router.get("/kb/list")
-async def list_kbs(current_user: dict = Depends(get_current_user)):
+async def list_kbs(
+    current_user: dict = Depends(get_current_user),
+    _perm: None = Depends(require_permission(Permission.KB_READ)),
+):
     started_at = time.perf_counter()
     meta = await load_kb_meta()
     kbs = []
     is_admin = current_user.get("is_admin", False)
     for name, info in meta.items():
         owner_id = info.get("owner_id")
-        if not _is_kb_visible_to_user(name, info, current_user):
-            continue
         kbs.append({
             "name": name,
             "label": info.get("name", name),
@@ -5196,8 +5143,6 @@ async def get_kb_editor(
     """Return one editor-safe KB view, including immutable owner context."""
     metadata, capabilities = await _require_kb_editor_access(kb, current_user)
     from raganything.services.auth import get_user_role
-    from raganything.services.pg_auth_repo import pg_list_kb_members
-
     owner_role = await get_user_role(int(metadata.get("owner_id") or 0))
     owner = {
         "id": metadata.get("owner_id"),
@@ -5213,7 +5158,6 @@ async def get_kb_editor(
         "label": metadata.get("name", kb),
         "updated_at": metadata.get("updated_at", ""),
         "owner": owner,
-        "members": await pg_list_kb_members(kb),
         "capabilities": capabilities,
     }
 
@@ -5250,94 +5194,6 @@ async def update_kb_metadata(
         },
     )
     return updated
-
-
-@router.get("/kb/{kb}/members")
-async def list_kb_members(
-    kb: str,
-    current_user: dict = Depends(get_current_user),
-):
-    metadata, capabilities = await _require_kb_editor_access(kb, current_user)
-    from raganything.services.auth import get_user_role
-    from raganything.services.pg_auth_repo import pg_list_kb_members
-
-    owner_role = await get_user_role(int(metadata.get("owner_id") or 0))
-    owner = {
-        "id": metadata.get("owner_id"),
-        "username": metadata.get("owner_username", ""),
-        "role_name": (owner_role or {}).get("name", ""),
-        "is_owner": True,
-        "removable": False,
-        "effective_access": "owner",
-    }
-    return {
-        "kb": kb,
-        "updated_at": metadata.get("updated_at", ""),
-        "members": [owner, *await pg_list_kb_members(kb)],
-        "capabilities": capabilities,
-    }
-
-
-@router.get("/kb/{kb}/member-candidates")
-async def search_kb_member_candidates(
-    kb: str,
-    q: str = QueryParam(...),
-    page: int = QueryParam(1, ge=1),
-    page_size: int = QueryParam(20, ge=1, le=50),
-    current_user: dict = Depends(get_current_user),
-):
-    _metadata, _capabilities = await _require_kb_editor_access(kb, current_user)
-    from raganything.services.pg_auth_repo import pg_search_kb_member_candidates
-
-    try:
-        return await pg_search_kb_member_candidates(
-            kb, q, actor_id=int(current_user["id"]), page=page, page_size=page_size,
-        )
-    except ValueError as exc:
-        raise HTTPException(422, {"code": "invalid_member_search", "message": str(exc)}) from exc
-
-
-@router.put("/kb/{kb}/members/{user_id}")
-async def upsert_kb_member(
-    kb: str,
-    user_id: int,
-    payload: KBMemberGrantUpdate,
-    current_user: dict = Depends(get_current_user),
-):
-    _metadata, _capabilities = await _require_kb_editor_access(kb, current_user)
-    from raganything.services.pg_auth_repo import pg_upsert_kb_member_grant
-
-    try:
-        member = await pg_upsert_kb_member_grant(
-            kb, user_id, payload.access_level, actor_id=int(current_user["id"]),
-        )
-    except KeyError as exc:
-        raise HTTPException(404, "knowledge base not found") from exc
-    except PermissionError as exc:
-        raise HTTPException(403, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(422, {"code": "invalid_member_grant", "message": str(exc)}) from exc
-    return {"kb": kb, "member": member}
-
-
-@router.delete("/kb/{kb}/members/{user_id}")
-async def revoke_kb_member(
-    kb: str,
-    user_id: int,
-    current_user: dict = Depends(get_current_user),
-):
-    _metadata, _capabilities = await _require_kb_editor_access(kb, current_user)
-    from raganything.services.pg_auth_repo import pg_revoke_kb_member_grant
-
-    try:
-        await pg_revoke_kb_member_grant(kb, user_id, actor_id=int(current_user["id"]))
-    except KeyError as exc:
-        raise HTTPException(404, "knowledge base not found") from exc
-    except PermissionError as exc:
-        raise HTTPException(403, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(422, {"code": "invalid_member_grant", "message": str(exc)}) from exc
-    return {"status": "revoked", "kb": kb, "user_id": user_id}
 
 
 @router.post("/kb/create")
@@ -5380,12 +5236,7 @@ async def create_kb(kb_name: str = QueryParam(...), _perm: None = Depends(requir
 
 @router.put("/kb/switch")
 async def switch_kb(name: str = QueryParam(...), current_user: dict = Depends(get_current_user)):
-    meta = await load_kb_meta()
-    if name not in meta:
-        raise HTTPException(404, f"知识库 '{name}' 不存在")
-    kb_info = meta[name]
-    if not _is_kb_visible_to_user(name, kb_info, current_user):
-        raise HTTPException(403, "无权访问该知识库")
+    await verify_kb_access(name, current_user)
     _shared.active_kb = name
     return {"status": "switched", "active": name}
 
@@ -5401,12 +5252,6 @@ async def delete_kb(name: str, _perm: None = Depends(require_permission(Permissi
     meta = await load_kb_meta()
     if name not in meta:
         raise HTTPException(404, f"知识库 '{name}' 不存在")
-    # 权限检查（仅 KB 所有者和管理员可删除）
-    kb_info = meta[name]
-    owner_id = kb_info.get("owner_id")
-    if owner_id is not None and owner_id != current_user["id"] and not current_user.get("is_admin"):
-        raise HTTPException(403, "无权删除该知识库")
-
     await cleanup_kb_resources(name)
     await delete_kb_tags(name)
     from raganything.services.document_tagging import delete_kb_tag_jobs

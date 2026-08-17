@@ -221,30 +221,21 @@ async def test_download_resolution_uses_clean_name_but_keeps_staged_file(monkeyp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role_name, visible", [
-    ("super_admin", True),
-    ("dept_admin", True),
-    ("teacher", True),
-    ("assistant", False),
-    ("student", False),
-])
-async def test_download_access_uses_role_derived_read_visibility(monkeypatch, role_name, visible):
+@pytest.mark.parametrize("role_name", ["super_admin", "dept_admin", "teacher", "assistant", "student"])
+async def test_download_access_is_global_for_every_read_role(monkeypatch, role_name):
     from raganything.routers import knowledge
 
     async def fake_load_kb_meta():
         return {"owner-kb": {"owner_id": 99, "owner_username": "owner"}}
 
     monkeypatch.setattr("raganything.services.kb_service.load_kb_meta", fake_load_kb_meta)
+    async def permit_read(_user_id, permission):
+        return permission == "kb:read"
+
+    monkeypatch.setattr("raganything.dependencies._auth_has_permission", permit_read)
     actor = {
         "id": 1,
         "is_admin": role_name == "super_admin",
         "role": {"name": role_name},
-        "allowed_kbs": [],
     }
-
-    if visible:
-        assert await knowledge._verify_kb_access_for_download("owner-kb", actor) is None
-    else:
-        with pytest.raises(HTTPException) as exc:
-            await knowledge._verify_kb_access_for_download("owner-kb", actor)
-        assert exc.value.status_code == 403
+    assert await knowledge._verify_kb_access_for_download("owner-kb", actor) is None

@@ -47,13 +47,14 @@ async def test_list_agents_uses_current_users_conversations_for_activity(monkeyp
 
     query, args = pool.calls[0]
     assert "owner_id = $1" in query
+    assert "WHERE a.owner_id" not in query
     assert args == (42,)
     assert agents[0]["conversation_count"] == 1
     assert agents[0]["last_conversation_at"] == "2026-07-03T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
-async def test_list_agents_uses_all_conversations_for_admin_activity(monkeypatch):
+async def test_list_agents_keeps_super_admin_activity_requester_local(monkeypatch):
     pool = _FakePool([
         _agent_row(
             conversation_count=3,
@@ -66,9 +67,9 @@ async def test_list_agents_uses_all_conversations_for_admin_activity(monkeypatch
     agents = await pg_agent_repo.pg_list_agents(user_id=1, is_admin=True)
 
     query, args = pool.calls[0]
-    assert "WHERE agent_id = a.id\n" in query
-    assert "owner_id = $1" not in query
-    assert args == ()
+    assert "owner_id = $1" in query
+    assert "WHERE a.owner_id" not in query
+    assert args == (1,)
     assert agents[0]["conversation_count"] == 3
     assert agents[0]["last_conversation_at"] == "2026-07-04T00:00:00+00:00"
 

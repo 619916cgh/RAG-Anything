@@ -300,7 +300,7 @@ async def get_user_by_username(username: str) -> dict | None:
         row = await conn.fetchrow(
             "SELECT * FROM users WHERE username = $1", username
         )
-        return await _attach_allowed_kbs(conn, dict(row)) if row else None
+        return dict(row) if row else None
 
 
 async def get_user_by_id(user_id: int) -> dict | None:
@@ -309,20 +309,7 @@ async def get_user_by_id(user_id: int) -> dict | None:
         row = await conn.fetchrow(
             "SELECT * FROM users WHERE id = $1", user_id
         )
-        return await _attach_allowed_kbs(conn, dict(row)) if row else None
-
-
-async def _attach_allowed_kbs(conn: asyncpg.Connection, user: dict) -> dict:
-    """Project durable KB scope into the sanitized user representation."""
-    rows = await conn.fetch(
-        "SELECT kb_name, access_level FROM kb_access_grants WHERE user_id = $1 ORDER BY kb_name",
-        user["id"],
-    )
-    user["allowed_kbs"] = [row["kb_name"] for row in rows]
-    user["kb_access_levels"] = {
-        row["kb_name"]: row.get("access_level") or "read" for row in rows
-    }
-    return user
+        return dict(row) if row else None
 
 
 _KB_MEMBER_ACCESS_LEVELS = {"read", "operate"}
@@ -705,7 +692,7 @@ async def update_user(
     if rejected:
         raise ValueError("direct mutation of protected account fields is not allowed")
     if "allowed_kbs" in data:
-        raise ValueError("knowledge-base grants must be managed through the knowledge-base member APIs")
+        raise ValueError("knowledge-base grants are retired and cannot be updated")
     updates = {key: value for key, value in data.items() if key in allowed_fields}
     if data.get("password"):
         updates["password_hash"] = pwd_context.hash(data["password"])
@@ -806,17 +793,7 @@ async def list_users() -> list[dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM users ORDER BY id")
-        grants = await conn.fetch(
-            "SELECT user_id, array_agg(kb_name ORDER BY kb_name) AS kb_names "
-            "FROM kb_access_grants GROUP BY user_id"
-        )
-    grants_by_user = {row["user_id"]: list(row["kb_names"]) for row in grants}
-    users = []
-    for row in rows:
-        user = dict(row)
-        user["allowed_kbs"] = grants_by_user.get(user["id"], [])
-        users.append(_sanitize_user(user))
-    return users
+    return [_sanitize_user(dict(row)) for row in rows]
 
 
 async def update_last_login_at(user_id: int) -> None:

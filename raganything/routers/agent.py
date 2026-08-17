@@ -808,6 +808,7 @@ def _build_agent_llm(runtime_config: dict, selected_llm=None):
 
 router = APIRouter(tags=["agents"])
 
+
 async def _require_owned_conversation(
     agent_id: str, thread_id: str, current_user: dict
 ) -> dict:
@@ -821,13 +822,21 @@ async def _require_owned_conversation(
 
 
 _INVENTORY_TYPE_LABELS = {
-    "video": "视频", "pdf": "PDF 文档", "document": "文档",
-    "spreadsheet": "表格", "presentation": "演示文稿", "image": "图片", "audio": "音频",
+    "video": "视频",
+    "pdf": "PDF 文档",
+    "document": "文档",
+    "spreadsheet": "表格",
+    "presentation": "演示文稿",
+    "image": "图片",
+    "audio": "音频",
 }
 _INVENTORY_TYPE_PATTERNS = (
-    ("video", re.compile(r"视频|录像|影片")), ("pdf", re.compile(r"pdf")),
-    ("document", re.compile(r"word|文档|文件|资料")), ("spreadsheet", re.compile(r"excel|表格|工作表")),
-    ("presentation", re.compile(r"ppt|演示文稿|幻灯片")), ("image", re.compile(r"图片|图像")),
+    ("video", re.compile(r"视频|录像|影片")),
+    ("pdf", re.compile(r"pdf")),
+    ("document", re.compile(r"word|文档|文件|资料")),
+    ("spreadsheet", re.compile(r"excel|表格|工作表")),
+    ("presentation", re.compile(r"ppt|演示文稿|幻灯片")),
+    ("image", re.compile(r"图片|图像")),
     ("audio", re.compile(r"音频|录音")),
 )
 
@@ -879,10 +888,7 @@ async def list_agents(
     _perm: None = Depends(require_permission(Permission.AGENT_READ)),
 ):
     """列出智能体（按用户隔离，管理员看全部）"""
-    agents = await pg_list_agents(
-        user_id=current_user["id"],
-        is_admin=current_user.get("is_admin", False),
-    )
+    agents = await pg_list_agents(user_id=current_user["id"])
     return {
         "agents": await _present_agents(agents),
         "total": len(agents),
@@ -951,9 +957,6 @@ async def update_agent(
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权修改该智能体")
     raw_updates = req.model_dump(exclude_unset=True)
     if "kb_name" in raw_updates:
         await verify_kb_access(kb=raw_updates["kb_name"], current_user=current_user)
@@ -976,9 +979,6 @@ async def delete_agent(
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权删除该智能体")
     if not await pg_delete_agent(agent_id):
         raise HTTPException(404, "智能体不存在")
     return {"status": "ok"}
@@ -994,13 +994,9 @@ async def list_conversations(agent_id: str, current_user: dict = Depends(get_cur
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权访问该智能体")
     threads = await pg_list_conversations(
         agent_id,
         user_id=current_user["id"],
-        is_admin=current_user.get("is_admin", False),
     )
     return {
         "threads": threads,
@@ -1019,14 +1015,7 @@ async def get_conversation(
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权访问该智能体")
-    thread = await pg_get_conversation(agent_id, thread_id)
-    if not thread:
-        raise HTTPException(404, "对话线程不存在")
-    if thread.get("owner_id", 0) != 0 and thread.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权访问该对话")
+    thread = await _require_owned_conversation(agent_id, thread_id, current_user)
     return {"thread": thread}
 
 
@@ -1038,9 +1027,6 @@ async def create_conversation(agent_id: str, title: str = "新对话", current_u
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权使用该智能体")
     thread = await pg_create_conversation(agent_id, title, owner_id=current_user["id"])
     return {"status": "ok", "thread": thread}
 
@@ -1053,14 +1039,7 @@ async def update_conversation(agent_id: str, thread_id: str, title: str = None, 
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权访问该智能体")
-    thread = await pg_get_conversation(agent_id, thread_id)
-    if not thread:
-        raise HTTPException(404, "对话线程不存在")
-    if thread.get("owner_id", 0) != 0 and thread.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权修改该对话")
+    await _require_owned_conversation(agent_id, thread_id, current_user)
     thread = await pg_update_conversation(agent_id, thread_id, {"title": title})
     return {"status": "ok", "thread": thread}
 
@@ -1073,14 +1052,7 @@ async def delete_conversation(agent_id: str, thread_id: str, current_user: dict 
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权访问该智能体")
-    thread = await pg_get_conversation(agent_id, thread_id)
-    if not thread:
-        raise HTTPException(404, "对话线程不存在")
-    if thread.get("owner_id", 0) != 0 and thread.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权删除该对话")
+    await _require_owned_conversation(agent_id, thread_id, current_user)
     if not await pg_delete_conversation(agent_id, thread_id):
         raise HTTPException(404, "对话线程不存在")
     return {"status": "ok"}
@@ -1098,23 +1070,11 @@ async def update_message(
     current_user: dict = Depends(get_current_user),
     _perm: None = Depends(require_permission(Permission.AGENT_WRITE)),
 ):
-    """编辑对话中的单条消息（仅 conversation owner 或 admin）"""
-    # 权限：仅 conversation owner 或 admin 可编辑
-    is_admin = current_user.get("is_admin", False)
-
-    # 验证 agent 存在 + 所有权
+    """Edit a message in the caller's own conversation."""
     agent = await pg_get_agent(agent_id)
     if not agent:
         raise HTTPException(404, "智能体不存在")
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权修改该智能体的消息")
-
-    # 验证 thread 存在 + 所有权
-    thread = await pg_get_conversation(agent_id, thread_id)
-    if not thread:
-        raise HTTPException(404, "对话线程不存在")
-    if thread.get("owner_id", 0) != 0 and thread.get("owner_id") != current_user["id"] and not is_admin:
-        raise HTTPException(403, "无权修改该对话的消息")
+    await _require_owned_conversation(agent_id, thread_id, current_user)
 
     # 输入校验
     if not req.content or not req.content.strip():
@@ -1150,10 +1110,6 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         raise HTTPException(404, "智能体不存在")
 
     # 验证 Agent 所有权（非所有者/管理员不可用）
-    is_admin = current_user.get("is_admin", False)
-    if agent.get("owner_id", 0) != 0 and agent.get("owner_id") != current_user["id"] and not is_admin:
-        timing.total(outcome="error")
-        raise HTTPException(403, "无权使用该智能体")
     # 输入校验 — Prompt Injection 防护
     # 当用户仅发送图片而无文字时，自动补全安全占位查询文本，
     # 确保 validate_query_input 始终有内容可校验，同时让下游
@@ -1398,6 +1354,16 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
 
     # 确保对话线程存在
     thread_id = req.thread_id
+    conv_thread = None
+    if thread_id:
+        try:
+            conv_thread = await _require_owned_conversation(
+                agent_id, thread_id, current_user
+            )
+        except Exception:
+            await _release_interactive_lease()
+            timing.total(outcome="error")
+            raise
     if not thread_id and not req.retrieval_only:
         try:
             thread = await pg_create_conversation(
@@ -1413,10 +1379,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
     conv_history_text = ""
     max_conv_rounds = int(os.getenv("CONVERSATION_MAX_ROUNDS", "10"))
     max_conv_tokens = int(os.getenv("CONVERSATION_MAX_TOKENS", "2000"))
-    conv_thread = None
     if not req.retrieval_only:
         try:
-            conv_thread = await pg_get_conversation(agent_id, thread_id)
+            conv_thread = conv_thread or await _require_owned_conversation(
+                agent_id, thread_id, current_user
+            )
         except Exception:
             await _release_interactive_lease()
             timing.total(outcome="error")

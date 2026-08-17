@@ -254,7 +254,7 @@ async def pg_list_agents(
     user_id: Optional[int] = None,
     is_admin: bool = False,
 ) -> list[dict[str, Any]]:
-    """List agents with user isolation and conversation activity.
+    """List every agent with requester-local conversation activity.
 
     Replaces: AgentManager.list_agents()
 
@@ -262,27 +262,17 @@ async def pg_list_agents(
     because migrated data must never reappear after a system reset.
 
     Returns:
-        List of agent dicts sorted by updated_at DESC. Regular users receive
-        activity for conversations they own; administrators receive all usage.
+        List of agent dicts sorted by updated_at DESC. Activity is derived
+        only from conversations owned by the requesting user.
     """
     result: list[dict[str, Any]] = []
     try:
         pool = _get_pool()
         activity_available = True
-        if is_admin or user_id is None:
+        if user_id is None:
             try:
                 rows = await pool.fetch(
-                    """
-                    SELECT a.*, activity.conversation_count, activity.last_conversation_at
-                    FROM agents AS a
-                    LEFT JOIN LATERAL (
-                        SELECT COUNT(*)::integer AS conversation_count,
-                               MAX(updated_at) AS last_conversation_at
-                        FROM agent_conversations
-                        WHERE agent_id = a.id
-                    ) AS activity ON TRUE
-                    ORDER BY a.updated_at DESC
-                    """
+                    "SELECT * FROM agents ORDER BY updated_at DESC"
                 )
             except Exception:
                 logger.debug("Agent activity aggregation failed, listing agents without activity")
@@ -300,7 +290,6 @@ async def pg_list_agents(
                         FROM agent_conversations
                         WHERE agent_id = a.id AND owner_id = $1
                     ) AS activity ON TRUE
-                    WHERE a.owner_id = $1 OR a.owner_id = 0
                     ORDER BY a.updated_at DESC
                     """,
                     user_id,
@@ -308,10 +297,7 @@ async def pg_list_agents(
             except Exception:
                 logger.debug("Agent activity aggregation failed, listing agents without activity")
                 activity_available = False
-                rows = await pool.fetch(
-                    "SELECT * FROM agents WHERE owner_id = $1 OR owner_id = 0 ORDER BY updated_at DESC",
-                    user_id,
-                )
+                rows = await pool.fetch("SELECT * FROM agents ORDER BY updated_at DESC")
         result = [_agent_row_to_dict(r) for r in rows]
         if not activity_available:
             for agent in result:
@@ -515,7 +501,7 @@ async def pg_list_conversations(
         llm_model, system_prompt, created_at, updated_at, message_count
     """
     pool = _get_pool()
-    if is_admin or user_id is None:
+    if user_id is None:
         rows = await pool.fetch(
             """
             SELECT ac.*, COUNT(am.id) as message_count
@@ -534,7 +520,7 @@ async def pg_list_conversations(
             FROM agent_conversations ac
             LEFT JOIN agent_messages am ON am.thread_id = ac.id
             WHERE ac.agent_id = $1
-              AND (ac.owner_id = $2 OR ac.owner_id = 0)
+              AND ac.owner_id = $2
             GROUP BY ac.id
             ORDER BY ac.updated_at DESC
             """,

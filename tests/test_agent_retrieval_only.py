@@ -9,6 +9,16 @@ from raganything.routers import agent as agent_router
 from raganything.services import user_settings, vision_models
 
 
+@pytest.fixture(autouse=True)
+def stable_authenticated_sse_session(monkeypatch):
+    async def session_is_current(_current_user):
+        return True
+
+    monkeypatch.setattr(
+        "raganything.dependencies.account_session_is_current", session_is_current
+    )
+
+
 def _resolved_settings():
     return user_settings.ResolvedUserSettings(
         models=user_settings.ModelSelection(
@@ -98,10 +108,13 @@ async def test_retrieval_only_emits_metadata_without_generation_or_history(monke
         raise AssertionError("retrieval_only must not persist conversation or query history")
 
     async def empty_conversation(*_args, **_kwargs):
-        return {"messages": []}
+        return {"owner_id": 7, "messages": []}
 
-    async def resolve_settings(_user_id):
+    async def resolve_settings(_user_id, **_kwargs):
         return _resolved_settings()
+
+    async def available_sections(_user_id):
+        return []
 
     async def get_platform_settings():
         return {"settings": {"limits": {"interactive_wait_seconds": 0}}}
@@ -124,6 +137,7 @@ async def test_retrieval_only_emits_metadata_without_generation_or_history(monke
     monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(agent_router, "_query_cache_scope", query_scope)
     monkeypatch.setattr(user_settings, "resolve_user_settings_for_task", resolve_settings)
+    monkeypatch.setattr(user_settings, "available_sections_for_user", available_sections)
     monkeypatch.setattr(user_settings, "get_platform_settings", get_platform_settings)
     monkeypatch.setattr(user_settings, "acquire_quota_lease", acquire_lease)
     monkeypatch.setattr(user_settings, "heartbeat_quota_lease", lease_ok)
@@ -179,8 +193,11 @@ def _wire_query_prerequisites(monkeypatch, *, agent_mode="none", acquire=None):
     async def get_agent(_agent_id):
         return _agent(agent_mode)
 
-    async def resolve_settings(_user_id):
+    async def resolve_settings(_user_id, **_kwargs):
         return _resolved_settings()
+
+    async def available_sections(_user_id):
+        return []
 
     async def platform_settings():
         return {"settings": {"limits": {"interactive_wait_seconds": 0}}}
@@ -196,6 +213,7 @@ def _wire_query_prerequisites(monkeypatch, *, agent_mode="none", acquire=None):
     monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(agent_router, "_query_cache_scope", query_scope)
     monkeypatch.setattr(user_settings, "resolve_user_settings_for_task", resolve_settings)
+    monkeypatch.setattr(user_settings, "available_sections_for_user", available_sections)
     monkeypatch.setattr(user_settings, "get_platform_settings", platform_settings)
     monkeypatch.setattr(user_settings, "acquire_quota_lease", acquire or lease_ok)
     monkeypatch.setattr(user_settings, "heartbeat_quota_lease", lease_ok)

@@ -7,6 +7,16 @@ from raganything.routers import agent as agent_router
 from raganything.services import pg_agent_repo, user_settings
 
 
+@pytest.fixture(autouse=True)
+def stable_authenticated_sse_session(monkeypatch):
+    async def session_is_current(_current_user):
+        return True
+
+    monkeypatch.setattr(
+        "raganything.dependencies.account_session_is_current", session_is_current
+    )
+
+
 def _resolved_settings():
     return user_settings.ResolvedUserSettings(
         models=user_settings.ModelSelection(
@@ -47,11 +57,14 @@ def _resolved_settings():
 
 
 def _stub_runtime_services(monkeypatch, vision_models, *, llm_func=None, vlm_available=True):
-    async def resolve_settings(_user_id):
+    async def resolve_settings(_user_id, **_kwargs):
         return _resolved_settings()
 
     async def platform_settings():
         return {"settings": {"limits": {"interactive_wait_seconds": 0}}}
+
+    async def available_sections(_user_id):
+        return []
 
     async def acquire_lease(*_args, **_kwargs):
         return "lease-1"
@@ -69,6 +82,7 @@ def _stub_runtime_services(monkeypatch, vision_models, *, llm_func=None, vlm_ava
         }
 
     monkeypatch.setattr(user_settings, "resolve_user_settings_for_task", resolve_settings)
+    monkeypatch.setattr(user_settings, "available_sections_for_user", available_sections)
     monkeypatch.setattr(user_settings, "get_platform_settings", platform_settings)
     monkeypatch.setattr(user_settings, "acquire_quota_lease", acquire_lease)
     monkeypatch.setattr(user_settings, "heartbeat_quota_lease", lease_ok)
@@ -360,7 +374,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
         return dict(runtime_agent)
 
     async def fake_pg_get_conversation(_agent_id, thread_id):
-        return {"id": thread_id, "messages": []}
+        return {"id": thread_id, "owner_id": 7, "messages": []}
 
     async def fake_pg_add_message(*_args, **_kwargs):
         return True

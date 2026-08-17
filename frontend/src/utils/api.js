@@ -431,8 +431,8 @@ async function loadKnowledgeDetailSnapshot(
   return {
     kbName,
     documents: documentPageResource(documentsResult),
-    inventory: detailResource(inventoryResult, value => value || {}),
     stats: detailResource(statsResult, value => value || {}),
+    inventory: detailResource(inventoryResult, value => value || {}),
   }
 }
 
@@ -518,27 +518,6 @@ export const api = {
       invalidateKnowledgeDetail(name)
       return response
     }),
-  getKBMembers: (name) => fetchJson(`/kb/${encodeURIComponent(name)}/members`),
-  searchKBMemberCandidates: (name, query, page = 1, pageSize = 20) => {
-    const params = new URLSearchParams({ q: query, page: String(page), page_size: String(pageSize) })
-    return fetchJson(`/kb/${encodeURIComponent(name)}/member-candidates?${params.toString()}`)
-  },
-  updateKBMember: (name, userId, accessLevel) => fetchJson(
-    `/kb/${encodeURIComponent(name)}/members/${encodeURIComponent(userId)}`,
-    { method: 'PUT', body: JSON.stringify({ access_level: accessLevel }) },
-  ).then(response => {
-    clearKBListCache()
-    invalidateKnowledgeDetail(name)
-    return response
-  }),
-  removeKBMember: (name, userId) => fetchJson(
-    `/kb/${encodeURIComponent(name)}/members/${encodeURIComponent(userId)}`,
-    { method: 'DELETE' },
-  ).then(response => {
-    clearKBListCache()
-    invalidateKnowledgeDetail(name)
-    return response
-  }),
   updateKBMetadata: (name, data) => fetchJson(
     `/kb/${encodeURIComponent(name)}/metadata`,
     { method: 'PATCH', body: JSON.stringify(data) },

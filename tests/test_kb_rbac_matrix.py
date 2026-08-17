@@ -97,14 +97,8 @@ async def test_viewer_list_kbs_does_not_autocreate_personal_kb(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role_name, visible", [
-    ("super_admin", True),
-    ("dept_admin", True),
-    ("teacher", True),
-    ("assistant", False),
-    ("student", False),
-])
-async def test_kb_list_and_switch_share_role_derived_read_visibility(monkeypatch, role_name, visible):
+@pytest.mark.parametrize("role_name", ["super_admin", "dept_admin", "teacher", "assistant", "student"])
+async def test_kb_list_and_switch_are_visible_to_every_read_role(monkeypatch, role_name):
     async def fake_load_kb_meta():
         return {"team-kb": {"name": "Team KB", "owner_id": 99, "owner_username": "owner"}}
 
@@ -114,34 +108,32 @@ async def test_kb_list_and_switch_share_role_derived_read_visibility(monkeypatch
     async def deny_personal_kb(_user_id, _permission):
         return False
 
+    async def allow_read(_user_id, permission):
+        return permission == Permission.KB_READ
+
+    async def verify_read(kb, current_user):
+        assert kb == "team-kb"
+        assert current_user["id"] == 1
+        return kb
+
     monkeypatch.setattr(knowledge, "load_kb_meta", fake_load_kb_meta)
     monkeypatch.setattr(knowledge, "_compute_kb_stats_batch_fast", fake_stats)
     monkeypatch.setattr(knowledge, "_auth_has_permission", deny_personal_kb)
+    monkeypatch.setattr(knowledge, "verify_kb_access", verify_read)
+    monkeypatch.setattr("raganything.dependencies._auth_has_permission", allow_read)
     actor = {
         "id": 1,
         "username": role_name,
         "is_admin": role_name == "super_admin",
         "role": {"name": role_name, "permissions": DEFAULT_ROLES[role_name]["permissions"]},
-        "allowed_kbs": [],
-        "kb_access_levels": {},
     }
 
     listed = await knowledge.list_kbs(current_user=actor)
-    assert bool(listed["knowledge_bases"]) is visible
-
-    if visible:
-        capabilities = listed["knowledge_bases"][0]["capabilities"]
-        assert capabilities["read"] is True
-        if role_name != "super_admin":
-            assert capabilities["operate"] is False
-            assert capabilities["rename"] is False
-            assert capabilities["manage_members"] is False
-            assert capabilities["delete"] is False
-        assert (await knowledge.switch_kb(name="team-kb", current_user=actor))["active"] == "team-kb"
-    else:
-        with pytest.raises(HTTPException) as exc:
-            await knowledge.switch_kb(name="team-kb", current_user=actor)
-        assert exc.value.status_code == 403
+    assert bool(listed["knowledge_bases"])
+    capabilities = listed["knowledge_bases"][0]["capabilities"]
+    assert capabilities["read"] is True
+    assert "manage_members" not in capabilities
+    assert (await knowledge.switch_kb(name="team-kb", current_user=actor))["active"] == "team-kb"
 
 
 @pytest.mark.asyncio

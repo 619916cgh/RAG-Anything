@@ -100,7 +100,6 @@ def _public_auth_user(user: dict, role: dict | None, is_admin: bool) -> dict:
         "is_admin": bool(is_admin),
         "must_change_password": bool(user.get("must_change_password", False)),
         "role": role,
-        "allowed_kbs": user.get("allowed_kbs", []),
     }
 
 

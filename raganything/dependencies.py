@@ -23,8 +23,6 @@ from raganything.services.auth import (
 
 security = HTTPBearer()
 
-_ROLE_DEFAULT_KB_READ = frozenset({"super_admin", "dept_admin", "teacher"})
-
 # ── 限流器 ─────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 
@@ -95,8 +93,6 @@ async def get_current_user(
         "session_generation": int(user.get("session_generation", 0)),
         "token_jti": jti,
         "role": role,  # 完整角色信息（含 permissions）
-        "allowed_kbs": user.get("allowed_kbs", []),
-        "kb_access_levels": user.get("kb_access_levels", {}),
     }
 
 
@@ -273,90 +269,34 @@ async def verify_kb_access(
         HTTPException(404): 知识库不存在
         HTTPException(403): 用户无权访问
     """
+    return await _require_kb_permission(kb, current_user, "kb:read")
+
+
+async def _require_kb_permission(kb: str, current_user: dict, permission: str) -> str:
+    """Require a global capability for an existing KB; ownership is attribution only."""
     from raganything.services.kb_service import load_kb_meta
 
-    kb_meta = await load_kb_meta()
-
-    if kb not in kb_meta:
+    if kb not in await load_kb_meta():
         raise HTTPException(404, f"知识库 '{kb}' 不存在")
-
-    if has_default_kb_read_access(current_user):
-        return kb
-
-    allowed_kbs = current_user.get("allowed_kbs", [])
-    if kb in allowed_kbs:
-        return kb
-
-    kb_info = kb_meta.get(kb, {})
-    owner_id = kb_info.get("owner_id")
-    if owner_id is not None and owner_id == current_user["id"]:
-        return kb
-
-    if kb not in allowed_kbs:
-        raise HTTPException(403, "无权访问该知识库")
-
+    if not await _auth_has_permission(int(current_user["id"]), permission):
+        raise HTTPException(403, "权限不足")
     return kb
-
-
-
-def has_default_kb_read_access(current_user: dict) -> bool:
-    """Whether a role receives non-persistent read visibility for every KB."""
-    role_name = (current_user.get("role") or {}).get("name")
-    return bool(current_user.get("is_admin")) or role_name in _ROLE_DEFAULT_KB_READ
-
-def _kb_grant_level(current_user: dict, kb: str) -> str | None:
-    levels = current_user.get("kb_access_levels") or {}
-    if isinstance(levels, dict):
-        level = levels.get(kb)
-        if level in {"read", "operate"}:
-            return level
-    # Compatibility for a session created before access_level projection.  A
-    # fresh authentication request always supplies kb_access_levels.
-    if kb in (current_user.get("allowed_kbs") or []):
-        return "read"
-    return None
 
 
 async def verify_kb_operate_access(
     kb: str = QueryParam("default"),
     current_user: dict = Depends(get_current_user),
 ) -> str:
-    """Require owner/super-admin scope or an explicit ``operate`` grant."""
-    from raganything.services.kb_service import load_kb_meta
-
-    kb_meta = await load_kb_meta()
-    if kb not in kb_meta:
-        raise HTTPException(404, f"知识库 '{kb}' 不存在")
-    if current_user.get("is_admin"):
-        return kb
-    kb_info = kb_meta.get(kb, {})
-    if kb_info.get("owner_id") == current_user.get("id"):
-        return kb
-    if _kb_grant_level(current_user, kb) == "operate":
-        return kb
-    raise HTTPException(403, "无权操作该知识库")
+    """Require global content-operation permission for an existing KB."""
+    return await _require_kb_permission(kb, current_user, "kb:write")
 
 
 async def verify_kb_manage_access(
     kb: str = QueryParam("default"),
     current_user: dict = Depends(get_current_user),
 ) -> str:
-    """Apply the object-level KB member-management matrix."""
-    if current_user.get("is_admin"):
-        return kb
-
-    from raganything.services.kb_service import load_kb_meta
-
-    kb_meta = await load_kb_meta()
-    if kb not in kb_meta:
-        raise HTTPException(404, f"知识库 '{kb}' 不存在")
-    role_name = (current_user.get("role") or {}).get("name")
-    is_owner = kb_meta[kb].get("owner_id") == current_user.get("id")
-    if role_name == "teacher" and is_owner:
-        return kb
-    if role_name == "dept_admin" and (is_owner or _kb_grant_level(current_user, kb) == "operate"):
-        return kb
-    raise HTTPException(403, "无权管理该知识库成员")
+    """Require global KB-management permission for an existing KB."""
+    return await _require_kb_permission(kb, current_user, "kb:manage")
 
 
 # ── 分页参数 ─────────────────────────────────────

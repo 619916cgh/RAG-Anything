@@ -11,7 +11,9 @@ test('knowledge-base editing is capability-gated and no longer uses user-admin g
 
   assert.match(page, /canEditKnowledgeBase\(kb\)/)
   assert.match(drawer, /getKnowledgeBaseEditCapabilities\(kb\)/)
-  assert.match(drawer, /member\.is_owner/)
+  assert.doesNotMatch(drawer, /member\.is_owner/)
+  assert.doesNotMatch(drawer, /成员与权限/)
+  assert.doesNotMatch(drawer, /getKBMembers/)
   assert.match(drawer, /min-h-11 min-w-11/)
   assert.doesNotMatch(userEditor, /allowed_kbs/)
 })

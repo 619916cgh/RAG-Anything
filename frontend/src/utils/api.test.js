@@ -8,14 +8,13 @@ import {
   streamSSE,
 } from './api.js'
 
-test('knowledge-base member and metadata mutations use scoped APIs and invalidate the list cache', async t => {
+test('knowledge-base metadata mutations invalidate the global list cache', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage
   const calls = []
   globalThis.localStorage = { getItem: () => null }
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options })
-    if (String(url).includes('/members/')) return jsonResponse({ member: { id: 8, access_level: 'operate' } })
     if (String(url).includes('/metadata')) return jsonResponse({ label: '新名称' })
     return jsonResponse({ knowledge_bases: [{ name: `kb-${calls.length}` }] })
   }
@@ -23,17 +22,10 @@ test('knowledge-base member and metadata mutations use scoped APIs and invalidat
 
   await api.listKBs({ force: true })
   await api.updateKBMetadata('知识库 A', { display_name: '新名称', expected_updated_at: '2026-08-07T00:00:00+00:00' })
-  await api.updateKBMember('知识库 A', 8, 'operate')
-  await api.removeKBMember('知识库 A', 8)
-  await api.searchKBMemberCandidates('知识库 A', '教师', 2, 10)
   await api.listKBs()
 
   assert.equal(calls[1].url, '/api/kb/%E7%9F%A5%E8%AF%86%E5%BA%93%20A/metadata')
   assert.equal(calls[1].options.method, 'PATCH')
-  assert.equal(calls[2].url, '/api/kb/%E7%9F%A5%E8%AF%86%E5%BA%93%20A/members/8')
-  assert.equal(calls[2].options.method, 'PUT')
-  assert.equal(calls[3].options.method, 'DELETE')
-  assert.match(calls[4].url, /member-candidates\?q=%E6%95%99%E5%B8%88&page=2&page_size=10$/)
   assert.equal(calls.filter(call => call.url === '/api/kb/list').length, 2)
 })
 
