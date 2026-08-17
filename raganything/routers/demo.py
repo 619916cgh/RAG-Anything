@@ -153,6 +153,13 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _consume_background_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except (asyncio.CancelledError, Exception):
+        pass
+
+
 async def _demo_events(share: DemoShare, agent: dict, query: str, request: Request) -> AsyncIterator[str]:
     """Run a fixed-agent RAG query without conversation or query-history writes."""
     lease = None
@@ -181,7 +188,7 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     acquire_task.cancel()
-                    await asyncio.gather(acquire_task, return_exceptions=True)
+                    acquire_task.add_done_callback(_consume_background_task_result)
                     raise TimeoutError
                 done, _ = await asyncio.wait({acquire_task}, timeout=min(5.0, remaining))
                 if acquire_task not in done:
@@ -190,7 +197,7 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
         finally:
             if not acquire_task.done():
                 acquire_task.cancel()
-                await asyncio.gather(acquire_task, return_exceptions=True)
+                acquire_task.add_done_callback(_consume_background_task_result)
         instance = lease.instance
         yield _sse({"type": "agent_info", "agent": agent.get("name", "演示助手"), "icon": agent.get("icon", ""), "demo": True})
         yield _sse({"type": "thinking", "content": "正在检索云端知识库..."})

@@ -178,6 +178,26 @@ async def test_demo_stream_accepts_before_cold_knowledge_base_acquisition(monkey
 
 
 @pytest.mark.asyncio
+async def test_demo_stream_times_out_without_waiting_for_cold_acquisition(monkeypatch):
+    gate = asyncio.Event()
+
+    async def slow_acquire(*_args, **_kwargs):
+        await gate.wait()
+
+    monkeypatch.setattr(demo, "acquire_query_kb", slow_acquire)
+    monkeypatch.setattr(demo, "load_kb_meta", lambda: _async_value({"cloud-kb": {}}))
+    monkeypatch.setattr(demo, "release_demo_query", lambda _share_id: _async_none())
+    monkeypatch.setattr(demo, "_DEMO_QUERY_TIMEOUT", 0.01)
+    events = demo._demo_events(_share(), {}, "question", object())
+    try:
+        assert json.loads((await anext(events))[6:])["type"] == "accepted"
+        timeout_event = json.loads((await asyncio.wait_for(anext(events), timeout=0.5))[6:])
+        assert timeout_event["type"] == "error"
+    finally:
+        await events.aclose()
+
+
+@pytest.mark.asyncio
 async def test_demo_stream_stops_before_nonstreaming_answer_after_revocation(monkeypatch):
     class Instance:
         async def aquery(self, *_args, **_kwargs):
