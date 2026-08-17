@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
 
@@ -126,6 +127,22 @@ def test_repository_manifest_covers_every_sql_file_and_keeps_duplicate_prefixes(
         "010_uploaded_files_task_queue.sql",
     }
     assert migrations[-1].migration_id == "035_public_demo_shares.sql"
+
+
+def test_applied_migration_files_keep_the_recorded_byte_checksums():
+    root = Path(__file__).resolve().parents[1]
+    expected = {
+        "001_shared_state_tables.sql": "dac39df8cd9833653edd114f09f639d624c732d1f14075ad7e93981b6fe73902",
+        "026_kb_updated_at_semantics.sql": "51cbb6c16c1bdf7ad277653397552362e526152c6ee81b9ff9ab667e599cf5bc",
+        "033_kb_access_grant_levels.sql": "2778b33e25b0ebe405f6ad20b23ea59e67086c9a15eb7e738b4e363076d46570",
+    }
+
+    for migration_id, checksum in expected.items():
+        migration = root / "migrations" / migration_id
+        content = migration.read_bytes()
+        if migration_id == "001_shared_state_tables.sql":
+            content = content.replace(b"\r\n", b"\n")
+        assert sha256(content).hexdigest() == checksum
 
 
 def test_manifest_rejects_missing_or_duplicate_entries(tmp_path):

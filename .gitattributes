@@ -1,3 +1,6 @@
 *.sh text eol=lf
+migrations/001_shared_state_tables.sql text eol=lf
+migrations/026_kb_updated_at_semantics.sql -text -whitespace
+migrations/033_kb_access_grant_levels.sql -text -whitespace
 /outputs export-ignore
 /outputs/** export-ignore
