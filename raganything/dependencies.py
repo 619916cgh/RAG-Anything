@@ -5,6 +5,7 @@ RAG-Anything 共享 FastAPI 依赖项。
 各 Router 模块统一从此处导入，避免重复定义。
 """
 
+import json
 from typing import AsyncIterable, AsyncIterator, Optional, Dict, Any
 
 from fastapi import Query as QueryParam, Request, Depends, HTTPException
@@ -122,11 +123,31 @@ async def account_session_is_current(current_user: Dict[str, Any]) -> bool:
 async def authenticated_sse_events(
     events: AsyncIterable[str], current_user: Dict[str, Any]
 ) -> AsyncIterator[str]:
-    """Yield only events emitted while the account session remains current."""
+    """Yield only events emitted while the account session remains current.
+
+    The request dependencies have already authenticated the caller before the
+    response starts.  A strictly empty lifecycle acknowledgement is safe to
+    flush without another potentially slow account lookup; every event that
+    can carry protected state remains subject to the current-session check.
+    """
     async for event in events:
+        if _is_empty_sse_acceptance(event):
+            yield event
+            continue
         if not await account_session_is_current(current_user):
             return
         yield event
+
+
+def _is_empty_sse_acceptance(event: str) -> bool:
+    """Return whether an event is the protocol's content-free acknowledgement."""
+    if not isinstance(event, str) or not event.startswith("data: "):
+        return False
+    try:
+        payload = json.loads(event[6:].strip())
+    except (TypeError, ValueError):
+        return False
+    return payload == {"type": "accepted"}
 
 
 async def get_admin_user(

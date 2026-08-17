@@ -1,6 +1,6 @@
 ## 1. Stream Lifecycle
 
-- [x] 1.1 Emit additive accepted and heartbeat events before and during slow query-core acquisition without changing the retrieval deadline or authorization flow.
+- [x] 1.1 Emit additive accepted and heartbeat events before endpoint-local blocking work and during slow query-core acquisition without changing the retrieval deadline or authorization flow.
 - [x] 1.2 Isolate stream finalization failures so a retrieval timeout retains its terminal SSE error and detached core work remains safely observed.
 
 ## 2. Browser Recovery

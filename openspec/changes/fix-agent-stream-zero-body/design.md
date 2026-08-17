@@ -22,7 +22,7 @@ The agent route creates an HTTP SSE response but waits for `acquire_query_kb()` 
 
 ### Additive lifecycle events
 
-The generator will yield `accepted` before slow query-core acquisition, then `heartbeat` at a bounded interval while that acquisition remains pending. Both events contain only lifecycle metadata. This provides feedback without leaking query content or internal dependency state. Reusing a `thinking` payload was rejected because it would blur transport lifecycle and user-facing reasoning.
+The generator will yield `accepted` before endpoint-local blocking preparation or slow query-core acquisition, then `heartbeat` at a bounded interval while core acquisition remains pending. The authenticated SSE wrapper flushes only this exact content-free event without a second account lookup; every event that can carry protected state retains the current-session check. This provides feedback without leaking query content or internal dependency state. Reusing a `thinking` payload was rejected because it would blur transport lifecycle and user-facing reasoning.
 
 ### Poll acquisition within the existing deadline
 

@@ -1118,12 +1118,6 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
     query_id = str(uuid.uuid4())[:8]
     timing = QueryTiming(query_id)
     timing.start("settings_quota")
-    agent = await pg_get_agent(agent_id)
-    if not agent:
-        timing.total(outcome="error")
-        raise HTTPException(404, "智能体不存在")
-
-    # 验证 Agent 所有权（非所有者/管理员不可用）
     # 输入校验 — Prompt Injection 防护
     # 当用户仅发送图片而无文字时，自动补全安全占位查询文本，
     # 确保 validate_query_input 始终有内容可校验，同时让下游
@@ -1135,38 +1129,32 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
     except Exception:
         timing.total(outcome="error")
         raise
-    # 验证 KB 访问权限（可能自动切换到用户的个人 KB）
-    try:
-        actual_kb = await verify_kb_access(
-            kb=agent.get("kb_name", ""), current_user=current_user
-        )
-    except asyncio.CancelledError:
-        timing.total(outcome="cancelled")
-        raise
-    except Exception:
-        timing.total(outcome="error")
-        raise
 
     inventory_type = (
         None if req.retrieval_only else detect_knowledge_inventory_intent(req.query)
     )
     if inventory_type is not None:
-        thread_id = req.thread_id
-        if thread_id:
-            await _require_owned_conversation(agent_id, thread_id, current_user)
-        else:
-            thread = await pg_create_conversation(
-                agent_id, title="新对话", owner_id=current_user["id"]
-            )
-            thread_id = thread["id"]
-        inventory = await get_knowledge_inventory(actual_kb)
-        answer = format_knowledge_inventory_answer(inventory, inventory_type)
-        timing.finish("settings_quota")
-
         async def inventory_event_stream():
             timing_outcome = "ok"
             try:
                 yield f"data: {json.dumps({'type': 'accepted'}, ensure_ascii=False)}\n\n"
+                agent = await pg_get_agent(agent_id)
+                if not agent:
+                    raise HTTPException(404, "智能体不存在")
+                actual_kb = await verify_kb_access(
+                    kb=agent.get("kb_name", ""), current_user=current_user
+                )
+                thread_id = req.thread_id
+                if thread_id:
+                    await _require_owned_conversation(agent_id, thread_id, current_user)
+                else:
+                    thread = await pg_create_conversation(
+                        agent_id, title="新对话", owner_id=current_user["id"]
+                    )
+                    thread_id = thread["id"]
+                inventory = await get_knowledge_inventory(actual_kb)
+                answer = format_knowledge_inventory_answer(inventory, inventory_type)
+                timing.finish("settings_quota")
                 yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.get('name', ''), 'icon': agent.get('icon', ''), 'thread_id': thread_id}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'token', 'content': answer}, ensure_ascii=False)}\n\n"
                 elapsed = 0.0
@@ -1192,9 +1180,18 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "username": current_user["username"],
                 }, max_history=100)
                 yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'inventory': inventory}, ensure_ascii=False)}\n\n"
+            except asyncio.CancelledError:
+                timing_outcome = "cancelled"
+                raise
             except Exception as exc:
                 timing_outcome = "error"
-                yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+                lightrag_logger.warning(
+                    "[AGENT-INVENTORY] trace_id=%s outcome=error",
+                    query_id,
+                    exc_info=True,
+                )
+                message = exc.detail if isinstance(exc, HTTPException) and isinstance(exc.detail, str) else "库存查询暂时不可用，请重试。"
+                yield f"data: {json.dumps({'type': 'error', 'content': message}, ensure_ascii=False)}\n\n"
             finally:
                 timing.total(outcome=timing_outcome)
 
@@ -1207,6 +1204,23 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "X-Accel-Buffering": "no",
             },
         )
+
+    agent = await pg_get_agent(agent_id)
+    if not agent:
+        timing.total(outcome="error")
+        raise HTTPException(404, "智能体不存在")
+
+    # 验证 KB 访问权限（可能自动切换到用户的个人 KB）
+    try:
+        actual_kb = await verify_kb_access(
+            kb=agent.get("kb_name", ""), current_user=current_user
+        )
+    except asyncio.CancelledError:
+        timing.total(outcome="cancelled")
+        raise
+    except Exception:
+        timing.total(outcome="error")
+        raise
 
     from raganything.services import vision_models
     try:

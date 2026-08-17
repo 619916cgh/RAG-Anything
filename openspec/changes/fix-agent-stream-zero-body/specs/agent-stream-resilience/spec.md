@@ -1,11 +1,19 @@
 ## ADDED Requirements
 
 ### Requirement: Agent stream announces acceptance before core acquisition
-The authenticated agent streaming endpoint SHALL emit an additive `accepted` SSE event before waiting for a query core. The event MUST not contain query text, document content, model configuration, local paths, or credentials.
+The authenticated agent streaming endpoint SHALL emit an additive `accepted` SSE event before waiting for endpoint-local blocking preparation or a query core. The event MUST not contain query text, document content, model configuration, local paths, or credentials.
 
 #### Scenario: Cold query-core acquisition
 - **WHEN** an authorized query waits for query-core acquisition
 - **THEN** the client receives an `accepted` event before the acquisition completes
+
+#### Scenario: Inventory preparation is slow
+- **WHEN** an authorized inventory question waits for conversation creation or inventory calculation
+- **THEN** the client receives an `accepted` event before that preparation completes
+
+#### Scenario: Session recheck is slow at stream start
+- **WHEN** the request dependencies have authenticated the caller and the subsequent account-session lookup is slow
+- **THEN** the client receives the exact content-free `accepted` event before that repeat lookup, while later protected events still require a current session
 
 ### Requirement: Pending agent streams remain observable
 The endpoint SHALL emit additive `heartbeat` SSE events at a bounded interval while query-core acquisition is pending and the request deadline has not elapsed.
