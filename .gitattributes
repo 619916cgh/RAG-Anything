@@ -1,1 +1,3 @@
 *.sh text eol=lf
+/outputs export-ignore
+/outputs/** export-ignore
