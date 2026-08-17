@@ -20,9 +20,17 @@ async def _body(response):
 
 def test_inventory_intent_is_strict_about_knowledge_base_stock():
     assert agent_router.detect_knowledge_inventory_intent("知识库中有多少个视频") == "video"
-    assert agent_router.detect_knowledge_inventory_intent("资料库共有多少文档") == "document"
+    assert agent_router.detect_knowledge_inventory_intent("这个知识库包含多少个文件") == "all"
+    assert agent_router.detect_knowledge_inventory_intent("视频知识库有多少个文件") == "all"
+    assert agent_router.detect_knowledge_inventory_intent("资料库共有多少文档") == "all"
+    assert agent_router.detect_knowledge_inventory_intent("文档库文档数量") == "all"
+    assert agent_router.detect_knowledge_inventory_intent("知识库有多少 Word 文档") == "document"
+    assert agent_router.detect_knowledge_inventory_intent("知识库有多少 DOC") == "document"
+    assert agent_router.detect_knowledge_inventory_intent("知识库有多少 docx") == "document"
     assert agent_router.detect_knowledge_inventory_intent("知识库有多少") == "all"
     assert agent_router.detect_knowledge_inventory_intent("视频中有多少个零件") is None
+    assert agent_router.detect_knowledge_inventory_intent("知识库中的视频有多少个零件") is None
+    assert agent_router.detect_knowledge_inventory_intent("知识库有多少视频和 PDF") is None
 
 
 @pytest.mark.asyncio
@@ -43,8 +51,8 @@ async def test_inventory_answer_streams_and_persists_without_retrieval_or_llm(mo
 
     async def inventory(_kb):
         return {
-            "all": {"total": 3, "retrievable": 2, "content_processing": 0, "tag_processing": 1, "failed": 1},
-            "types": {"video": {"total": 3, "retrievable": 2, "content_processing": 0, "tag_processing": 1, "failed": 1}},
+            "all": {"total": 6, "retrievable": 5, "content_processing": 0, "tag_processing": 1, "failed": 0},
+            "types": {"video": {"total": 6, "retrievable": 5, "content_processing": 0, "tag_processing": 1, "failed": 0}},
         }
 
     monkeypatch.setattr(agent_router, "pg_get_agent", get_agent)
@@ -59,7 +67,7 @@ async def test_inventory_answer_streams_and_persists_without_retrieval_or_llm(mo
 
     response = await agent_router.agent_query_stream(
         "agent-1",
-        agent_router.AgentQueryRequest(query="知识库中有多少个视频"),
+        agent_router.AgentQueryRequest(query="这个知识库包含多少个文件"),
         _Request(),
         current_user={"id": 7, "username": "tester"},
         _perm=None,
@@ -67,8 +75,10 @@ async def test_inventory_answer_streams_and_persists_without_retrieval_or_llm(mo
     events = [json.loads(line[6:]) for line in (await _body(response)).splitlines() if line.startswith("data: ")]
 
     assert [event["type"] for event in events] == ["agent_info", "token", "done"]
-    assert "总数 3" in events[1]["content"]
-    assert events[2]["inventory"]["types"]["video"]["total"] == 3
+    assert "知识库文件库存：总数 6" in events[1]["content"]
+    assert "视频 6" in events[1]["content"]
+    assert events[2]["inventory"]["all"]["total"] == 6
+    assert events[2]["inventory"]["types"]["video"]["total"] == 6
     assert "citations" not in events[2]
     assert [message["role"] for message in calls["messages"]] == ["user", "assistant"]
     assert calls["record"] == 1

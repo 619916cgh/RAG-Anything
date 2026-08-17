@@ -833,12 +833,14 @@ _INVENTORY_TYPE_LABELS = {
 _INVENTORY_TYPE_PATTERNS = (
     ("video", re.compile(r"视频|录像|影片")),
     ("pdf", re.compile(r"pdf")),
-    ("document", re.compile(r"word|文档|文件|资料")),
+    ("document", re.compile(r"word|docx?")),
     ("spreadsheet", re.compile(r"excel|表格|工作表")),
     ("presentation", re.compile(r"ppt|演示文稿|幻灯片")),
     ("image", re.compile(r"图片|图像")),
     ("audio", re.compile(r"音频|录音")),
 )
+_INVENTORY_OBJECT_PATTERN = re.compile(r"^.*?(?:知识库|资料库|文档库|文件库|视频库)")
+_INVENTORY_GENERIC_NOUN_PATTERN = re.compile(r"文件|资料|文档")
 
 
 def detect_knowledge_inventory_intent(query: str) -> str | None:
@@ -850,10 +852,22 @@ def detect_knowledge_inventory_intent(query: str) -> str | None:
     has_quantity = bool(re.search(r"多少|几个|几份|数量|总数|统计|盘点", normalized))
     if not (has_inventory_object and has_quantity):
         return None
-    for file_type, pattern in _INVENTORY_TYPE_PATTERNS:
-        if pattern.search(normalized):
-            return file_type
-    trailing = re.search(r"(?:多少|几个|几份)\s*(?:个|份|本|条)?\s*([^\s，。！？?]*)", normalized)
+
+    # Decide from the counted object, not type words embedded in a KB name or
+    # in the content being counted (for example, "知识库中的视频有多少零件").
+    remainder = _INVENTORY_OBJECT_PATTERN.sub("", normalized, count=1)
+    trailing = re.search(r"(?:多少|几个|几份|数量|总数|统计|盘点)\s*(?:个|份|本|条)?\s*(.*?)(?:[，。！？?]|$)", remainder)
+    counted_object = trailing.group(1).strip() if trailing and trailing.group(1) else remainder
+    matched_types = [
+        file_type for file_type, pattern in _INVENTORY_TYPE_PATTERNS
+        if pattern.search(counted_object)
+    ]
+    if len(matched_types) == 1:
+        return matched_types[0]
+    if len(matched_types) > 1:
+        return None
+    if _INVENTORY_GENERIC_NOUN_PATTERN.search(counted_object):
+        return "all"
     if trailing and trailing.group(1):
         return None
     return "all"
@@ -861,7 +875,7 @@ def detect_knowledge_inventory_intent(query: str) -> str | None:
 
 def format_knowledge_inventory_answer(inventory: dict, requested_type: str) -> str:
     counts = inventory.get("all", {}) if requested_type == "all" else inventory.get("types", {}).get(requested_type, {})
-    label = "知识库文档" if requested_type == "all" else _INVENTORY_TYPE_LABELS[requested_type]
+    label = "知识库文件" if requested_type == "all" else _INVENTORY_TYPE_LABELS[requested_type]
     answer = (
         f"{label}库存：总数 {counts.get('total', 0)}，"
         f"已完成且可检索 {counts.get('retrievable', 0)}，"
