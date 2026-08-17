@@ -12,4 +12,4 @@
 
 - [x] 3.1 Add focused backend and frontend regression tests for cold-core progress, timeout cleanup, first-event timeout, idle timeout, terminal events, and caller cancellation.
 - [x] 3.2 Run focused tests, compilation, frontend build, OpenSpec strict validation, and scoped diff checks.
-- [ ] 3.3 Update the project summary, create a scoped commit, deploy the full commit through the fast-release gate, and perform read-only host acceptance.
+- [x] 3.3 Update the project summary, create a scoped commit, deploy the full commit through the fast-release gate, and perform read-only host acceptance.
