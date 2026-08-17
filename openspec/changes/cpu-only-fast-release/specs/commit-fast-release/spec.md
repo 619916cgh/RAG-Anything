@@ -31,3 +31,7 @@ The remote release routine SHALL verify the uploaded payload checksum, perform a
 #### Scenario: App health fails after switch
 - **WHEN** the candidate app fails the direct health check after replacement
 - **THEN** the routine restores the preserved app and Nginx images and reports the failed health evidence.
+
+#### Scenario: Nginx container is absent before a release
+- **WHEN** the App container is healthy but no `raganything-nginx` container exists before the release
+- **THEN** the routine may bootstrap the candidate Nginx service after the App check, and on a later failure restores the App while removing only the newly created Nginx container.

@@ -70,6 +70,11 @@ def test_remote_release_only_switches_app_then_nginx_and_rolls_back() -> None:
     assert "trap rollback ERR INT TERM" in content
     assert "rollback_app_image" in content
     assert "rollback_nginx_image" in content
+    assert "nginx_container_present=0" in content
+    assert "No existing Nginx container found" in content
+    assert "docker image tag \"$old_nginx_id\" \"$rollback_nginx_image\"" in content
+    assert "if (( nginx_container_present == 1 )); then" in content
+    assert 'compose "$candidate_app_image" "$candidate_nginx_image" rm -sf nginx' in content
     assert "assert_direct_health" in content
     assert "assert_full_health" in content
     assert "wait_for_health assert_direct_health" in content

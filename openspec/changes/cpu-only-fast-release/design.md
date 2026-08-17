@@ -41,6 +41,8 @@ Using an uncommitted archive was rejected because it is not reproducible. Allowi
 
 The remote release routine SHALL acquire a host release lock, verify the archive checksum, build candidate overlays, run an application import smoke test, preserve immutable image IDs under release-specific rollback tags, switch only `app` and then `nginx` with `--no-deps --no-build --force-recreate`, and poll direct and reverse-proxy health checks plus zero restart count over a bounded stability window. A `trap` SHALL restore both preserved images on every post-switch failure and verify rollback health. It SHALL never invoke `migrate` or automatic image pruning.
 
+If the expected `raganything-nginx` container is absent before the switch, the routine SHALL treat the release as an Nginx bootstrap: it may create the candidate Nginx container after the App health check. If a post-switch check then fails, it SHALL restore the App and remove only the candidate Nginx container, returning to the pre-release topology without inventing a rollback image.
+
 ### Verify parser capability and model-cache policy before freezing a base
 
 The base-image gate SHALL check CPU Torch/Torchvision, Docling conversion with a fixture, MinerU availability, CPU-mode Paddle initialization where supported, OpenDataLoader and Java 17, FFmpeg, and LibreOffice. Parser model artifacts remain in versioned persistent host caches rather than in the base image; the gate SHALL report cache misses as a prewarming requirement and the fast release path SHALL not download model assets.

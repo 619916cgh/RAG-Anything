@@ -131,11 +131,21 @@ compose "$candidate_app_image" "$candidate_nginx_image" run --rm --no-deps --ent
     -c 'import server; from raganything.routers import knowledge'
 
 old_app_id="$(docker inspect raganything-app --format '{{.Image}}')"
-old_nginx_id="$(docker inspect raganything-nginx --format '{{.Image}}')"
+nginx_container_present=0
+if old_nginx_id="$(docker inspect raganything-nginx --format '{{.Image}}' 2>/dev/null)"; then
+    nginx_container_present=1
+else
+    old_nginx_id=""
+    echo "No existing Nginx container found; this release will bootstrap the Nginx service."
+fi
 rollback_app_image="raganything-app:fast-rollback-${short_commit}"
 rollback_nginx_image="raganything-nginx:fast-rollback-${short_commit}"
 docker image tag "$old_app_id" "$rollback_app_image"
-docker image tag "$old_nginx_id" "$rollback_nginx_image"
+if (( nginx_container_present == 1 )); then
+    docker image tag "$old_nginx_id" "$rollback_nginx_image"
+else
+    rollback_nginx_image=""
+fi
 
 switched=0
 accepted=0
@@ -144,7 +154,12 @@ rollback() {
     if (( switched == 1 && accepted == 0 )); then
         echo "Release failed after service replacement; restoring app and Nginx." >&2
         compose "$rollback_app_image" "$rollback_nginx_image" up -d --no-deps --no-build --force-recreate app || true
-        compose "$rollback_app_image" "$rollback_nginx_image" up -d --no-deps --no-build --force-recreate nginx || true
+        if (( nginx_container_present == 1 )); then
+            compose "$rollback_app_image" "$rollback_nginx_image" up -d --no-deps --no-build --force-recreate nginx || true
+        else
+            # Restore the pre-release topology: there was no Nginx container.
+            compose "$candidate_app_image" "$candidate_nginx_image" rm -sf nginx || true
+        fi
         curl -fsS --max-time 10 http://127.0.0.1:8000/api/health >/dev/null || true
         curl -fsS --max-time 10 http://127.0.0.1/api/health >/dev/null || true
     fi
