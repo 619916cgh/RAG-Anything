@@ -12,7 +12,7 @@ import { getDocumentTagPresentation } from '../utils/documentTagHealth'
 import { useAuth } from '../context/AuthContext'
 import { UserDialogConfirmation } from '../components/UserDialog'
 import Pagination from '../components/Pagination'
-import { useControlledMediaSource } from '../components/ControlledMedia'
+import { useControlledMediaState } from '../components/ControlledMedia'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
 import { neutralObjectError } from '../utils/permissionUiPolicy'
 import { useConfirmedKnowledgeBase } from '../hooks/useConfirmedKnowledgeBase'
@@ -44,17 +44,20 @@ function formatNumber(value) {
 
 function MediaPreview({ chunk, type, onOpen, detailLabel }) {
   const [failed, setFailed] = useState(false)
-  const source = useControlledMediaSource(chunk)
+  const { source, loading } = useControlledMediaState(chunk)
 
   useEffect(() => setFailed(false), [chunk.chunk_id, source])
 
+  if (loading) {
+    return <span className="chunk-media-fallback" role="status"><Loader2 size={18} className="animate-spin" aria-hidden="true" /><span>正在加载媒体预览</span></span>
+  }
   if (!source || failed) {
-    return <button type="button" className="chunk-card-media-button" onClick={onOpen} aria-label={`${failed ? '预览不可用' : '无可用媒体'}，${detailLabel}`}><span className="chunk-media-fallback" role={failed ? 'status' : undefined}><ImageIcon size={18} aria-hidden="true" /><span>{failed ? '预览不可用，正文仍可查看' : '无可用媒体，正文仍可查看'}</span></span></button>
+    return <button type="button" className="chunk-card-media-button" onClick={onOpen} aria-label={`预览不可用，${detailLabel}`}><span className="chunk-media-fallback" role="status"><ImageIcon size={18} aria-hidden="true" /><span>预览不可用，正文仍可查看</span></span></button>
   }
   if (type === 'video') {
     return <video className="chunk-media-preview" controls preload="metadata" aria-label={chunk.modal_entity_name || '切块视频预览'} onError={() => setFailed(true)}><source src={source} /></video>
   }
-  return <button type="button" className="chunk-card-media-button" onClick={onOpen} aria-label={detailLabel}><img className="chunk-media-preview" src={source} alt={chunk.modal_entity_name || '切块媒体预览'} loading="lazy" onError={() => setFailed(true)} /></button>
+  return <button type="button" className="chunk-card-media-button" onClick={onOpen} aria-label={detailLabel}><img className="chunk-media-preview" src={source} alt={chunk.modal_entity_name || '切块媒体预览'} loading="eager" decoding="async" onError={() => setFailed(true)} /></button>
 }
 
 function detailPath(kbName, docId, chunkId, tagId, mode = '') {

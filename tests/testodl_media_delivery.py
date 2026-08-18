@@ -65,6 +65,18 @@ def _persisted_catalog(tmp_path: Path, monkeypatch, *, kb_name: str = "kb-visibl
     return image, entry, catalog
 
 
+def _current_chunk_kb(chunk_id: str = "chunk-1"):
+    class TextChunks:
+        async def get_by_ids(self, ids):
+            assert ids == [chunk_id]
+            return [{"id": chunk_id, "content": "Image Path: controlled"}]
+
+    async def get_kb(_kb):
+        return SimpleNamespace(lightrag=SimpleNamespace(text_chunks=TextChunks()))
+
+    return get_kb
+
+
 def test_catalog_resolves_only_persisted_valid_media(tmp_path, monkeypatch):
     image, entry, catalog = _persisted_catalog(tmp_path, monkeypatch)
     resolved = resolve_catalog_media(catalog, kb_name="kb-visible", media_id=entry["media_id"])
@@ -217,10 +229,11 @@ async def test_media_endpoint_uses_kb_access_and_never_accepts_paths(tmp_path, m
         return kb
 
     async def doc_status(_kb):
-        return {"doc-1": {"metadata": {"odl_media_catalog": catalog}}}
+        return {"doc-1": {"chunks_list": ["chunk-1"], "metadata": {"odl_media_catalog": catalog}}}
 
     monkeypatch.setattr(knowledge, "verify_kb_access", allow_kb)
     monkeypatch.setattr(knowledge, "_load_doc_status_json", doc_status)
+    monkeypatch.setattr(knowledge, "get_kb", _current_chunk_kb())
     response = await knowledge.serve_odl_media(entry["media_id"], kb="kb-visible", current_user={"id": 7})
     assert response.media_type == "image/png"
     assert response.headers["cache-control"] == "private, no-store"
@@ -275,10 +288,11 @@ async def test_media_endpoint_asgi_enforces_authentication_and_kb_scope(tmp_path
         return kb
 
     async def doc_status(_kb):
-        return {"doc-1": {"metadata": {"odl_media_catalog": catalog}}}
+        return {"doc-1": {"chunks_list": ["chunk-1"], "metadata": {"odl_media_catalog": catalog}}}
 
     monkeypatch.setattr(knowledge, "verify_kb_access", allow_kb)
     monkeypatch.setattr(knowledge, "_load_doc_status_json", doc_status)
+    monkeypatch.setattr(knowledge, "get_kb", _current_chunk_kb())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         allowed = await client.get(
             f"/knowledge/media/{entry['media_id']}", params={"kb": "kb-a"}
@@ -286,6 +300,36 @@ async def test_media_endpoint_asgi_enforces_authentication_and_kb_scope(tmp_path
     assert allowed.status_code == 200
     assert allowed.headers["content-type"].startswith("image/png")
     assert allowed.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.asyncio
+async def test_media_endpoint_rejects_deleted_or_misbound_catalog_chunk(tmp_path, monkeypatch):
+    from raganything.routers import knowledge
+
+    _image, entry, catalog = _persisted_catalog(tmp_path, monkeypatch)
+
+    async def allow_kb(kb, _user):
+        return kb
+
+    monkeypatch.setattr(knowledge, "verify_kb_access", allow_kb)
+
+    async def deleted_chunk(_kb):
+        return {"doc-1": {"chunks_list": [], "metadata": {"odl_media_catalog": catalog}}}
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", deleted_chunk)
+    with pytest.raises(HTTPException) as deleted:
+        await knowledge.serve_odl_media(entry["media_id"], kb="kb-visible", current_user={"id": 7})
+    assert deleted.value.status_code == 404
+
+    misbound = [dict(catalog[0], document_id="other-document")]
+
+    async def misbound_chunk(_kb):
+        return {"doc-1": {"chunks_list": ["chunk-1"], "metadata": {"odl_media_catalog": misbound}}}
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", misbound_chunk)
+    with pytest.raises(HTTPException) as rejected:
+        await knowledge.serve_odl_media(entry["media_id"], kb="kb-visible", current_user={"id": 7})
+    assert rejected.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -496,6 +540,145 @@ def test_odl_chunk_serialization_uses_catalog_url_not_local_path(tmp_path, monke
     assert str(image) not in json.dumps(serialized)
     assert serialized["media_url"].startswith("/api/knowledge/media/")
     assert serialized["media_kb"] == "kb-visible"
+    assert serialized["content"] == ""
+
+
+def test_odl_chunk_content_strips_local_media_marker_but_keeps_body():
+    from raganything.routers import knowledge
+
+    serialized = knowledge._serialize_document_chunk(
+        {
+            "chunk_id": "chunk-body",
+            "file_path": "/app/uploads/internal.pdf",
+            "content": "Image Analysis:\ncaption: figure\nImage Path: /app/output/imageFile1.png\n正文保留",
+            "is_multimodal": True,
+            "original_type": "image",
+        },
+        {},
+        status_info={"metadata": {"provenance_ref": "controlled-sidecar.json"}},
+        kb="kb-visible",
+        document_id="doc-body",
+    )
+
+    assert "/app/output" not in serialized["content"]
+    assert "正文保留" in serialized["content"]
+    assert serialized["file_path"] is None
+
+
+def test_odl_chunk_content_strips_chinese_local_media_marker():
+    from raganything.routers import knowledge
+
+    serialized = knowledge._serialize_document_chunk(
+        {
+            "chunk_id": "chunk-cn-marker",
+            "content": "[图片路径：/app/output/imageFile1.png]（位于：章节）\n正文保留",
+            "is_multimodal": False,
+        },
+        {},
+        status_info={"metadata": {}},
+        kb="kb-visible",
+        document_id="doc-cn-marker",
+    )
+
+    assert "/app/output" not in serialized["content"]
+    assert "正文保留" in serialized["content"]
+
+
+def test_chunk_document_payload_strips_local_media_marker_from_summary():
+    from raganything.routers import knowledge
+
+    payload = knowledge._chunk_document_payload(
+        "doc-summary",
+        {
+            "file_path": "/app/uploads/source.pdf",
+            "content_summary": "[图片路径：/app/output/imageFile1.png]（位于：章节）\n正文摘要",
+        },
+    )
+
+    assert "/app/output" not in payload["content_summary"]
+    assert "正文摘要" in payload["content_summary"]
+
+
+def test_chunk_document_payload_strips_truncated_local_media_marker():
+    from raganything.routers import knowledge
+
+    payload = knowledge._chunk_document_payload(
+        "doc-summary-truncated",
+        {
+            "file_path": "/app/uploads/source.pdf",
+            "content_summary": "[图片路径：/app/output/imageFile1.png...",
+        },
+    )
+
+    assert "/app/output" not in payload["content_summary"]
+
+
+def test_legacy_chunk_serialization_uses_owned_grant_without_local_path(tmp_path, monkeypatch):
+    from raganything.routers import knowledge
+
+    monkeypatch.setenv("ODL_ARTIFACT_ROOT", str(tmp_path))
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    image = tmp_path / "legacy.png"
+    image.write_bytes(b"legacy-image")
+    serialized = knowledge._serialize_document_chunk(
+        {
+            "chunk_id": "chunk-legacy",
+            "content": f"Image Path: {image}",
+            "is_multimodal": True,
+        },
+        {"chunk-legacy": {"original_type": "image", "media_path": str(image)}},
+        status_info={"metadata": {"multimodal_chunks": {}}},
+        kb="kb-visible",
+        document_id="doc-legacy",
+    )
+
+    assert serialized["media_status"] == "available"
+    assert serialized["media_available"] is True
+    assert serialized["legacy_grant"]
+    assert serialized["media_path"] is None
+    assert str(image) not in json.dumps(serialized)
+
+
+def test_catalog_chunk_rejects_a_document_binding_mismatch(tmp_path, monkeypatch):
+    from raganything.routers import knowledge
+
+    image, _entry, catalog = _persisted_catalog(tmp_path, monkeypatch)
+    serialized = knowledge._serialize_document_chunk(
+        {
+            "chunk_id": "chunk-1",
+            "content": f"Image Path: {image}",
+            "is_multimodal": True,
+        },
+        {},
+        status_info={"metadata": {"odl_media_catalog": catalog}},
+        kb="kb-visible",
+        document_id="other-document",
+    )
+
+    assert serialized["media_status"] == "unavailable"
+    assert serialized["media_id"] is None
+    assert serialized["media_path"] is None
+
+
+def test_table_chunk_without_raster_media_is_not_applicable():
+    from raganything.routers import knowledge
+
+    serialized = knowledge._serialize_document_chunk(
+        {
+            "chunk_id": "chunk-table",
+            "content": "Table Analysis:\\nRaw Structure (simplified): | a | b |",
+            "is_multimodal": True,
+            "original_type": "table",
+        },
+        {},
+        status_info={"metadata": {}},
+        kb="kb-visible",
+        document_id="doc-table",
+    )
+
+    assert serialized["media_status"] == "not_applicable"
+    assert serialized["media_available"] is False
+    assert serialized["media_path"] is None
 
 
 def test_odl_chunk_without_catalog_fails_closed(tmp_path):
@@ -518,6 +701,7 @@ def test_odl_chunk_without_catalog_fails_closed(tmp_path):
     assert serialized["media_path"] is None
     assert serialized["media_url"] is None
     assert serialized["media_available"] is False
+    assert serialized["media_status"] == "unavailable"
     assert str(image) not in json.dumps(serialized)
 
 
@@ -577,6 +761,43 @@ async def test_legacy_marker_delivery_requires_a_persisted_kb_chunk(tmp_path, mo
         kb_name="kb-visible",
         image_path=str(image),
     ) is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_grant_delivery_rechecks_current_chunk_ownership(tmp_path, monkeypatch):
+    from raganything.routers import knowledge
+
+    monkeypatch.setenv("ODL_ARTIFACT_ROOT", str(tmp_path))
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    image = tmp_path / "legacy-current.png"
+    image.write_bytes(b"legacy-current")
+    grant = issue_owned_legacy_media_grant(
+        kb_name="kb-visible", path=image, document_id="doc-1", chunk_id="chunk-1",
+    )
+    assert grant
+    media = resolve_legacy_media_grant("kb-visible", grant)
+    assert media is not None
+
+    async def current_status(_kb):
+        return {"doc-1": {"chunks_list": ["chunk-1"], "metadata": {}}}
+
+    class TextChunks:
+        async def get_by_ids(self, ids):
+            assert ids == ["chunk-1"]
+            return [{"id": "chunk-1", "content": f"Image Path: {image}"}]
+
+    async def current_kb(_kb):
+        return SimpleNamespace(lightrag=SimpleNamespace(text_chunks=TextChunks()))
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", current_status)
+    monkeypatch.setattr(knowledge, "get_kb", current_kb)
+    assert await knowledge._legacy_media_grant_is_current("kb-visible", media)
+
+    async def removed_status(_kb):
+        return {"doc-1": {"chunks_list": [], "metadata": {}}}
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", removed_status)
+    assert not await knowledge._legacy_media_grant_is_current("kb-visible", media)
 
 
 @pytest.mark.asyncio

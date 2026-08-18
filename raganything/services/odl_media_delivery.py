@@ -43,6 +43,8 @@ class ResolvedMedia:
     mime: str
     caption: str = ""
     page: int | None = None
+    document_id: str = ""
+    chunk_id: str = ""
 
 
 def _sha256(path: Path) -> str:
@@ -450,6 +452,8 @@ def resolve_legacy_media_grant(kb_name: str, grant: str) -> ResolvedMedia | None
         media_id=f"legacy:{nonce}",
         path=validated,
         mime=mimetypes.guess_type(validated.name)[0] or "image/png",
+        document_id=document_id,
+        chunk_id=chunk_id,
     )
 
 

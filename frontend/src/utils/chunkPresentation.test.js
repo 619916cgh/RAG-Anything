@@ -68,17 +68,34 @@ test('builds a complete card presentation without changing source content', () =
     type: 'video',
     typeLabel: '视频',
     hasMedia: true,
+    mediaStatus: 'unavailable',
     summary: 'A teacher explains the diagram.',
   })
   assert.equal(chunk.content, 'Video Analysis: Caption: None - A teacher explains the diagram.')
 })
 
-test('labels untyped multimodal chunks without treating text as a media type', () => {
+test('labels untyped multimodal chunks without reserving a media preview', () => {
   assert.equal(getChunkPresentation({ content: 'ordinary text' }).typeLabel, '文本')
   assert.deepEqual(getChunkPresentation({ content: 'ordinary text', is_multimodal: true }), {
     type: 'text',
     typeLabel: '多模态',
-    hasMedia: true,
+    hasMedia: false,
+    mediaStatus: 'not_applicable',
     summary: 'ordinary text',
   })
+})
+
+test('does not reserve a media preview for a table without a raster asset', () => {
+  assert.deepEqual(getChunkPresentation({ original_type: 'table', content: 'Table Analysis: rows' }), {
+    type: 'table',
+    typeLabel: '表格',
+    hasMedia: false,
+    mediaStatus: 'not_applicable',
+    summary: 'rows',
+  })
+})
+
+test('uses the server media state when a visual chunk is unavailable or ready', () => {
+  assert.equal(getChunkPresentation({ original_type: 'image', media_status: 'unavailable' }).hasMedia, true)
+  assert.equal(getChunkPresentation({ original_type: 'image', media_status: 'available' }).mediaStatus, 'available')
 })

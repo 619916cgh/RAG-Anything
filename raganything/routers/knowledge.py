@@ -2115,6 +2115,7 @@ def _controlled_odl_chunk_media(
     status_info: dict[str, Any] | None,
     kb: str | None,
     chunk_id: str,
+    document_id: str = "",
 ) -> dict[str, Any] | None:
     """Return a path-free media payload for a catalog-bound ODL image chunk.
 
@@ -2138,7 +2139,9 @@ def _controlled_odl_chunk_media(
 
     matches = [
         entry for entry in catalog
-        if isinstance(entry, dict) and entry.get("chunk_id") == chunk_id
+        if isinstance(entry, dict)
+        and entry.get("chunk_id") == chunk_id
+        and (not document_id or entry.get("document_id") == document_id)
     ]
     if len(matches) != 1:
         return None
@@ -2159,20 +2162,60 @@ def _controlled_odl_chunk_media(
     }
 
 
+def _controlled_legacy_chunk_media(
+    *,
+    media_path: object,
+    kb: str | None,
+    document_id: str,
+    chunk_id: str,
+) -> dict[str, str] | None:
+    """Issue a path-free grant only for an already-owned legacy chunk asset."""
+    if not isinstance(media_path, str) or not media_path or not kb or not document_id or not chunk_id:
+        return None
+    from raganything.services.odl_media_delivery import (
+        issue_owned_legacy_media_grant,
+        validate_legacy_media_path,
+    )
+
+    validated, _reason = validate_legacy_media_path(media_path)
+    if validated is None:
+        return None
+    grant = issue_owned_legacy_media_grant(
+        kb_name=kb,
+        path=validated,
+        document_id=document_id,
+        chunk_id=chunk_id,
+    )
+    if not grant:
+        return None
+    return {
+        "media_id": f"legacy:{grant.split('.', 1)[0]}",
+        "media_kb": kb,
+        "legacy_grant": grant,
+    }
+
+
 def _serialize_document_chunk(
     chunk_data: dict[str, Any],
     multimodal_metadata: dict[str, dict[str, Any]],
     *,
     status_info: dict[str, Any] | None = None,
     kb: str | None = None,
+    document_id: str = "",
 ) -> dict[str, Any]:
     chunk_id = _stored_chunk_id(chunk_data)
     fields = _infer_multimodal_fields(chunk_data, multimodal_metadata.get(chunk_id))
     media_path = fields.get("media_path") or _extract_media_path(chunk_data)
-    media_available = bool(media_path and Path(media_path).exists())
     media_url = None
     media_id = None
     media_kb = None
+    legacy_grant = None
+    raw_original_type = chunk_data.get("original_type") or fields.get("original_type")
+    original_type = str(raw_original_type).strip().lower() if raw_original_type else None
+    expects_visual_media = original_type in {"image", "video"} or bool(
+        media_path and (chunk_data.get("is_multimodal") or fields.get("is_multimodal"))
+    )
+    media_status = "not_applicable"
     metadata = status_info.get("metadata") if isinstance(status_info, dict) else None
     metadata = metadata if isinstance(metadata, dict) else {}
     is_odl_document = any(
@@ -2181,45 +2224,52 @@ def _serialize_document_chunk(
     )
     controlled_media = _controlled_odl_chunk_media(
         status_info=status_info, kb=kb, chunk_id=chunk_id,
+        document_id=document_id,
     )
     if controlled_media is not None:
-        # Do not leak the local ODL parser artifact path through chunk detail
-        # responses.  The catalog has revalidated the media before exposure.
-        media_path = None
-        media_available = controlled_media["media_available"]
+        media_status = "available"
         media_url = controlled_media["media_url"]
         media_id = controlled_media["media_id"]
         media_kb = controlled_media["media_kb"]
     elif is_odl_document:
         # ODL parser paths are not delivery authority. Missing catalog ownership
         # must fail closed rather than falling back to a local path.
-        media_path = None
-        media_available = False
-    elif media_available:
-        base_url = os.environ.get("RAGANYTHING_PUBLIC_ASSET_BASE_URL", "").strip()
-        strip_prefix = os.environ.get("RAGANYTHING_PUBLIC_ASSET_STRIP_PREFIX", "").strip()
-        if base_url and strip_prefix:
-            from raganything.asset_urls import public_url_for_local_path
-
-            media_url = public_url_for_local_path(
-                media_path, base_url=base_url, strip_prefix=strip_prefix
-            )
+        media_status = "unavailable" if expects_visual_media else "not_applicable"
+    else:
+        legacy_media = _controlled_legacy_chunk_media(
+            media_path=media_path,
+            kb=kb,
+            document_id=document_id,
+            chunk_id=chunk_id,
+        )
+        if legacy_media is not None:
+            media_status = "available"
+            media_id = legacy_media["media_id"]
+            media_kb = legacy_media["media_kb"]
+            legacy_grant = legacy_media["legacy_grant"]
+        elif expects_visual_media:
+            media_status = "unavailable"
     return {
         "chunk_id": chunk_id,
-        "content": chunk_data.get("content", ""),
+        "content": _sanitize_chunk_content(chunk_data.get("content", "")),
         "tokens": int(chunk_data.get("tokens") or 0),
         "chunk_order_index": int(chunk_data.get("chunk_order_index") or 0),
-        "file_path": chunk_data.get("file_path", ""),
+        # Chunk DTOs are browser-facing.  The persisted source path is an
+        # internal worker detail and must never cross this serialization
+        # boundary; downloads and media use their own authorized endpoints.
+        "file_path": None,
         "is_multimodal": bool(chunk_data.get("is_multimodal") or fields.get("is_multimodal")),
-        "original_type": chunk_data.get("original_type") or fields.get("original_type"),
+        "original_type": original_type,
         "modal_entity_name": chunk_data.get("modal_entity_name") or fields.get("modal_entity_name"),
         "page_idx": chunk_data.get("page_idx")
         if chunk_data.get("page_idx") is not None else fields.get("page_idx"),
         "media_id": media_id,
         "media_kb": media_kb,
-        "media_path": media_path,
+        "legacy_grant": legacy_grant,
+        "media_path": None,
         "media_url": media_url,
-        "media_available": media_available,
+        "media_available": media_status == "available",
+        "media_status": media_status,
     }
 
 
@@ -2251,6 +2301,8 @@ async def _attach_video_segment_metadata(kb: str, chunks: list[dict[str, Any]]) 
         chunk["media_id"] = media_id
         chunk["media_kb"] = kb
         chunk["media_url"] = controlled_video_media_url(media_id, kb)
+        chunk["media_available"] = True
+        chunk["media_status"] = "available"
 
 
 def _chunk_document_payload(doc_id: str, status_info: dict[str, Any]) -> dict[str, Any]:
@@ -2260,7 +2312,7 @@ def _chunk_document_payload(doc_id: str, status_info: dict[str, Any]) -> dict[st
         "id": doc_id,
         "file": _strip_hash_prefix(str(status_info.get("file_path") or "")),
         "status": status_info.get("status") or "",
-        "content_summary": status_info.get("content_summary") or "",
+        "content_summary": _sanitize_chunk_content(status_info.get("content_summary") or ""),
         "content_length": int(status_info.get("content_length") or 0),
         "chunking_strategy": metadata.get("chunking_strategy"),
         "created": status_info.get("created_at") or "",
@@ -2497,7 +2549,9 @@ async def get_document_chunks(
                 # claim the PostgreSQL large-document performance contract.
                 all_records = await _load_document_chunk_records(instance.lightrag, full_id, status_info, kb)
                 all_chunks = [
-                    _serialize_document_chunk(record, metadata, status_info=status_info, kb=kb)
+                    _serialize_document_chunk(
+                        record, metadata, status_info=status_info, kb=kb, document_id=full_id,
+                    )
                     for record in all_records
                 ]
                 all_tags = await _get_tags_for_chunks_best_effort(kb, full_id, [item["chunk_id"] for item in all_chunks])
@@ -2519,7 +2573,9 @@ async def get_document_chunks(
                 records = page_result["records"]
                 serialization_started = time.perf_counter()
                 chunks = [
-                    _serialize_document_chunk(record, metadata, status_info=status_info, kb=kb)
+                    _serialize_document_chunk(
+                        record, metadata, status_info=status_info, kb=kb, document_id=full_id,
+                    )
                     for record in records
                 ]
                 _record_chunk_read_phase("serialization", "ok", time.perf_counter() - serialization_started)
@@ -2565,7 +2621,9 @@ async def get_document_chunks(
         records = await _load_document_chunk_records(instance.lightrag, full_id, status_info, kb)
         metadata = _multimodal_chunk_metadata(status_info)
         chunks = [
-            _serialize_document_chunk(record, metadata, status_info=status_info, kb=kb)
+            _serialize_document_chunk(
+                record, metadata, status_info=status_info, kb=kb, document_id=full_id,
+            )
             for record in records
         ]
         tags_by_chunk = await _get_tags_for_chunks_best_effort(
@@ -2643,7 +2701,7 @@ async def get_document_chunk(
 
         chunk = _serialize_document_chunk(
             dict(record), _multimodal_chunk_metadata(status_info),
-            status_info=status_info, kb=kb,
+            status_info=status_info, kb=kb, document_id=full_id,
         )
         if chunk["chunk_id"] != chunk_id:
             raise HTTPException(404, f"Chunk {chunk_id} does not exist")
@@ -2762,6 +2820,7 @@ async def get_knowledge_tag_links(
                     _multimodal_chunk_metadata(status_info),
                     status_info=status_info,
                     kb=kb,
+                    document_id=document_id,
                 )
                 serialized["tags"] = [{"id": tag["id"], "name": tag["name"]}]
                 matched.append(serialized)
@@ -2973,6 +3032,7 @@ async def update_document_chunk(
                     _multimodal_chunk_metadata(new_status),
                     status_info=new_status,
                     kb=kb,
+                    document_id=full_id,
                 ),
                 "total": len(updated_records),
                 "total_tokens": sum(int(value.get("tokens") or 0) for value in updated_records),
@@ -5568,6 +5628,106 @@ def _resolve_controlled_video_path(server_path: object) -> Path | None:
         return None
     return None
 
+
+def _sanitize_chunk_content(content: object) -> str:
+    """Remove parser-only local media markers before returning chunk text."""
+    if not isinstance(content, str) or not content:
+        return ""
+    import re as _re
+
+    # ODL emits these markers as a separate line.  Keep the surrounding
+    # analysis/body text while removing the filesystem path itself.
+    sanitized = _re.sub(
+        r"(?im)^\s*(?:[-*]\s*)?(?:image|table\s+image|video)\s+path\s*[:：]\s*[^\r\n]+\s*$",
+        "",
+        content,
+    )
+    sanitized = _re.sub(
+        r"(?im)^\s*\[\s*(?:图片|图像|表格图片|视频)路径\s*[:：][^\r\n]*(?:\]\s*(?:（[^）]*）)?)?\s*$",
+        "",
+        sanitized,
+    )
+    return _re.sub(r"\n{3,}", "\n\n", sanitized).strip()
+
+
+async def _legacy_media_grant_is_current(kb: str, media: Any) -> bool:
+    """Confirm a legacy grant still names a persisted chunk and its asset."""
+    document_id = str(getattr(media, "document_id", "") or "")
+    chunk_id = str(getattr(media, "chunk_id", "") or "")
+    if not document_id or not chunk_id:
+        return False
+    status_info = (await _load_doc_status_json(kb) or {}).get(document_id)
+    if not isinstance(status_info, dict) or chunk_id not in {
+        str(value) for value in status_info.get("chunks_list", []) if value
+    }:
+        return False
+    instance = await get_kb(kb)
+    storage = getattr(getattr(instance, "lightrag", None), "text_chunks", None)
+    record = await _chunk_store_get(storage, chunk_id) if storage is not None else None
+    if not isinstance(record, dict):
+        return False
+    fields = _infer_multimodal_fields(
+        record, _multimodal_chunk_metadata(status_info).get(chunk_id),
+    )
+    candidates = (fields.get("media_path"), _extract_media_path(record))
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        try:
+            if os.path.samefile(candidate, media.path):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+async def _resolve_current_catalog_media(
+    kb: str,
+    records: dict[str, Any],
+    media_id: str,
+) -> tuple[Any | None, bool]:
+    """Resolve an ODL asset only while its document and chunk binding remain live."""
+    from raganything.services.odl_media_delivery import resolve_catalog_media
+
+    matches: list[tuple[str, dict[str, Any], list[dict[str, Any]]]] = []
+    catalog_seen = False
+    for document_id, status_info in records.items():
+        if not isinstance(status_info, dict):
+            continue
+        metadata = status_info.get("metadata")
+        catalog = metadata.get("odl_media_catalog") if isinstance(metadata, dict) else None
+        if not isinstance(catalog, list):
+            continue
+        matching_entries = [
+            entry for entry in catalog
+            if isinstance(entry, dict) and entry.get("media_id") == media_id
+        ]
+        catalog_seen = catalog_seen or bool(matching_entries)
+        if len(matching_entries) != 1:
+            continue
+        entry = matching_entries[0]
+        chunk_id = str(entry.get("chunk_id") or "")
+        if (
+            str(entry.get("document_id") or "") != str(document_id)
+            or not chunk_id
+            or chunk_id not in {str(value) for value in status_info.get("chunks_list", []) if value}
+        ):
+            continue
+        resolved = resolve_catalog_media(catalog, kb_name=kb, media_id=media_id)
+        if resolved is not None:
+            matches.append((chunk_id, resolved, catalog))
+
+    if len(matches) != 1:
+        return None, catalog_seen
+    chunk_id, resolved, _catalog = matches[0]
+    instance = await get_kb(kb)
+    storage = getattr(getattr(instance, "lightrag", None), "text_chunks", None)
+    record = await _chunk_store_get(storage, chunk_id) if storage is not None else None
+    if not isinstance(record, dict) or _stored_chunk_id(record) != chunk_id:
+        return None, True
+    return resolved, True
+
+
 @router.get("/knowledge/media/{media_id}")
 async def serve_odl_media(
     media_id: str,
@@ -5577,26 +5737,14 @@ async def serve_odl_media(
 ):
     """Serve one persisted ODL asset after KB-scoped authorization."""
     actual_kb = await verify_kb_access(kb, current_user)
-    from raganything.services.odl_media_delivery import resolve_catalog_media
-
     records = await _load_doc_status_json(actual_kb)
-    resolved = []
-    for status in records.values():
-        metadata = status.get("metadata") if isinstance(status, dict) else None
-        media = resolve_catalog_media(
-            metadata.get("odl_media_catalog") if isinstance(metadata, dict) else None,
-            kb_name=actual_kb,
-            media_id=media_id,
-        )
-        if media is not None:
-            resolved.append(media)
-    if len(resolved) == 1:
-        media = resolved[0]
+    media, catalog_seen = await _resolve_current_catalog_media(actual_kb, records, media_id)
+    if media is not None:
         return FileResponse(
             str(media.path), media_type=media.mime,
             headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
         )
-    if len(resolved) > 1:
+    if catalog_seen:
         raise HTTPException(404, "media unavailable")
 
     from raganything.services.video_segments import get_video_asset
@@ -5632,7 +5780,7 @@ async def serve_legacy_odl_media(
     from raganything.services.odl_media_delivery import resolve_legacy_media_grant
 
     media = resolve_legacy_media_grant(actual_kb, grant)
-    if media is None:
+    if media is None or not await _legacy_media_grant_is_current(actual_kb, media):
         raise HTTPException(404, "media unavailable")
     return FileResponse(
         str(media.path),

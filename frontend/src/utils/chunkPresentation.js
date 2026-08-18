@@ -49,13 +49,23 @@ export function summarizeChunkContent(content, maxLength = 420) {
 
 export function getChunkPresentation(chunk) {
   const type = detectChunkType(chunk)
-  const hasMedia = type !== 'text' || Boolean(chunk?.is_multimodal)
-  const displayType = type === 'text' && hasMedia ? 'multimodal' : type
+  const expectsVisualMedia = type === 'image' || type === 'video'
+  const reportedStatus = collapseWhitespace(chunk?.media_status).toLowerCase()
+  const mediaStatus = ['available', 'not_applicable', 'unavailable'].includes(reportedStatus)
+    ? reportedStatus
+    : chunk?.media_available === true
+      ? 'available'
+      : expectsVisualMedia
+        ? 'unavailable'
+        : 'not_applicable'
+  const hasMedia = mediaStatus !== 'not_applicable'
+  const displayType = type === 'text' && Boolean(chunk?.is_multimodal) ? 'multimodal' : type
 
   return {
     type,
     typeLabel: TYPE_LABELS[displayType],
     hasMedia,
+    mediaStatus,
     summary: summarizeChunkContent(chunk?.content),
   }
 }

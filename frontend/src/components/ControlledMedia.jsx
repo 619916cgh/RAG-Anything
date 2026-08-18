@@ -3,24 +3,32 @@ import { getToken } from '../utils/api'
 import { controlledMediaUrl, publicMediaUrl } from '../utils/controlledMedia'
 
 export function useControlledMediaSource(media) {
+  return useControlledMediaState(media).source
+}
+
+export function useControlledMediaState(media) {
   const protectedUrl = controlledMediaUrl(media)
   const directUrl = publicMediaUrl(media)
   const [source, setSource] = useState(directUrl)
+  const [loading, setLoading] = useState(Boolean(protectedUrl))
 
   useEffect(() => {
     if (!protectedUrl) {
       setSource(directUrl)
+      setLoading(false)
       return undefined
     }
     const token = getToken()
     if (!token) {
       setSource('')
+      setLoading(false)
       return undefined
     }
 
     let active = true
     let objectUrl = ''
     setSource('')
+    setLoading(true)
     fetch(protectedUrl, { headers: { Authorization: `Bearer ${token}` } })
       .then(response => (response.ok ? response.blob() : null))
       .then(blob => {
@@ -31,6 +39,9 @@ export function useControlledMediaSource(media) {
       .catch(() => {
         if (active) setSource('')
       })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
 
     return () => {
       active = false
@@ -38,7 +49,7 @@ export function useControlledMediaSource(media) {
     }
   }, [protectedUrl, directUrl])
 
-  return source
+  return { source, loading }
 }
 
 export function ControlledMediaImage({ media, alt = '', className = '', onError, ...props }) {

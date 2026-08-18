@@ -68,6 +68,7 @@
 - [x] 7.4 Persist a document-scoped ODL media manifest and opaque KB media catalog with relative path, SHA-256, MIME, page, element ID, caption, provenance, document ID, and persisted image chunk ID; read the catalog back before completion.
 - [x] 7.5 Make each valid ODL image produce an independent description/chunk with the English `Image Path:` contract; mark `image_media_incomplete` unless eligible image, valid manifest, catalog, and persisted chunk counts are equal and bound.
 - [ ] 7.6 Replace raw-path image delivery with RBAC-protected media-ID delivery; remove local paths and URL query-string bearer tokens from API, SSE, history, image search, and frontend rendering; fail closed when catalog ownership is absent.
+- [x] 7.6a Make document-chunk media DTOs path-free with `available`/`not_applicable`/`unavailable` states; issue only ownership-bound legacy grants, recheck them before delivery, and keep table-only chunks out of the preview failure state.
 - [x] 7.7 Add tests for marker protocols, empty/duplicate candidates, traversal, symlink escape, missing/unsupported/out-of-root media, shared discovery behavior, graph timeout preservation, and no-image queries.
 - [ ] 7.8 Add manifest-to-chunk-to-recall, multimodal completion, RBAC, injection-scan, upload-validation, SSE/frontend loading, and MinerU/Docling/non-PDF regression tests.
 - [ ] 7.9 Verify legacy query compatibility on existing `odl解析` without modifying chunks or PostgreSQL; record source/raw/filtered/final evidence for image-focused smoke queries.

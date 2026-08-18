@@ -7,8 +7,9 @@ import {
 import { api } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { UserDialogConfirmation } from '../components/UserDialog'
-import { useControlledMediaSource } from '../components/ControlledMedia'
+import { useControlledMediaState } from '../components/ControlledMedia'
 import { useConfirmedKnowledgeBase } from '../hooks/useConfirmedKnowledgeBase'
+import { getChunkPresentation } from '../utils/chunkPresentation'
 
 const MAX_CONTENT_LENGTH = 8000
 
@@ -24,27 +25,20 @@ function formatNumber(value) {
   return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '0'
 }
 
-function detectChunkType(chunk) {
-  if (chunk.original_type) return String(chunk.original_type).toLowerCase()
-  const content = String(chunk.content || '').toLowerCase()
-  if (content.includes('image content analysis')) return 'image'
-  if (content.includes('table analysis')) return 'table'
-  if (content.includes('mathematical equation analysis')) return 'equation'
-  if (content.includes('video content analysis')) return 'video'
-  return ''
-}
-
 function MediaPreview({ chunk, type }) {
   const [failed, setFailed] = useState(false)
-  const source = useControlledMediaSource(chunk)
+  const { source, loading } = useControlledMediaState(chunk)
 
   useEffect(() => setFailed(false), [chunk.chunk_id, source])
 
+  if (loading) {
+    return <div className="chunk-media-fallback" role="status"><Loader2 size={20} className="animate-spin" aria-hidden="true" /><span>正在加载媒体预览</span></div>
+  }
   if (!source || failed) {
     return (
       <div className="chunk-media-fallback" role="status">
         <ImageIcon size={20} aria-hidden="true" />
-        <span>{failed ? '媒体预览加载失败' : '该切块没有可用的媒体预览'}</span>
+        <span>预览不可用，正文仍可查看</span>
       </div>
     )
   }
@@ -62,7 +56,8 @@ function MediaPreview({ chunk, type }) {
       className="chunk-media-preview"
       src={source}
       alt={chunk.modal_entity_name || '切块媒体预览'}
-      loading="lazy"
+      loading="eager"
+      decoding="async"
       onError={() => setFailed(true)}
     />
   )
@@ -174,7 +169,8 @@ export default function DocumentChunkDetailPage() {
   const chunk = data?.chunk || null
   const document = data?.document || navigationDoc || {}
   const total = data?.total ?? 1
-  const type = chunk ? detectChunkType(chunk) : ''
+  const presentation = chunk ? getChunkPresentation(chunk) : null
+  const type = presentation?.type || ''
   const typeMeta = TYPE_META[type]
   const filename = document.file || '未命名文档'
 
@@ -322,7 +318,7 @@ export default function DocumentChunkDetailPage() {
           </datalist>
         </section>
 
-        {typeMeta || chunk.is_multimodal ? (
+        {presentation?.hasMedia ? (
           <section className="chunk-media-section" aria-label="多模态信息">
             <MediaPreview chunk={chunk} type={type} />
             <dl className="chunk-media-meta">

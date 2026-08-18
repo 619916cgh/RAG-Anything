@@ -204,6 +204,29 @@ paths or bearer tokens in query strings.
 - **WHEN** a client supplies a filesystem path, unknown media ID, mismatched KB, pending/incomplete entry, or lacks KB read permission
 - **THEN** delivery SHALL fail closed without disclosing whether a local path exists.
 
+### Requirement: Document chunk media state is path-free and semantically accurate
+Document chunk responses SHALL expose `media_status` as `available`,
+`not_applicable`, or `unavailable`, and SHALL NOT expose a local `media_path`.
+Image and video chunks with an authorised delivery asset SHALL be `available` and
+include only controlled delivery metadata. A table, equation, or other
+multimodal chunk without a separate visual asset SHALL be `not_applicable`, not
+an unavailable-media error. A legacy asset may be delivered only through a
+short-lived KB/document/chunk-bound grant after controlled-root validation; the
+delivery endpoint SHALL recheck that the document, chunk, and asset still match
+before returning bytes.
+
+#### Scenario: A table has semantic content but no raster asset
+- **WHEN** a table chunk has no controlled media asset
+- **THEN** its response SHALL report `media_status: "not_applicable"` and the frontend SHALL render its type and body without an unavailable-media placeholder.
+
+#### Scenario: A legacy image remains eligible for controlled delivery
+- **WHEN** an authorised chunk response identifies a legacy image under a controlled root and persisted ownership proves its KB, document, and chunk binding
+- **THEN** the response SHALL contain an opaque short-lived grant and no local path, and the browser SHALL fetch it through the authenticated same-origin media endpoint.
+
+#### Scenario: A legacy grant becomes stale
+- **WHEN** a document or chunk is deleted or its persisted media reference no longer matches before a legacy grant is served
+- **THEN** the media endpoint SHALL return the normal unavailable response without returning bytes or a local path.
+
 ### Requirement: Image repair rollout preserves existing knowledge bases
 The system SHALL first verify query compatibility against existing ODL chunks
 without rewriting chunks or manually modifying PostgreSQL. Permanent ingestion
