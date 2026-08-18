@@ -163,19 +163,8 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Prometheus Metrics ─────────────────────────────
-from prometheus_fastapi_instrumentator import Instrumentator
-_metrics_path = os.getenv("METRICS_PATH", "/metrics")
-_instrumentator = Instrumentator(
-    should_group_status_codes=True,
-    should_ignore_untemplated=True,
-    should_respect_env_var=True,
-    should_instrument_requests_inprogress=True,
-    excluded_handlers=[_metrics_path, "/health", "/favicon.ico"],
-    env_var_name="ENABLE_METRICS",
-    inprogress_name="rag_requests_inprogress",
-    inprogress_labels=True,
-)
-_instrumentator.instrument(app).expose(app, endpoint=_metrics_path, include_in_schema=True)
+from raganything.runtime_metrics import configure_runtime_metrics
+configure_runtime_metrics(app)
 
 # ── CORS 白名单 ─────────────────────────────────────
 _cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173")

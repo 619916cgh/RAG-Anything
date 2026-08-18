@@ -1,0 +1,3 @@
+RAG-Anything performance fixture.
+
+This small text document is intentionally provider-free and contains no user data.

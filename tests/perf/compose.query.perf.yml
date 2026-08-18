@@ -1,0 +1,115 @@
+services:
+  mock-provider:
+    image: ${PERF_APP_IMAGE:?existing app image required}
+    command: ["python", "-m", "uvicorn", "mock_provider:app", "--host", "0.0.0.0", "--port", "18000"]
+    working_dir: /perf
+    volumes: ["${PERF_RUN_DIR:?run directory required}/mock_provider.py:/perf/mock_provider.py:ro"]
+    environment:
+      PERF_EMBEDDING_DIM: "1536"
+      PERF_MOCK_TTFT_MS: "100"
+      PERF_MOCK_TOKEN_INTERVAL_MS: "20"
+      PERF_MOCK_TOKEN_COUNT: "16"
+    cpus: 0.25
+    mem_limit: 128m
+    pids_limit: 96
+    labels: &perf_labels
+      raganything.perf.run-id: ${PERF_RUN_ID:?generated perf run id required}
+    logging: &bounded_logging
+      driver: local
+      options:
+        max-size: 5m
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:18000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?generated perf value required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?generated perf value required}
+      POSTGRES_DB: ${POSTGRES_DATABASE:?generated perf value required}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    cpus: 0.75
+    mem_limit: 256m
+    pids_limit: 128
+    labels: *perf_labels
+    logging: *bounded_logging
+  redis:
+    image: redis:7-alpine
+    volumes: ["redisdata:/data"]
+    cpus: 0.25
+    mem_limit: 96m
+    pids_limit: 64
+    labels: *perf_labels
+    logging: *bounded_logging
+  migrate:
+    image: ${PERF_APP_IMAGE:?existing app image required}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?generated perf value required}
+      MIGRATION_BACKUP_ACKNOWLEDGED: "true"
+    command: ["sh", "-ec", "python scripts/pg_migration_runner.py apply --backup-acknowledged"]
+    depends_on: {postgres: {condition: service_healthy}}
+    mem_limit: 384m
+    pids_limit: 128
+    labels: *perf_labels
+    logging: *bounded_logging
+  app:
+    image: ${PERF_APP_IMAGE:?existing app image required}
+    environment:
+      RAGANYTHING_ENV: performance
+      PORT: "8000"
+      DATABASE_URL: ${DATABASE_URL:?generated perf value required}
+      JWT_SECRET: ${JWT_SECRET:?generated perf value required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?generated perf value required}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:?generated perf value required}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?generated perf value required}
+      REDIS_URI: redis://redis:6379
+      LLM_BINDING_HOST: http://mock-provider:18000/v1
+      LLM_BINDING_API_KEY: perf-only
+      LLM_MODEL: perf-mock
+      EMBEDDING_MODEL: perf-mock
+      EMBEDDING_DIM: "1536"
+      VISION_EMBEDDING_HOST: http://mock-provider:18000/v1
+      VISION_EMBEDDING_API_KEY: perf-only
+      VISION_EMBEDDING_MODEL: perf-mock
+      VISION_EMBEDDING_DIM: "1536"
+      VISION_SEARCH_ENABLED: "true"
+      ENABLE_VISION_EMBEDDING: "true"
+      ENABLE_METRICS: "true"
+      MAX_ASYNC: "1"
+      ENTITY_EXTRACT_CONCURRENCY: "1"
+      DOCUMENT_WORKER_MAX_THREADS: "1"
+      SERVER_WORKERS: "1"
+      RUNTIME_SETTINGS_FILE: /perf/runtime-settings-not-present.json
+      ENABLE_IMAGE_PROCESSING: "false"
+      ENABLE_TABLE_PROCESSING: "false"
+      ENABLE_EQUATION_PROCESSING: "false"
+    volumes:
+      - rag_storage:/app/rag_storage
+      - uploads:/app/uploads
+      - output:/app/output
+      - ${PERF_RUN_DIR:?run directory required}/server.py:/app/server.py:ro
+      - ${PERF_RUN_DIR:?run directory required}/runtime_metrics.py:/app/raganything/runtime_metrics.py:ro
+    ports: ["127.0.0.1:${PERF_HTTP_PORT:?generated perf value required}:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_started}
+      mock-provider: {condition: service_healthy}
+    cpus: 1.0
+    mem_limit: 512m
+    pids_limit: 256
+    labels: *perf_labels
+    logging: *bounded_logging
+volumes:
+  pgdata: {}
+  redisdata: {}
+  rag_storage: {}
+  uploads: {}
+  output: {}
