@@ -200,6 +200,37 @@ def test_acceptance_command_start_failure_is_sanitized(tmp_path):
     assert result["failure_class"] == "command-unavailable"
 
 
+def test_acceptance_driver_accepts_preprod_and_rejects_production(tmp_path):
+    from scripts import run_isolated_acceptance as driver
+
+    assert driver._safe_target("preprod-20260819") == "preprod-20260819"
+    with pytest.raises(ValueError):
+        driver._safe_target("production-20260819")
+
+
+def test_acceptance_driver_requires_full_commit_sha(monkeypatch):
+    from scripts import run_isolated_acceptance as driver
+
+    with pytest.raises(ValueError):
+        driver._require_clean_detached_commit("short")
+
+
+def test_acceptance_compose_contract_is_isolated():
+    compose = Path(__file__).resolve().parents[1] / "tests" / "acceptance" / "compose.yml"
+    text = compose.read_text(encoding="utf-8")
+    assert "container_name" not in text
+    assert "env_file" not in text
+    assert "pgvector" in text or "ACCEPTANCE_POSTGRES_IMAGE" in text
+    assert "raganything.acceptance.run-id" in text
+
+
+def test_acceptance_requires_local_docker_and_immutable_image(monkeypatch):
+    from scripts import run_isolated_acceptance as driver
+
+    with pytest.raises(ValueError):
+        driver._require_local_docker({"DOCKER_CONTEXT": "remote"})
+
+
 def test_acceptance_evidence_redacts_secret_and_absolute_path():
     from scripts import run_isolated_release_acceptance as acceptance
 

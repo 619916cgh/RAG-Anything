@@ -9,6 +9,7 @@ import json
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import re
@@ -30,7 +31,7 @@ REQUIRED_STAGES = (
     "roles",
     "worker",
 )
-UNSAFE_MARKERS = ("production", "prod", "live")
+UNSAFE_MARKERS = ("production", "live")
 ISOLATED_MARKERS = ("staging", "preprod", "acceptance", "ci", "test")
 _ABSOLUTE_PATH = re.compile(r"(?:(?:[A-Za-z]:[\\/])|/)[^\s\"']+")
 
@@ -56,8 +57,16 @@ def _safe_identifier(value: str) -> str:
 def _safe_working_dir(value: Path) -> Path:
     resolved = value.resolve()
     text = resolved.as_posix().lower()
-    if not any(marker in text for marker in ISOLATED_MARKERS):
-        raise AcceptanceError("working directory must include an isolated environment marker")
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    if temp_root not in resolved.parents or any(marker in text for marker in UNSAFE_MARKERS):
+        raise AcceptanceError("working directory must be an isolated descendant of the system temporary directory")
+    return resolved
+
+
+def _safe_evidence_path(value: Path, working_dir: Path) -> Path:
+    resolved = value.resolve()
+    if working_dir.resolve() not in resolved.parents:
+        raise AcceptanceError("evidence must be stored below the isolated working directory")
     return resolved
 
 
@@ -81,7 +90,7 @@ def _parse_cleanup(value: str) -> list[str]:
 def _stage_result(name: str, command: list[str], cwd: Path) -> dict[str, object]:
     started = time.monotonic()
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
     except OSError as exc:
         return {
             "name": name,
@@ -89,6 +98,11 @@ def _stage_result(name: str, command: list[str], cwd: Path) -> dict[str, object]
             "duration_seconds": round(time.monotonic() - started, 3),
             "failure_class": "command-unavailable",
             "detail": sanitize_evidence_detail(str(exc)),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "name": name, "outcome": "failed", "duration_seconds": round(time.monotonic() - started, 3),
+            "failure_class": "timeout", "detail": "stage exceeded bounded timeout",
         }
     detail = sanitize_evidence_detail(result.stderr or result.stdout)
     return {
@@ -152,7 +166,10 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
     if not args.non_production:
         raise AcceptanceError("--non-production is required")
     _safe_identifier(args.target_id)
-    _safe_working_dir(args.working_dir)
+    working_dir = _safe_working_dir(args.working_dir)
+    evidence_path = _safe_evidence_path(
+        getattr(args, "evidence", working_dir / "evidence.json"), working_dir
+    )
     repo_root = args.repo_root.resolve()
     if not (repo_root / "migrations" / "migration_manifest.json").is_file():
         raise AcceptanceError("repo root must contain migrations/migration_manifest.json")
@@ -176,7 +193,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, object]:
         stages.append(stage)
         if stage["outcome"] != "passed":
             failure_reason = f"blocked after {name} did not pass"
-    stages.append(_stage_result("cleanup", cleanup_command, args.working_dir.resolve()))
+    stages.append(_stage_result("cleanup", cleanup_command, working_dir))
     passed = all(stage["outcome"] == "passed" for stage in stages)
     return {
         "schema_version": 1,
@@ -203,9 +220,24 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        _safe_identifier(args.target_id)
+    except AcceptanceError:
+        pass
+    else:
+        evidence = {
+            "schema_version": 1,
+            "release_recommendation": "not-releasable",
+            "failure_class": "arbitrary-stage-commands-disabled",
+            "detail": "use scripts/run_isolated_acceptance.py",
+        }
+        args.evidence.parent.mkdir(parents=True, exist_ok=True)
+        args.evidence.write_text(json.dumps(evidence, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+        return 1
+    try:
         evidence = run_acceptance(args)
     except AcceptanceError as exc:
         evidence = {"schema_version": 1, "release_recommendation": "not-releasable", "failure_class": "target-guard", "detail": sanitize_evidence_detail(str(exc))}
+    args.evidence.parent.mkdir(parents=True, exist_ok=True)
     args.evidence.write_text(json.dumps(evidence, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
     return 0 if evidence.get("release_recommendation") == "isolated-preproduction-pass" else 1
 

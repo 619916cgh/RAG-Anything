@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: ${ACCEPTANCE_POSTGRES_IMAGE:?pgvector image required}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DATABASE:?required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ${ACCEPTANCE_RUN_DIR:?run directory required}/pgvector-init.sql:/docker-entrypoint-initdb.d/00-vector.sql:ro
+    ports: ["127.0.0.1:${ACCEPTANCE_PG_PORT:?required}:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    labels: &acceptance_labels
+      raganything.acceptance.run-id: ${ACCEPTANCE_RUN_ID:?required}
+  redis:
+    image: ${ACCEPTANCE_REDIS_IMAGE:?redis image required}
+    volumes: [redisdata:/data]
+    labels: *acceptance_labels
+  migrate:
+    image: ${ACCEPTANCE_APP_IMAGE:?app image required}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?required}
+    command: ["sh", "-ec", "python scripts/pg_migration_runner.py apply --backup-acknowledged"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    labels: *acceptance_labels
+  app:
+    image: ${ACCEPTANCE_APP_IMAGE:?app image required}
+    environment:
+      RAGANYTHING_ENV: acceptance
+      PORT: "8000"
+      DATABASE_URL: ${DATABASE_URL:?required}
+      JWT_SECRET: ${JWT_SECRET:?required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?required}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:?required}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?required}
+      REDIS_URI: redis://redis:6379
+      LLM_BINDING_HOST: http://mock-provider:18000/v1
+      LLM_BINDING_API_KEY: acceptance-only
+      LLM_MODEL: acceptance-mock
+      EMBEDDING_MODEL: acceptance-mock
+      EMBEDDING_DIM: "1536"
+      ENABLE_IMAGE_PROCESSING: "false"
+      ENABLE_TABLE_PROCESSING: "false"
+      ENABLE_EQUATION_PROCESSING: "false"
+      DOCUMENT_WORKER_MAX_THREADS: "1"
+      SERVER_WORKERS: "1"
+    volumes:
+      - uploads:/app/uploads
+      - rag_storage:/app/rag_storage
+      - output:/app/output
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_started}
+      mock-provider: {condition: service_healthy}
+    labels: *acceptance_labels
+  mock-provider:
+    image: ${ACCEPTANCE_APP_IMAGE:?app image required}
+    working_dir: /acceptance
+    command: ["python", "-m", "uvicorn", "mock_provider:app", "--host", "0.0.0.0", "--port", "18000"]
+    volumes:
+      - ${ACCEPTANCE_RUN_DIR:?run directory required}/mock_provider.py:/acceptance/mock_provider.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:18000/openapi.json', timeout=3)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    labels: *acceptance_labels
+  nginx:
+    image: ${ACCEPTANCE_NGINX_IMAGE:?nginx image required}
+    ports: ["127.0.0.1:${ACCEPTANCE_HTTP_PORT:?required}:80"]
+    volumes:
+      - ${ACCEPTANCE_RUN_DIR:?run directory required}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: {app: {condition: service_started}}
+    labels: *acceptance_labels
+volumes:
+  pgdata: {labels: *acceptance_labels}
+  redisdata: {labels: *acceptance_labels}
+  uploads: {labels: *acceptance_labels}
+  rag_storage: {labels: *acceptance_labels}
+  output: {labels: *acceptance_labels}
