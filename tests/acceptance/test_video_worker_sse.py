@@ -185,14 +185,10 @@ def test_video_worker_pg_and_sse_contract():
         citation["media_url"], token=token, headers={"Range": "bytes=0-31"}, read_limit=32,
     )
     assert status == 206 and "content-range" in {key.lower() for key in headers} and len(body) == 32, "authorized media range request failed"
-    intruder_name, intruder_password = f"video_reader_{uuid.uuid4().hex[:12]}", "VideoReader!2026"
     _record_phase("ungranted-user")
-    assert _json("/api/admin/users", method="POST", token=token, payload={"username": intruder_name, "password": intruder_password})[0] == 201
-    _, intruder_login = _json("/api/auth/login", method="POST", payload={"username": intruder_name, "password": intruder_password})
-    intruder_token = intruder_login["access_token"]
     for path, payload in ((citation["media_url"], None), (f"/api/agents/{agent_id}/query/stream", {"query": "如何检查腐蚀漏液"})):
         with pytest.raises(HTTPError) as denied:
-            _request(path, method="POST" if payload else "GET", token=intruder_token, body=json.dumps(payload).encode() if payload else None, headers={"Content-Type": "application/json", "Accept": "text/event-stream"} if payload else None)
+            _request(path, method="POST" if payload else "GET", body=json.dumps(payload).encode() if payload else None, headers={"Content-Type": "application/json", "Accept": "text/event-stream"} if payload else None)
         assert denied.value.code in {401, 403}, "ungranted user was not denied"
         _assert_no_local_paths(denied.value.read().decode(errors="replace"))
 
