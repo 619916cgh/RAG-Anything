@@ -29,11 +29,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _request(path, *, method="GET", token="", body=None, headers=None):
+def _request(path, *, method="GET", token="", body=None, headers=None, read_body=True):
     request_headers = {"Authorization": f"Bearer {token}"} if token else {}
     request_headers.update(headers or {})
     with urlopen(Request(BASE + path, data=body, method=method, headers=request_headers), timeout=90) as response:
-        return response.status, dict(response.headers), response.read()
+        payload = response.read() if read_body else b""
+        return response.status, dict(response.headers), payload
 
 
 def _json(path, *, method="GET", token="", payload=None):
@@ -180,7 +181,7 @@ def test_video_worker_pg_and_sse_contract():
         _assert_no_local_paths({"events": events, "citation": citation})
 
     _record_phase("media-range")
-    status, headers, _ = _request(citation["media_url"], token=token, headers={"Range": "bytes=0-31"})
+    status, headers, _ = _request(citation["media_url"], token=token, headers={"Range": "bytes=0-31"}, read_body=False)
     assert status == 206 and "Content-Range" in headers, "authorized media range request failed"
     intruder_name, intruder_password = f"video_reader_{uuid.uuid4().hex[:12]}", "VideoReader!2026"
     _record_phase("ungranted-user")
