@@ -184,7 +184,7 @@ def test_video_worker_pg_and_sse_contract():
     status, headers, body = _request(
         citation["media_url"], token=token, headers={"Range": "bytes=0-31"}, read_limit=32,
     )
-    assert status == 206 and "Content-Range" in headers and len(body) == 32, "authorized media range request failed"
+    assert status == 206 and "content-range" in {key.lower() for key in headers} and len(body) == 32, "authorized media range request failed"
     intruder_name, intruder_password = f"video_reader_{uuid.uuid4().hex[:12]}", "VideoReader!2026"
     _record_phase("ungranted-user")
     assert _json("/api/admin/users", method="POST", token=token, payload={"username": intruder_name, "password": intruder_password})[0] == 201
