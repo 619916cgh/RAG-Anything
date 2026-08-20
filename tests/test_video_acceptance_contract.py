@@ -73,3 +73,8 @@ def test_health_wait_retries_startup_http_errors():
         acceptance._wait_for_health("http://acceptance", timeout=2)
 
     assert len(calls) == 4
+
+
+def test_acceptance_proxy_allows_a_real_video_fixture():
+    nginx_config = (Path(__file__).parent / "acceptance" / "nginx.conf").read_text(encoding="utf-8")
+    assert "client_max_body_size 256m;" in nginx_config
