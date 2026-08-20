@@ -243,26 +243,32 @@ class KBCache:
         cache_time: float,
         *,
         key: KBInstanceKey | None = None,
+        acquire_query_lease: bool = False,
     ) -> None:
         """Store a KB instance and evict LRU entries if over capacity.
 
         When ``max_size`` is 0 (unlimited), eviction is skipped entirely
         (backward-compatible with the old plain-dict behaviour).
         """
-        previous = self._store.get(name)
-        if previous is not None and previous is not instance:
-            await self.retire(name, previous)
-        self._store[name] = instance
-        self._cache_time[name] = cache_time
-        self._instance_keys[name] = key or KBInstanceKey(
-            name=name,
-            workspace=kb_dir(name),
-            corpus_revision="unknown",
-            compatibility_fingerprint="legacy",
-        )
-        self._store.move_to_end(name)
-        self._total_loads += 1
-        await self._evict_if_needed()
+        async with self._eviction_lock:
+            previous = self._store.get(name)
+            if previous is not None and previous is not instance:
+                await self.retire(name, previous)
+            self._store[name] = instance
+            self._cache_time[name] = cache_time
+            self._instance_keys[name] = key or KBInstanceKey(
+                name=name,
+                workspace=kb_dir(name),
+                corpus_revision="unknown",
+                compatibility_fingerprint="legacy",
+            )
+            self._store.move_to_end(name)
+            self._total_loads += 1
+            if acquire_query_lease:
+                # A just-published core must be leased before another KB's
+                # concurrent publish can select it as an LRU eviction victim.
+                self.acquire_query_lease(name, instance)
+            await self._evict_if_needed_locked()
 
     async def evict(self, name: str) -> bool:
         """Safely evict a single KB: persist first, then remove.
@@ -466,16 +472,19 @@ class KBCache:
         if self._max_size == 0:
             return  # unlimited — backward-compatible old behaviour
         async with self._eviction_lock:
-            while len(self._store) > self._max_size:
-                victim = self._find_eviction_victim()
-                if victim is None:
-                    kb_logger.warning(
-                        f"[KB-CACHE] 超出容量但无可淘汰 KB "
-                        f"(全部固定或处理中): "
-                        f"cached={len(self._store)} max={self._max_size}"
-                    )
-                    break
-                await self._evict_one(victim)
+            await self._evict_if_needed_locked()
+
+    async def _evict_if_needed_locked(self) -> None:
+        while len(self._store) > self._max_size:
+            victim = self._find_eviction_victim()
+            if victim is None:
+                kb_logger.warning(
+                    f"[KB-CACHE] 超出容量但无可淘汰 KB "
+                    f"(全部固定或处理中): "
+                    f"cached={len(self._store)} max={self._max_size}"
+                )
+                break
+            await self._evict_one(victim)
 
     def begin_deletion(self, name: str) -> list[asyncio.Task[Any]]:
         """Prevent new leases and return active streams that must be drained."""
@@ -3022,6 +3031,7 @@ async def get_kb(
     if name not in _kb_locks:
         _kb_locks[name] = asyncio.Lock()
     async with _kb_locks[name]:
+        query_lease_acquired = False
         if acquire_query_lease and name in kb_instances._deleting:
             raise RuntimeError("kb_query_deleting")
         if corpus_revision and name in kb_instances:
@@ -3090,10 +3100,12 @@ async def get_kb(
                     corpus_revision=corpus_revision or metadata_revision,
                     compatibility_fingerprint=compatibility,
                 ),
+                acquire_query_lease=acquire_query_lease,
             )
+            query_lease_acquired = acquire_query_lease
             kb_logger.info(f"[KB] 初始化知识库实例: {name} workspace={target}")
         instance = kb_instances[name]
-        if acquire_query_lease:
+        if acquire_query_lease and not query_lease_acquired:
             # The cache entry is chosen and leased while the per-KB lock is
             # held, so a revision replacement cannot finalize it in between.
             kb_instances.acquire_query_lease(name, instance)

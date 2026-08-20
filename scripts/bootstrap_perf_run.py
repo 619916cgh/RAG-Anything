@@ -32,8 +32,8 @@ def _read_env(path: Path) -> dict[str, str]:
     return values
 
 
-def _request(session: requests.Session, method: str, url: str, **kwargs) -> dict:
-    response = session.request(method, url, timeout=30, **kwargs)
+def _request(session: requests.Session, method: str, url: str, *, timeout: float, **kwargs) -> dict:
+    response = session.request(method, url, timeout=timeout, **kwargs)
     if response.status_code >= 400:
         raise RuntimeError(f"bootstrap HTTP {response.status_code} at {url.rsplit('/', 1)[-1]}")
     try:
@@ -46,12 +46,20 @@ def _suffix() -> str:
     return secrets.token_hex(6)
 
 
+def _workload_name(run_id: str, index: int) -> str:
+    return f"{run_id[-8:]}{index:03d}{_suffix()}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--env-file", required=True)
+    parser.add_argument("--users", type=int, default=1)
+    parser.add_argument("--timeout", type=float, default=120.0)
     args = parser.parse_args()
+    if args.users < 1 or args.users > 50 or args.timeout <= 0:
+        raise ValueError("users must be between 1 and 50 and timeout must be positive")
 
     run_dir = _inside_temp(Path(args.run_dir))
     env_file = Path(args.env_file).resolve()
@@ -70,76 +78,84 @@ def main() -> int:
         session,
         "POST",
         f"{base_url}/api/auth/login",
+        timeout=args.timeout,
         json={"username": admin_name, "password": admin_password},
     )
     admin_token = str(admin_login["access_token"])
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
-    roles = _request(session, "GET", f"{base_url}/api/admin/roles", headers=admin_headers)["roles"]
+    roles = _request(session, "GET", f"{base_url}/api/admin/roles", timeout=args.timeout, headers=admin_headers)["roles"]
     teacher_role = next((role for role in roles if role.get("name") == "teacher"), None)
     if not teacher_role:
         raise RuntimeError("teacher role is unavailable in the isolated database")
 
-    suffix = f"{run_id[-8:]}{_suffix()}"
-    username = f"perf_{suffix}"[:48]
-    password = "P!" + secrets.token_urlsafe(24)
-    created = _request(
-        session,
-        "POST",
-        f"{base_url}/api/admin/users",
-        headers=admin_headers,
-        json={"username": username, "password": password, "role_id": teacher_role["id"]},
-    )
-    if not created.get("user", {}).get("id"):
-        raise RuntimeError("isolated user creation returned no user id")
-
-    user_login = _request(
-        session,
-        "POST",
-        f"{base_url}/api/auth/login",
-        json={"username": username, "password": password},
-    )
-    user_token = str(user_login["access_token"])
-    user_headers = {"Authorization": f"Bearer {user_token}"}
-    kb = f"perf_kb_{suffix}"[:64]
-    _request(
-        session,
-        "POST",
-        f"{base_url}/api/kb/create?kb_name={quote(kb)}&label={quote('Performance run')}",
-        headers=user_headers,
-    )
-    agent = _request(
-        session,
-        "POST",
-        f"{base_url}/api/agents",
-        headers=user_headers,
-        json={
-            "name": "Performance run agent",
-            "kb_name": kb,
-            "llm_model": "perf-mock",
-            "agent_mode": "none",
-            "query_mode": "hybrid",
-            "enable_rerank": False,
-        },
-    )["agent"]
-    agent_id = str(agent["id"])
+    records: list[dict[str, str]] = []
+    for index in range(args.users):
+        suffix = _workload_name(run_id, index)
+        username = f"perf_{suffix}"[:48]
+        password = "P!" + secrets.token_urlsafe(24)
+        created = _request(
+            session,
+            "POST",
+            f"{base_url}/api/admin/users",
+            timeout=args.timeout,
+            headers=admin_headers,
+            json={"username": username, "password": password, "role_id": teacher_role["id"]},
+        )
+        if not created.get("user", {}).get("id"):
+            raise RuntimeError("isolated user creation returned no user id")
+        user_login = _request(
+            session,
+            "POST",
+            f"{base_url}/api/auth/login",
+            timeout=args.timeout,
+            json={"username": username, "password": password},
+        )
+        user_token = str(user_login["access_token"])
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        kb = f"perf_kb_{suffix}"[:64]
+        _request(
+            session,
+            "POST",
+            f"{base_url}/api/kb/create?kb_name={quote(kb)}&label={quote('Performance run')}",
+            timeout=args.timeout,
+            headers=user_headers,
+        )
+        agent = _request(
+            session,
+            "POST",
+            f"{base_url}/api/agents",
+            timeout=args.timeout,
+            headers=user_headers,
+            json={
+                "name": "Performance run agent",
+                "kb_name": kb,
+                "llm_model": "perf-mock",
+                "agent_mode": "none",
+                "query_mode": "hybrid",
+                "enable_rerank": False,
+            },
+        )["agent"]
+        records.append({
+            "username": username,
+            "password": password,
+            "agent_id": str(agent["id"]),
+            "kb": kb,
+            "vu": index + 1,
+        })
 
     # This application endpoint exercises the configured visual adapter; it
     # must remain mock-backed even though the direct query fixture is text only.
-    _request(session, "GET", f"{base_url}/api/health/vision-embedding", headers=admin_headers)
+    _request(session, "GET", f"{base_url}/api/health/vision-embedding", timeout=args.timeout, headers=admin_headers)
     # The provider is internal-only. Its aggregate evidence is collected later
     # through the Compose network, avoiding a host port for the mock service.
-    private = {
-        "username": username,
-        "password": password,
-        "agent_id": agent_id,
-        "kb": kb,
-    }
-    run_dir.joinpath("credentials.json").write_text(json.dumps([private]), encoding="utf-8")
+    credentials_path = run_dir.joinpath("credentials.json")
+    credentials_path.write_text(json.dumps(records), encoding="utf-8")
+    credentials_path.chmod(0o600)
     run_dir.joinpath("bootstrap.json").write_text(
-        json.dumps({"status": "ok", "run": run_id, "created": {"user": True, "kb": True, "agent": True}, "vision_health": "requested"}),
+        json.dumps({"status": "ok", "run": run_id, "created": {"users": args.users, "kbs": args.users, "agents": args.users}, "vision_health": "requested"}),
         encoding="utf-8",
     )
-    print("bootstrap: isolated workload created")
+    print(f"bootstrap: {args.users} isolated workloads created")
     return 0
 
 

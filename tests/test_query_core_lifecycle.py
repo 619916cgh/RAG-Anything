@@ -43,6 +43,30 @@ async def test_revision_replacement_retires_a_leased_core_until_release():
 
 
 @pytest.mark.asyncio
+async def test_new_query_core_is_leased_before_lru_eviction():
+    cache = KBCache(max_size=1)
+    old_core = _Core()
+    fresh_core = _Core()
+
+    await cache.put_and_evict("old", old_core, 1.0, key=_key("revision-1"))
+    await cache.put_and_evict(
+        "fresh",
+        fresh_core,
+        2.0,
+        key=_key("revision-2"),
+        acquire_query_lease=True,
+    )
+
+    assert cache.get("fresh") is fresh_core
+    assert "old" not in cache
+    assert old_core.finalize_calls == 1
+    assert cache.get_stats()["active_query_leases"] == 1
+
+    await cache.release_query_lease("fresh", fresh_core)
+    assert cache.get_stats()["active_query_leases"] == 0
+
+
+@pytest.mark.asyncio
 async def test_deletion_gate_rejects_new_leases_and_waits_for_active_lease():
     cache = KBCache(max_size=1)
     core = _Core()
