@@ -47,6 +47,7 @@ services:
       ENABLE_IMAGE_PROCESSING: "false"
       ENABLE_TABLE_PROCESSING: "false"
       ENABLE_EQUATION_PROCESSING: "false"
+      ENABLE_AUDIO_TRANSCRIPTION: "false"
       DOCUMENT_WORKER_MAX_THREADS: "1"
       SERVER_WORKERS: "1"
     volumes:
