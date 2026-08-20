@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -47,3 +48,28 @@ def test_video_stage_evidence_is_whitelisted_and_path_free(tmp_path):
     stage.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError):
         acceptance._load_video_stage_evidence(stage)
+
+
+def test_health_wait_retries_startup_http_errors():
+    calls = []
+
+    def urlopen(_url, timeout):
+        calls.append((_url, timeout))
+        if len(calls) == 1:
+            raise OSError("not ready")
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        return Response()
+
+    with patch.object(acceptance.urllib.request, "urlopen", side_effect=urlopen), patch.object(acceptance.time, "sleep"):
+        acceptance._wait_for_health("http://acceptance", timeout=2)
+
+    assert len(calls) == 4

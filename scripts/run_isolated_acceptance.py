@@ -85,6 +85,21 @@ def _stage(name: str, fn, evidence: list[dict[str, object]]) -> bool:
     return ok
 
 
+def _wait_for_health(base: str, *, timeout: int = 90) -> None:
+    """Wait for the composed migration, application, and proxy chain."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            for path in ("/api/live", "/api/ready", "/api/health"):
+                with urllib.request.urlopen(base + path, timeout=10) as response:
+                    if response.status != 200:
+                        raise RuntimeError("health status is not ready")
+            return
+        except Exception:
+            time.sleep(1)
+    raise RuntimeError("health check timed out")
+
+
 def _stage_video_fixture(source: Path, workdir: Path) -> Path:
     if not source.is_absolute() or not source.is_file() or source.suffix.lower() not in {".mp4", ".m4v", ".mov"}:
         raise ValueError("--video-fixture must be an absolute existing MP4-family file")
@@ -200,11 +215,7 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, time
         if not _stage("compose-up", compose_up, evidence):
             return result | {"release_recommendation": "not-releasable"}
         base = f"http://127.0.0.1:{port}"
-        def health():
-            for path in ("/api/live", "/api/ready", "/api/health"):
-                with urllib.request.urlopen(base + path, timeout=10) as response:
-                    if response.status != 200: raise RuntimeError(path)
-        if not _stage("health", health, evidence):
+        if not _stage("health", lambda: _wait_for_health(base), evidence):
             return result | {"release_recommendation": "not-releasable"}
         stage_env = dict(env)
         parsed = urlsplit(env["DATABASE_URL"])
