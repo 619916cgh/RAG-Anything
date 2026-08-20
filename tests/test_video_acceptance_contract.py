@@ -79,6 +79,7 @@ def test_health_wait_retries_startup_http_errors():
 def test_acceptance_proxy_allows_a_real_video_fixture():
     nginx_config = (Path(__file__).parent / "acceptance" / "nginx.conf").read_text(encoding="utf-8")
     assert "client_max_body_size 256m;" in nginx_config
+    assert "proxy_buffering off;" in nginx_config
 
 
 def test_acceptance_compose_uses_the_local_vision_embedding_mock():

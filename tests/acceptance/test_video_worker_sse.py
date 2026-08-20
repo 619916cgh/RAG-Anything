@@ -29,11 +29,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _request(path, *, method="GET", token="", body=None, headers=None, read_body=True):
+def _request(path, *, method="GET", token="", body=None, headers=None, read_body=True, read_limit=None):
     request_headers = {"Authorization": f"Bearer {token}"} if token else {}
     request_headers.update(headers or {})
     with urlopen(Request(BASE + path, data=body, method=method, headers=request_headers), timeout=90) as response:
-        payload = response.read() if read_body else b""
+        payload = response.read(read_limit) if read_body else b""
         return response.status, dict(response.headers), payload
 
 
@@ -181,8 +181,10 @@ def test_video_worker_pg_and_sse_contract():
         _assert_no_local_paths({"events": events, "citation": citation})
 
     _record_phase("media-range")
-    status, headers, _ = _request(citation["media_url"], token=token, headers={"Range": "bytes=0-31"}, read_body=False)
-    assert status == 206 and "Content-Range" in headers, "authorized media range request failed"
+    status, headers, body = _request(
+        citation["media_url"], token=token, headers={"Range": "bytes=0-31"}, read_limit=32,
+    )
+    assert status == 206 and "Content-Range" in headers and len(body) == 32, "authorized media range request failed"
     intruder_name, intruder_password = f"video_reader_{uuid.uuid4().hex[:12]}", "VideoReader!2026"
     _record_phase("ungranted-user")
     assert _json("/api/admin/users", method="POST", token=token, payload={"username": intruder_name, "password": intruder_password})[0] == 201
