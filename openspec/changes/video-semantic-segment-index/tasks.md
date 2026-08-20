@@ -29,6 +29,6 @@
 ## 5. Verification and project records
 
 - [x] 5.1 Add focused unit tests for probe failures, boundary fallbacks, coverage, segment IDs, and retry idempotency.
-- [ ] 5.2 Add authenticated PostgreSQL/Worker/query/SSE integration coverage and the four battery procedure retrieval cases.
-- [ ] 5.3 Verify the sample MP4 with the actual Worker runtime and confirm ffmpeg/ffprobe availability, segment count, and time metadata.
+- [x] 5.2 Add authenticated PostgreSQL/Worker/query/SSE integration coverage and the four battery procedure retrieval cases.
+- [x] 5.3 Verify the sample MP4 with the actual Worker runtime and confirm ffmpeg/ffprobe availability, segment count, and time metadata.
 - [ ] 5.4 Run focused/full validation, OpenSpec strict validation, diff checks, and update `PROJECT_SUMMARY.md` with current facts and this task record.
