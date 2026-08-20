@@ -1,0 +1,28 @@
+# Credential-free target ownership contract for release monitoring.
+# Environment-specific discovery and exporter credentials belong to deployment
+# secret management; this file only names the required jobs and owners.
+scrape_configs:
+  - job_name: raganything
+    static_configs:
+      - targets: ["raganything-app:8000"]
+        labels: {target_owner: application}
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels: {target_owner: database}
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels: {target_owner: cache}
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels: {target_owner: host}
+  - job_name: backup
+    static_configs:
+      - targets: ["backup-metrics:9800"]
+        labels: {target_owner: backup}
+  - job_name: tls
+    static_configs:
+      - targets: ["blackbox-exporter:9115"]
+        labels: {target_owner: edge}

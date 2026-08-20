@@ -20,6 +20,8 @@ import sys
 import re
 import asyncio
 import logging
+import signal
+import subprocess
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -83,6 +85,7 @@ _recovery_local_lock = asyncio.Lock()
 _RECOVERY_LOCK_NOT_ACQUIRED = object()
 _retry_cleanup_locks: dict[tuple[str, str], asyncio.Lock] = {}
 _deferred_auto_tag_tasks: dict[asyncio.Task[Any], str] = {}
+_STAGED_UPLOAD_PREFIX_RE = re.compile(r"^(?:[0-9a-f]{8}|[0-9a-f]{32})_(.+)$")
 try:
     _AUTO_TAG_PLANNING_CONCURRENCY = int(
         os.getenv("AUTO_TAG_PLANNING_CONCURRENCY", "2")
@@ -1692,41 +1695,51 @@ async def _cleanup_cancelled_upload_document(upload: dict[str, Any], kb_name: st
     get_query_cache().invalidate()
 
 
-async def _stop_cancelled_upload_worker(proc: Any, task_id: str) -> bool:
-    """Stop one worker with bounded waits before task-owned cleanup begins."""
+async def _terminate_upload_worker_tree(proc: Any, task_id: str, *, force: bool) -> bool:
+    """Signal the Worker process group and wait for its root to exit.
+
+    ``process_worker.py`` may spawn parser children.  Signalling only the root
+    lets those children continue writing after cancellation or KB deletion, so
+    every terminal control path goes through this helper.
+    """
+    if getattr(proc, "returncode", None) is not None:
+        return True
+    pid = getattr(proc, "pid", None)
     try:
-        proc.terminate()
-    except (AttributeError, ProcessLookupError):
-        try:
+        if os.name == "nt" and pid:
+            command = ["taskkill", "/PID", str(pid), "/T"]
+            if force:
+                command.append("/F")
+            killer = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await killer.wait()
+        elif pid:
+            os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
+        elif force:
             proc.kill()
-        except (AttributeError, ProcessLookupError):
-            return getattr(proc, "returncode", None) is not None
-
-    try:
-        await asyncio.wait_for(
-            proc.wait(), timeout=_UPLOAD_CANCELLATION_WORKER_WAIT_SECONDS
-        )
-        return True
-    except asyncio.TimeoutError:
-        kb_logger.warning(
-            "[UPLOAD-CANCEL] worker did not exit after terminate: task=%s", task_id
-        )
-
-    try:
-        proc.kill()
-    except (AttributeError, ProcessLookupError):
+        else:
+            proc.terminate()
+    except (AttributeError, ProcessLookupError, OSError):
         return getattr(proc, "returncode", None) is not None
-
     try:
-        await asyncio.wait_for(
-            proc.wait(), timeout=_UPLOAD_CANCELLATION_WORKER_WAIT_SECONDS
-        )
+        await asyncio.wait_for(proc.wait(), timeout=_UPLOAD_CANCELLATION_WORKER_WAIT_SECONDS)
         return True
     except asyncio.TimeoutError:
-        kb_logger.warning(
-            "[UPLOAD-CANCEL] worker remains alive after kill: task=%s", task_id
-        )
         return False
+
+
+async def _stop_cancelled_upload_worker(proc: Any, task_id: str) -> bool:
+    """Stop a complete Worker tree with bounded graceful and forced waits."""
+    if await _terminate_upload_worker_tree(proc, task_id, force=False):
+        return True
+    kb_logger.warning("[UPLOAD-CANCEL] worker tree did not exit after terminate: task=%s", task_id)
+    if await _terminate_upload_worker_tree(proc, task_id, force=True):
+        return True
+    kb_logger.warning("[UPLOAD-CANCEL] worker tree remains alive after kill: task=%s", task_id)
+    return False
 
 
 async def _finish_upload_cancellation(upload: dict[str, Any], kb_name: str) -> None:
@@ -3197,12 +3210,10 @@ async def cleanup_kb_resources(name: str) -> None:
     # ── 1. Kill all running worker subprocesses ──────────
     worker_list = _kb_worker_procs.pop(name, [])
     for proc, task_id in worker_list:
-        try:
-            if proc.returncode is None:
-                proc.kill()
-                kb_logger.info(f"[cleanup] 已终止 Worker 进程: task={task_id}")
-        except Exception:
-            pass
+        if await _stop_cancelled_upload_worker(proc, task_id):
+            kb_logger.info(f"[cleanup] 已终止 Worker 进程树: task={task_id}")
+        else:
+            kb_logger.warning("[cleanup] Worker 进程树仍在运行: task=%s", task_id)
 
     # ── 2. Stop drain & clear queue ──────────────────────
     _drain_start_locks.pop(name, None)
@@ -3892,6 +3903,24 @@ async def _persist_failed_doc_status(
         return None
 
 
+def _matches_staged_upload_filename(stored: str, requested: str) -> bool:
+    """Match an exact upload filename or its supported staged form.
+
+    Uploads have used both an 8-hex legacy prefix and the current 32-hex
+    task-ID prefix.  Comparing only the display filename would let one upload
+    claim another document with the same name, so accept a prefix only when
+    the remaining filename is an exact match.
+    """
+    stored_base = os.path.basename(str(stored or ""))
+    requested_base = os.path.basename(str(requested or ""))
+    if not stored_base or not requested_base:
+        return False
+    if stored_base == requested_base:
+        return True
+    match = _STAGED_UPLOAD_PREFIX_RE.fullmatch(stored_base)
+    return bool(match and match.group(1) == requested_base)
+
+
 async def _persist_hnsw_terminal_doc_status(
     kb_name: str,
     filename: str,
@@ -3916,10 +3945,8 @@ async def _persist_hnsw_terminal_doc_status(
                 if value
             }
             stored_hash = str(metadata.get("file_hash") or "")
-            stored_name = os.path.basename(str(info.get("file_path") or ""))
-            same_name = stored_name == search_name or (
-                stored_name.endswith("_" + search_name)
-                and len(stored_name) - len(search_name) == 9
+            same_name = _matches_staged_upload_filename(
+                str(info.get("file_path") or ""), search_name,
             )
             if not same_name or task_id not in markers or (file_hash and stored_hash != file_hash):
                 continue
@@ -4004,13 +4031,8 @@ async def _fix_stuck_doc_status(
         for candidate_id, candidate in data.items():
             if not isinstance(candidate, dict):
                 continue
-            stored_base = os.path.basename(str(candidate.get("file_path") or ""))
-            same_document = (
-                stored_base == search_base
-                or (
-                    stored_base.endswith("_" + search_base)
-                    and len(stored_base) - len(search_base) == 9
-                )
+            same_document = _matches_staged_upload_filename(
+                str(candidate.get("file_path") or ""), search_base,
             )
             if not same_document or str(candidate.get("status") or "").lower() not in {
                 "handling", "processing",
@@ -4040,18 +4062,8 @@ async def _fix_stuck_doc_status(
             return
         for doc_id, info in data.items():
             stored = info.get("file_path", "")
-            stored_base = os.path.basename(stored)
             search_base = os.path.basename(filename)
-            # Robust match: handles hash-prefixed uploads and full/partial paths
-            # Length guard: prefix is exactly 9 chars (8 hex + 1 underscore)
-            same_document = (
-                stored == filename
-                or stored_base == search_base
-                or (
-                    stored_base.endswith("_" + search_base)
-                    and len(stored_base) - len(search_base) == 9
-                )
-            )
+            same_document = _matches_staged_upload_filename(stored, search_base)
             matched = matched or same_document
             normalized_status = str(info.get("status") or "").lower()
             if same_document and normalized_status in {
@@ -4540,11 +4552,7 @@ async def _find_degraded_document(
             continue
         stored_base = os.path.basename(str(info.get("file_path") or ""))
         is_exact = stored_base == fname
-        is_prefixed = (
-            stored_base.endswith("_" + fname)
-            and len(stored_base) - len(fname) == 9
-        )
-        if is_exact or is_prefixed:
+        if _matches_staged_upload_filename(stored_base, fname):
             metadata = info.get("metadata")
             metadata = metadata if isinstance(metadata, dict) else {}
             candidate_markers = {
@@ -4655,6 +4663,7 @@ async def _finalize_failed_upload(
                 doc_id,
                 f"自动标签任务暂时无法入队: {exc}",
                 file_hash,
+                user_id,
             )
             return
         try:
@@ -4667,6 +4676,7 @@ async def _finalize_failed_upload(
                 doc_id,
                 f"自动标签仍在后台处理中: {exc}",
                 file_hash,
+                user_id,
             )
             return
         if tag_health.get("tag_status") in {"failed", "disabled"}:
@@ -4821,7 +4831,7 @@ async def _finalize_tagging_failure(
         "doc_id": doc_id,
         "outcome": "degraded",
         "warning": warning,
-    })
+    }, owner_user_id=user_id)
     if file_hash is not None:
         _unregister_processing_file(kb_name, file_hash)
 
@@ -4833,6 +4843,7 @@ async def _defer_tagging_schedule(
     doc_id: str,
     error_message: str,
     file_hash: str | None,
+    user_id: int,
     *,
     claim_owner: str | None = None,
     claim_generation: int | None = None,
@@ -4861,7 +4872,7 @@ async def _defer_tagging_schedule(
         "doc_id": doc_id,
         "error": error_message,
         "failure_stage": "tagging",
-    })
+    }, owner_user_id=user_id)
     if file_hash is not None:
         _unregister_processing_file(kb_name, file_hash)
 
@@ -4892,14 +4903,8 @@ async def _verify_document_persisted(kb_name: str, filename: str) -> str | None:
             continue
         stored_raw = info.get("file_path", "")
         stored_base = os.path.basename(stored_raw)
-        # Robust match: handles hash-prefixed uploads (8-hex + "_" + original)
-        # Length guard: prefix is exactly 9 chars (8 hex + 1 underscore)
         is_exact = stored_base == fname
-        is_prefixed = (
-            stored_base.endswith("_" + fname)
-            and len(stored_base) - len(fname) == 9
-        )
-        if is_exact or is_prefixed:
+        if _matches_staged_upload_filename(stored_base, fname):
             matches.append((str(doc_id), info, is_exact))
     if matches:
         # Exact staged filenames win. For repeated display names, the newest
@@ -5038,13 +5043,8 @@ async def _cleanup_retry_document_residue(
                 or metadata.get("residual_data") is not True
             ):
                 continue
-            stored_name = os.path.basename(str(info.get("file_path") or ""))
-            if not (
-                stored_name == search_name
-                or (
-                    stored_name.endswith("_" + search_name)
-                    and len(stored_name) - len(search_name) == 9
-                )
+            if not _matches_staged_upload_filename(
+                str(info.get("file_path") or ""), search_name,
             ):
                 continue
             markers = {
@@ -5241,10 +5241,8 @@ def _find_document_status_for_filename(
     for doc_id, info in data.items():
         if not isinstance(info, dict):
             continue
-        stored_base = os.path.basename(str(info.get("file_path") or ""))
-        if stored_base == fname or (
-            stored_base.endswith("_" + fname)
-            and len(stored_base) - len(fname) == 9
+        if _matches_staged_upload_filename(
+            str(info.get("file_path") or ""), fname,
         ):
             return str(doc_id), info
     return None
@@ -5570,12 +5568,18 @@ async def _process_uploaded_file(
         worker_slot = _get_ocr_worker_slot()
         await worker_slot.acquire()
         worker_slot_acquired = True
+        worker_group_options = (
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if os.name == "nt"
+            else {"start_new_session": True}
+        )
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(Path(__file__).parent.parent.parent),
             env=_worker_subprocess_env(),
+            **worker_group_options,
         )
 
         # Track worker process for KB deletion to kill it if needed
@@ -5626,7 +5630,7 @@ async def _process_uploaded_file(
                                 "phase": progress_update.get("phase", ""),
                                 "phase_status": progress_update.get("phase_status", ""),
                                 "message": progress_update.get("message", ""),
-                            })
+                            }, owner_user_id=user_id)
 
         stdout_task = asyncio.ensure_future(_read_stream(proc.stdout))
         stderr_task = asyncio.ensure_future(_read_stream(proc.stderr))
@@ -5661,14 +5665,7 @@ async def _process_uploaded_file(
             last_progress = worker_progress_state.get("last_progress") or {}
             resources_before_kill = _worker_resource_snapshot(proc)
             returncode_before_kill = proc.returncode
-            if proc.returncode is None:
-                try:
-                    proc.kill()
-                except ProcessLookupError:
-                    # The child can exit between the watchdog decision and
-                    # kill(); still collect its final return code/output.
-                    pass
-            await proc.wait()
+            await _stop_cancelled_upload_worker(proc, task_id)
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
             output_tail = "\n".join(worker_output_lines[-20:])[-4000:]
             kb_logger.error(
@@ -5762,7 +5759,7 @@ async def _process_uploaded_file(
                 )
                 raise DocumentRetrievalNotReadyError(document_id, readiness)
 
-        await emit_progress(task_id, 96, "文档主体处理完成，正在生成标签")
+        await emit_progress(task_id, 96, "文档主体处理完成，正在生成标签", owner_user_id=user_id)
         # Tags are the final upload stage. Keep the task non-terminal until the
         # durable tag job reaches a successful or explicit terminal state.
         if document_id:
@@ -5788,7 +5785,7 @@ async def _process_uploaded_file(
                     "[AUTO-TAGS] queued KB=%s doc=%s file=%s job=%s status=%s",
                     kb_name, document_id, filename, tag_job["id"], tag_job["status"],
                 )
-                await emit_progress(task_id, 97, "标签生成中")
+                await emit_progress(task_id, 97, "标签生成中", owner_user_id=user_id)
                 try:
                     tag_health = await wait_for_document_tagging(kb_name, document_id)
                 except TimeoutError as exc:
@@ -5839,7 +5836,7 @@ async def _process_uploaded_file(
                     "Retry lease lost after upload completion: job=%s task=%s",
                     retry_job_id, task_id,
                 )
-        await emit_progress(task_id, 100, "处理完成（含标签）")
+        await emit_progress(task_id, 100, "处理完成（含标签）", owner_user_id=user_id)
         await complete_task(task_id)
         if task_id in processing_tasks:
             processing_tasks[task_id]["chunking_strategy"] = actual_strategy
@@ -5847,7 +5844,10 @@ async def _process_uploaded_file(
             "upload_complete", file=filename, task_id=task_id, kb=kb_name,
             user_id=user_id, outcome="", warning="",
         )
-        await ws_broadcast({"type": "upload_done", "task_id": task_id, "filename": filename, "kb": kb_name})
+        await ws_broadcast(
+            {"type": "upload_done", "task_id": task_id, "filename": filename, "kb": kb_name},
+            owner_user_id=user_id,
+        )
         _unregister_processing_file(kb_name, file_hash)
 
     except Exception as e:
@@ -5886,6 +5886,7 @@ async def _process_uploaded_file(
                 e.doc_id,
                 str(e),
                 file_hash,
+                user_id,
                 claim_owner=claim_owner,
                 claim_generation=claim_generation,
             )
@@ -5973,7 +5974,7 @@ async def _process_uploaded_file(
                     "type": "upload_retry_wait", "task_id": task_id,
                     "filename": filename, "kb": kb_name,
                     "failure_stage": "retrieval_readiness",
-                })
+                }, owner_user_id=user_id)
                 if file_hash is not None:
                     _unregister_processing_file(kb_name, file_hash)
                 return
@@ -6122,7 +6123,7 @@ async def _process_uploaded_file(
                     "retry_count": retry_count,
                     "max_retries": max_retries,
                     "next_retry_at": task.get("next_retry_at"),
-                })
+                }, owner_user_id=user_id)
                 if file_hash is not None:
                     _unregister_processing_file(kb_name, file_hash)
                 return
@@ -6419,7 +6420,7 @@ async def _drain_kb_queue(kb_name: str) -> None:
                     "kb": kb_name,
                     "filename": task_info.get("filename", ""),
                     "queue_remaining": queue.qsize(),
-                })
+                }, owner_user_id=int(task_info.get("user_id") or 0))
             except Exception:
                 pass  # WebSocket failure shouldn't block processing
 
@@ -6864,7 +6865,7 @@ async def _reprocess_multimodal_for_kb_unbounded(
         "kb": kb_name,
         "total": total,
         "message": f"开始回溯处理 {total} 个文档的多模态内容",
-    })
+    }, owner_user_id=user_id)
 
     for doc_id, info in needs_processing:
         file_ref = info.get("file_path", "")
@@ -6967,7 +6968,7 @@ async def _reprocess_multimodal_for_kb_unbounded(
                 "skipped": skipped,
                 "total": total,
                 "current_doc": file_ref,
-            })
+            }, owner_user_id=user_id)
 
         except Exception as e:
             kb_logger.error(
@@ -6990,7 +6991,7 @@ async def _reprocess_multimodal_for_kb_unbounded(
     )
     await ws_broadcast({
         "type": "reprocess_done", "kb": kb_name, **result,
-    })
+    }, owner_user_id=user_id)
     await instance.finalize_storages()
     return result
 

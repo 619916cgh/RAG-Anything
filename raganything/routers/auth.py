@@ -243,7 +243,9 @@ async def update_my_profile(
     if not verify_password(payload.current_password, user["password_hash"]):
         raise HTTPException(400, "当前密码不正确")
     try:
-        updated = await update_user(current_user["id"], {"username": payload.username})
+        updated = await update_user(
+            current_user["id"], {"username": payload.username}, actor_id=current_user["id"]
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     await audit_log(
@@ -357,7 +359,7 @@ async def change_password(
         updated = await update_user(current_user["id"], {
             "password": new_password,
             "must_change_password": 0,
-        })
+        }, actor_id=current_user["id"])
     except AccountLifecycleConflict as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
@@ -602,12 +604,10 @@ async def admin_update_user(
     before_user = await get_user_by_id(user_id)
     before_role = await _auth_get_user_role(user_id) if before_user else None
 
-    actor_role_name = (user.get("role") or {}).get("name")
     try:
         updated = await update_user(
             user_id,
             update_data,
-            actor_role_name=actor_role_name,
             actor_id=user["id"],
         )
     except PermissionError as e:
@@ -673,10 +673,15 @@ async def admin_delete_user(
 
     try:
         success = await delete_user(
-            user_id, archived_by=user["id"], archive_reason=archive_reason
+            user_id,
+            archived_by=user["id"],
+            archive_reason=archive_reason,
+            actor_id=user["id"],
         )
     except AccountLifecycleConflict as e:
         raise HTTPException(409, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     if not success:
         raise HTTPException(404, "用户不存在")
 

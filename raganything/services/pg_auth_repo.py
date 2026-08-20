@@ -699,10 +699,22 @@ async def update_user(
     if not updates:
         return await get_user_by_id(user_id)
 
+    # Self-service callers update their own record. Privileged callers MUST
+    # supply their durable actor id so this repository boundary, rather than a
+    # router-provided role claim, enforces the target-account hierarchy.
+    effective_actor_id = user_id if actor_id is None else actor_id
     pool = _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", "users:super-admin-quorum")
+            actor = await conn.fetchrow(
+                """SELECT u.id, u.is_active, u.archived_at, r.name AS role_name
+                   FROM users u JOIN roles r ON r.id = u.role_id
+                   WHERE u.id = $1 FOR UPDATE""",
+                effective_actor_id,
+            )
+            if not actor or not actor["is_active"] or actor["archived_at"] is not None:
+                raise PermissionError("actor account is not active")
             target = await conn.fetchrow(
                 """SELECT u.is_active, u.archived_at, r.name AS role_name
                    FROM users u JOIN roles r ON r.id = u.role_id
@@ -710,10 +722,10 @@ async def update_user(
             )
             if not target:
                 return None
+            if not can_assign_role(actor["role_name"], target["role_name"]):
+                raise PermissionError("cannot mutate an account more privileged than the actor")
             requested_role_name = target["role_name"]
             if "role_id" in updates:
-                if actor_role_name is None:
-                    raise ValueError("actor_role_name is required for role changes")
                 role_row = await conn.fetchrow(
                     "SELECT id, name FROM roles WHERE id = $1 AND name = ANY($2::text[])",
                     updates["role_id"], list(DEFAULT_ROLES),
@@ -721,7 +733,7 @@ async def update_user(
                 if not role_row:
                     raise ValueError("requested role is not assignable")
                 requested_role_name = role_row["name"]
-                if not can_assign_role(actor_role_name, requested_role_name):
+                if not can_assign_role(actor["role_name"], requested_role_name):
                     raise PermissionError("cannot assign a role more privileged than the actor")
             removes_final_admin = (
                 target["role_name"] == "super_admin" and target["is_active"]
@@ -758,13 +770,26 @@ async def update_user(
 
 
 async def delete_user(
-    user_id: int, *, archived_by: int | None = None, archive_reason: str | None = None
+    user_id: int,
+    *,
+    archived_by: int | None = None,
+    archive_reason: str | None = None,
+    actor_id: int | None = None,
 ) -> bool:
     """Archive an account; this name remains for DELETE-route compatibility."""
+    effective_actor_id = user_id if actor_id is None else actor_id
     pool = _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", "users:super-admin-quorum")
+            actor = await conn.fetchrow(
+                """SELECT u.id, u.is_active, u.archived_at, r.name AS role_name
+                   FROM users u JOIN roles r ON r.id = u.role_id
+                   WHERE u.id = $1 FOR UPDATE""",
+                effective_actor_id,
+            )
+            if not actor or not actor["is_active"] or actor["archived_at"] is not None:
+                raise PermissionError("actor account is not active")
             target = await conn.fetchrow(
                 """SELECT u.is_active, u.archived_at, r.name AS role_name
                    FROM users u JOIN roles r ON r.id = u.role_id
@@ -772,6 +797,8 @@ async def delete_user(
             )
             if not target:
                 return False
+            if not can_assign_role(actor["role_name"], target["role_name"]):
+                raise PermissionError("cannot archive an account more privileged than the actor")
             if target["archived_at"] is not None:
                 return True
             if target["role_name"] == "super_admin" and target["is_active"]:

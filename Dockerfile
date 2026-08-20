@@ -86,7 +86,7 @@ WORKDIR /app
 
 # 闂佺顑冮崕閬嶅箖瀹ュ憘娑㈠焵椤掑嫬钃?
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/live')"
 
 EXPOSE 8000
 

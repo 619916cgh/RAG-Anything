@@ -330,7 +330,7 @@ async def test_websocket_broadcast_closes_stale_session_before_delivery(monkeypa
     monkeypatch.setattr(ws_service, "_session_is_current", stale_session)
     ws_service.register_general_ws(ws, {"id": 7, "session_generation": 1})
 
-    await ws_service.ws_broadcast({"type": "protected-progress"})
+    await ws_service.ws_broadcast({"type": "protected-progress"}, owner_user_id=7)
     assert calls == [("close", 4001, "Account session is no longer valid")]
     assert ws not in ws_service.ws_clients
 
@@ -434,6 +434,6 @@ async def test_archive_router_records_actor_and_reason_without_credentials(monke
         user={"id": 1, "role": {"name": "super_admin"}},
     )
     assert response == {"status": "ok", "lifecycle": "archived"}
-    assert recorded["archive"] == (8, {"archived_by": 1, "archive_reason": "offboarding"})
+    assert recorded["archive"] == (8, {"archived_by": 1, "archive_reason": "offboarding", "actor_id": 1})
     assert recorded["audit"]["action"] == "user.archive"
     assert recorded["audit"]["details"]["archive_reason"] == "offboarding"

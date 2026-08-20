@@ -111,10 +111,17 @@ class _FakeConn:
 
     async def fetchrow(self, sql, *args):
         if "FOR UPDATE" in sql:
+            user_id = int(args[0])
+            role_name = (
+                getattr(self, "actor_role_name", self.role_row["name"])
+                if user_id == 1
+                else getattr(self, "target_role_name", self.role_row["name"])
+            )
             return {
+                "id": user_id,
                 "is_active": 1,
                 "archived_at": None,
-                "role_name": self.role_row["name"],
+                "role_name": role_name,
             }
         if "INSERT INTO users" in sql or "UPDATE users" in sql:
             return self.user_row
@@ -189,19 +196,25 @@ class TestRepoLayerRoleGuard:
 
     @pytest.mark.asyncio
     async def test_update_user_rejects_higher_target_role(self, fake_pool):
+        fake_pool.conn.actor_role_name = "dept_admin"
+        fake_pool.conn.target_role_name = "super_admin"
         with pytest.raises(PermissionError):
-            await update_user(5, {"role_id": 1}, actor_role_name="teacher")
+            await update_user(5, {"username": "blocked"}, actor_id=1)
 
     @pytest.mark.asyncio
     async def test_update_user_rejects_missing_actor_with_role_change(self, fake_pool):
-        with pytest.raises(ValueError):
-            await update_user(5, {"role_id": 1})
+        fake_pool.conn.actor_role_name = "student"
+        fake_pool.conn.target_role_name = "super_admin"
+        with pytest.raises(PermissionError):
+            await update_user(5, {"role_id": 1}, actor_id=1)
 
     @pytest.mark.asyncio
     async def test_update_user_allows_same_level_role(self, fake_pool):
         fake_pool.conn.role_row = {"id": 3, "name": "teacher"}
+        fake_pool.conn.actor_role_name = "teacher"
+        fake_pool.conn.target_role_name = "teacher"
         fake_pool.conn.user_row = {"id": 5, "username": "carol", "role_id": 3}
-        updated = await update_user(5, {"role_id": 3}, actor_role_name="teacher")
+        updated = await update_user(5, {"role_id": 3}, actor_id=1)
         assert updated["role_id"] == 3
 
     @pytest.mark.asyncio
@@ -269,13 +282,13 @@ class TestAdminUserPermissionErrorMapping:
         assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_admin_update_user_passes_actor_role_to_repo(self, monkeypatch):
+    async def test_admin_update_user_passes_actor_id_to_repo(self, monkeypatch):
         from raganything.routers import auth as auth_router
 
         captured = {}
 
-        async def recording_update_user(user_id, data, actor_role_name=None):
-            captured["actor_role_name"] = actor_role_name
+        async def recording_update_user(user_id, data, actor_id=None):
+            captured["actor_id"] = actor_id
             captured["data"] = data
             return {"id": 5, "username": "bob", "role_id": 4}
 
@@ -301,5 +314,5 @@ class TestAdminUserPermissionErrorMapping:
             user_id=5, req=req, request=request,
             user={"id": 1, "username": "sa", "is_admin": True, "role": {"name": "super_admin"}},
         )
-        assert captured["actor_role_name"] == "super_admin"
+        assert captured["actor_id"] == 1
         assert captured["data"]["role_id"] == 4

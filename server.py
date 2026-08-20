@@ -158,7 +158,16 @@ async def _disk_monitor_loop(interval: int = DISK_CHECK_INTERVAL):
 app = FastAPI(title="RAG-Anything API", version="1.3.1")
 
 # ── Rate Limiting ──────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+# The high limit is deliberately unavailable to normal deployments.  It exists
+# only for the disposable, loopback-only capacity Compose profile where every
+# virtual user otherwise shares the Nginx source address.
+_default_rate_limit = "120/minute"
+if (
+    os.getenv("RAGANYTHING_ENV") == "performance"
+    and os.getenv("PERF_ISOLATED_RATE_LIMIT") == "10000/minute"
+):
+    _default_rate_limit = "10000/minute"
+limiter = Limiter(key_func=get_remote_address, default_limits=[_default_rate_limit])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -172,7 +181,7 @@ _cors_origins = [o.strip() for o in _cors_origins_str.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     allow_credentials=True,
 )

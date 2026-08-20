@@ -425,15 +425,19 @@ async def _authenticate_ws(ws: WebSocket, required_permission: str | None = None
             await ws.close(code=4001, reason=f"Insufficient permission: {required_permission}")
             return None
 
-    return {"id": user_id, "username": user["username"], "session_generation": int(user.get("session_generation", 0))}
+    if not jti:
+        await ws.close(code=4001, reason="Token missing revocation identity")
+        return None
+    return {
+        "id": user_id,
+        "username": user["username"],
+        "session_generation": int(user.get("session_generation", 0)),
+        "token_jti": str(jti),
+    }
 
 
 async def _ws_session_is_current(user: dict) -> bool:
-    account = await get_user_by_id(user["id"])
-    return bool(
-        account and account.get("is_active") and account.get("archived_at") is None
-        and int(account.get("session_generation", 0)) == user.get("session_generation")
-    )
+    return await shared.is_ws_session_current(user)
 
 
 # ── WebSocket 端点 ─────────────────────────────────
@@ -616,6 +620,26 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         shared.unregister_general_ws(ws)
+
+
+@router.websocket("/ws/monitor")
+async def websocket_monitor_endpoint(ws: WebSocket):
+    """Projected monitor events for users with the explicit monitor capability."""
+    user = await _authenticate_ws(ws, required_permission=Permission.MONITOR_READ)
+    if user is None:
+        return
+    await ws.accept()
+    shared.register_monitor_ws(ws, user)
+    try:
+        while True:
+            await ws.receive_text()
+            if not await _ws_session_is_current(user):
+                await ws.close(code=4001, reason="Account session is no longer valid")
+                return
+    except WebSocketDisconnect:
+        pass
+    finally:
+        shared.unregister_monitor_ws(ws)
 
 
 # ── ⚙️ 系统设置 ─────────────────────────────────────

@@ -160,7 +160,7 @@ rollback() {
             # Restore the pre-release topology: there was no Nginx container.
             compose "$candidate_app_image" "$candidate_nginx_image" rm -sf nginx || true
         fi
-        curl -fsS --max-time 10 http://127.0.0.1:8000/api/health >/dev/null || true
+        docker exec raganything-app python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=10)" >/dev/null 2>&1 || true
         curl -fsS --max-time 10 http://127.0.0.1/api/health >/dev/null || true
     fi
     exit "$status"
@@ -168,7 +168,7 @@ rollback() {
 trap rollback ERR INT TERM
 
 assert_direct_health() {
-    curl -fsS --max-time 10 http://127.0.0.1:8000/api/health >/dev/null
+    docker exec raganything-app python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live', timeout=10)" >/dev/null
     [[ "$(docker inspect raganything-app --format '{{.RestartCount}}')" == "0" ]]
 }
 

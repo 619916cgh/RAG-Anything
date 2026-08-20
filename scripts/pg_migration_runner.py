@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 
 HISTORY_TABLE = "schema_migration_history"
@@ -27,8 +27,14 @@ _MIGRATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.sql$")
 _SECRET_RE = re.compile(
     r"(?i)(postgres(?:ql)?://)[^\s'\"]+|"
     r"(password\s*[=:]\s*)[^\s,;]+|"
-    r"(PGPASSWORD\s*[=:]\s*)[^\s,;]+"
+    r"(PGPASSWORD\s*[=:]\s*)[^\s,;]+|"
+    r"((?:sslrootcert|sslcert|sslkey)\s*[=:]\s*)[^\s,;]+"
 )
+_OUTER_BEGIN_RE = re.compile(r"(?is)^(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*BEGIN\s*;")
+_OUTER_COMMIT_RE = re.compile(r"(?is)COMMIT\s*;(?=(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*$)")
+_TRANSACTION_BOUNDARY_RE = re.compile(r"(?i)\b(?:BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION)\b")
+_NON_TRANSACTIONAL_SQL_RE = re.compile(r"(?i)\b(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY|VACUUM)\b")
+_MIGRATION_LOCK_KEY = "raganything:manifest-migrations:v1"
 
 
 class MigrationRunnerError(RuntimeError):
@@ -142,14 +148,54 @@ def connection_environment(base: Mapping[str, str] | None = None) -> dict[str, s
         env["PGPASSWORD"] = unquote(parsed.password)
     if parsed.path and parsed.path != "/":
         env["PGDATABASE"] = unquote(parsed.path.lstrip("/"))
-    query_values = dict(
-        part.split("=", 1) for part in parsed.query.split("&") if "=" in part
-    )
-    if "sslmode" in query_values:
-        env["PGSSLMODE"] = unquote(query_values["sslmode"])
-    if "target_session_attrs" in query_values:
-        env["PGTARGETSESSIONATTRS"] = unquote(query_values["target_session_attrs"])
+    query_values = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    option_environment = {
+        "sslmode": "PGSSLMODE",
+        "sslrootcert": "PGSSLROOTCERT",
+        "sslcert": "PGSSLCERT",
+        "sslkey": "PGSSLKEY",
+        "sslcrl": "PGSSLCRL",
+        "sslcrldir": "PGSSLCRLDIR",
+        "target_session_attrs": "PGTARGETSESSIONATTRS",
+        "connect_timeout": "PGCONNECT_TIMEOUT",
+        "application_name": "PGAPPNAME",
+    }
+    for option, environment_name in option_environment.items():
+        if option in query_values:
+            env[environment_name] = query_values[option]
     return env
+
+
+def transaction_body_for_migration(sql: str) -> str:
+    """Return a transaction-compatible migration body without editing its file.
+
+    Historical files are immutable and some contain one outer ``BEGIN/COMMIT``.
+    The release runner owns the enclosing transaction, so it removes exactly
+    that wrapper in memory and rejects any ambiguous transaction control or
+    non-transactional statement before contacting PostgreSQL.
+    """
+    if _NON_TRANSACTIONAL_SQL_RE.search(sql):
+        raise MigrationApplyError("migration contains non-transactional SQL unsupported by atomic runner")
+    body = sql
+    has_begin = bool(_OUTER_BEGIN_RE.search(body))
+    has_commit = bool(_OUTER_COMMIT_RE.search(body))
+    if has_begin != has_commit:
+        raise MigrationApplyError("migration has an unmatched outer transaction boundary")
+    if has_begin:
+        begin_match = _OUTER_BEGIN_RE.search(body)
+        commit_match = _OUTER_COMMIT_RE.search(body)
+        assert begin_match is not None and commit_match is not None
+        body = body[:begin_match.start()] + body[begin_match.end():]
+        # Re-find after removing the leading wrapper because offsets changed.
+        commit_match = _OUTER_COMMIT_RE.search(body)
+        assert commit_match is not None
+        body = body[:commit_match.start()] + body[commit_match.end():]
+    validation_sql = re.sub(r"(?is)/\*.*?\*/|--[^\n]*(?:\n|$)|\$\$.*?\$\$", " ", body)
+    if _TRANSACTION_BOUNDARY_RE.search(validation_sql):
+        raise MigrationApplyError("migration contains nested or unsupported transaction control")
+    if not body.strip():
+        raise MigrationApplyError("migration body is empty after transaction wrapper extraction")
+    return body.rstrip() + "\n"
 
 
 def sha256_file(path: Path) -> str:
@@ -482,6 +528,54 @@ class MigrationRunner:
         """
         self._execute(["-c", sql])
 
+    def _apply_one_atomic(self, migration: Migration) -> bool:
+        """Apply one manifest entry and its success history in one psql session.
+
+        The psql conditional is evaluated after the transaction-scoped advisory
+        lock.  A competing runner which finds the entry committed rolls back
+        its empty transaction and returns ``False`` without replaying SQL.
+        """
+        body = transaction_body_for_migration(migration.path.read_text(encoding="utf-8"))
+        already_applied = _sql_literal(migration.migration_id)
+        history_insert = f"""
+INSERT INTO {HISTORY_TABLE}
+    (migration_id, sequence, checksum, state, started_at, completed_at)
+VALUES ({already_applied}, {migration.sequence}, {_sql_literal(migration.checksum)}, 'applied', NOW(), NOW());
+"""
+        script = f"""\\set ON_ERROR_STOP on
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtextextended({_sql_literal(_MIGRATION_LOCK_KEY)}, 0));
+SELECT EXISTS(
+    SELECT 1 FROM {HISTORY_TABLE}
+    WHERE migration_id = {already_applied} AND state = 'applied'
+) AS migration_already_applied \\gset
+\\if :migration_already_applied
+\\echo __MIGRATION_ALREADY_APPLIED__
+ROLLBACK;
+\\else
+{body}{history_insert}COMMIT;
+\\endif
+"""
+        result = self.executor.run(["-X", "-v", "ON_ERROR_STOP=1"], input_text=script)
+        if result.returncode:
+            detail = sanitize_failure(result.stderr or result.stdout)
+            failure_class = classify_failure(detail, result.returncode)
+            try:
+                self._record(
+                    migration,
+                    state="failed",
+                    failure_class=failure_class,
+                    failure_message=detail,
+                )
+            except MigrationRunnerError as record_error:
+                raise MigrationApplyError(
+                    f"migration {migration.migration_id} failed ({failure_class}); failure record unavailable"
+                ) from record_error
+            raise MigrationApplyError(
+                f"migration {migration.migration_id} failed ({failure_class}): {detail}"
+            )
+        return "__MIGRATION_ALREADY_APPLIED__" not in (result.stdout or "")
+
     def apply(self, *, backup_acknowledged: bool) -> MigrationPlan:
         if not backup_acknowledged:
             raise BackupAcknowledgementError(
@@ -489,25 +583,7 @@ class MigrationRunner:
             )
         plan = self.plan()
         for migration in plan.pending:
-            result = self.executor.run(["-f", str(migration.path)])
-            if result.returncode:
-                detail = sanitize_failure(result.stderr or result.stdout)
-                failure_class = classify_failure(detail, result.returncode)
-                try:
-                    self._record(
-                        migration,
-                        state="failed",
-                        failure_class=failure_class,
-                        failure_message=detail,
-                    )
-                except MigrationRunnerError as record_error:
-                    raise MigrationApplyError(
-                        f"migration {migration.migration_id} failed ({failure_class}); failure record unavailable"
-                    ) from record_error
-                raise MigrationApplyError(
-                    f"migration {migration.migration_id} failed ({failure_class}): {detail}"
-                )
-            self._record(migration, state="applied")
+            self._apply_one_atomic(migration)
         return plan
 
     def baseline(self, *, through: str, backup_acknowledged: bool) -> int:

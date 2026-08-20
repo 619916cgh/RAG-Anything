@@ -20,5 +20,5 @@
 
 - [x] 4.1 Add focused backend tests for share authorization, fixed scope, limits, revocation, non-persistence and media grants.
 - [x] 4.2 Add frontend utility/source-contract tests for fragment parsing, SSE handling, safe API use and public route isolation.
-- [ ] 4.3 Run focused tests, static checks, OpenSpec strict validation and scoped diff checks; document cloud-only acceptance steps.
+- [x] 4.3 Run focused tests, static checks, OpenSpec strict validation and scoped diff checks; document cloud-only acceptance steps.
 - [x] 4.4 Update `PROJECT_SUMMARY.md` with implementation evidence and remaining cloud deployment acceptance.

@@ -260,8 +260,9 @@ async def test_chunks_endpoint_restores_pg_metadata_and_id(monkeypatch):
     assert chunk["chunk_id"] == "modal-chunk"
     assert chunk["is_multimodal"] is True
     assert chunk["original_type"] == "image"
-    assert chunk["media_path"] == "C:/missing/figure.png"
+    assert chunk["media_path"] is None
     assert chunk["media_available"] is False
+    assert chunk["media_status"] == "unavailable"
 
 
 def test_pgkv_unsupported_application_namespace_is_disabled():

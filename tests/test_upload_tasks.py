@@ -1679,6 +1679,54 @@ async def test_find_degraded_document_requires_current_upload_provenance(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_find_degraded_document_matches_current_task_id_staged_filename(monkeypatch):
+    import raganything.services.kb_service as kb_service
+
+    task_id = "a1b2c3d4e5f64789a1b2c3d4e5f64789"
+
+    async def load(_kb_name):
+        return {
+            "doc-current": {
+                "file_path": f"{task_id}_fixture.txt",
+                "status": "failed",
+                "track_id": task_id,
+                "metadata": {
+                    "task_id": task_id,
+                    "file_hash": "hash-current",
+                    "content_ready": True,
+                },
+            },
+        }
+
+    async def mark(_kb_name, doc_id, _info, *, error_message):
+        assert doc_id == "doc-current"
+        assert error_message == "worker timeout"
+        return {"content_ready": True}
+
+    monkeypatch.setattr(kb_service, "_load_doc_status_json", load)
+    monkeypatch.setattr(kb_service, "_mark_degraded_document", mark)
+
+    result = await kb_service._find_degraded_document(
+        "demo-kb", "fixture.txt", "worker timeout",
+        task_id=task_id, file_hash="hash-current",
+    )
+
+    assert result == ("doc-current", {"content_ready": True})
+
+
+def test_staged_upload_filename_match_rejects_other_display_names():
+    from raganything.services.kb_service import _matches_staged_upload_filename
+
+    assert _matches_staged_upload_filename(
+        "a1b2c3d4e5f64789a1b2c3d4e5f64789_fixture.txt", "fixture.txt"
+    )
+    assert _matches_staged_upload_filename("a1b2c3d4_fixture.txt", "fixture.txt")
+    assert not _matches_staged_upload_filename(
+        "a1b2c3d4e5f64789a1b2c3d4e5f64789_fixture.txt", "other.txt"
+    )
+
+
+@pytest.mark.asyncio
 async def test_finalize_tagging_failure_preserves_document_and_marks_task(monkeypatch):
     from raganything.services import kb_service, state_service, ws_service
 

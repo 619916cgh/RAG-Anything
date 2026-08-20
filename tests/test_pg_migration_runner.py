@@ -19,6 +19,7 @@ from scripts.pg_migration_runner import (
     database_safe_failure,
     load_manifest,
     sanitize_failure,
+    transaction_body_for_migration,
 )
 
 
@@ -44,6 +45,28 @@ class _FakePsql:
     def run(self, args, *, input_text=None):
         args = list(args)
         self.calls.append((args, input_text))
+        if input_text is not None:
+            match = re.search(
+                r"VALUES\s*\('([^']+)',\s*(\d+),\s*'([0-9a-f]{64})',\s*'applied'",
+                input_text,
+                re.DOTALL,
+            )
+            assert match, input_text
+            migration_id, sequence, checksum = match.groups()
+            self.executed_files.append(migration_id)
+            if migration_id == self.fail_migration:
+                return CommandResult(3, "", "ERROR: relation pg_kb_meta does not exist")
+            self.history[migration_id] = {
+                "migration_id": migration_id,
+                "sequence": int(sequence),
+                "checksum": checksum,
+                "state": "applied",
+                "started_at": "2026-08-04T00:00:00+00:00",
+                "completed_at": "2026-08-04T00:00:00+00:00",
+                "failure_class": None,
+                "failure_message": None,
+            }
+            return CommandResult(0)
         if "-f" in args:
             migration_id = Path(args[args.index("-f") + 1]).name
             self.executed_files.append(migration_id)
@@ -278,6 +301,38 @@ def test_connection_url_and_failure_output_are_redacted():
     )
     assert "secret-value" not in output
     assert "postgresql://" in output
+
+
+def test_connection_url_forwards_tls_paths_and_connect_timeout_without_diagnostic_leakage():
+    env = connection_environment({
+        "DATABASE_URL": "postgresql://u:secret@db.example/app?sslrootcert=%2Fprivate%2Fca.pem&sslcert=%2Fprivate%2Fclient.pem&sslkey=%2Fprivate%2Fclient.key&connect_timeout=9",
+    })
+    assert env["PGSSLROOTCERT"] == "/private/ca.pem"
+    assert env["PGSSLCERT"] == "/private/client.pem"
+    assert env["PGSSLKEY"] == "/private/client.key"
+    assert env["PGCONNECT_TIMEOUT"] == "9"
+    assert "/private/client.key" not in sanitize_failure("sslkey=/private/client.key")
+
+
+@pytest.mark.parametrize("sql", [
+    "BEGIN; SELECT 1; COMMIT;",
+    "SELECT 1;",
+])
+def test_transaction_body_accepts_only_an_optional_outer_wrapper(sql):
+    body = transaction_body_for_migration(sql)
+    assert "SELECT 1" in body
+    assert "COMMIT" not in body
+
+
+@pytest.mark.parametrize("sql", [
+    "BEGIN; SELECT 1;",
+    "BEGIN; BEGIN; SELECT 1; COMMIT; COMMIT;",
+    "CREATE INDEX CONCURRENTLY idx ON example(id);",
+    "VACUUM example;",
+])
+def test_transaction_body_rejects_unsafe_migration_sql(sql):
+    with pytest.raises(MigrationApplyError):
+        transaction_body_for_migration(sql)
 
 
 def test_database_safe_failure_preserves_portable_diagnostic_text():

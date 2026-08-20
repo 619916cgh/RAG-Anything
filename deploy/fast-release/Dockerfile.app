@@ -7,7 +7,7 @@ COPY payload/ /app/
 WORKDIR /app
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/live', timeout=5)"
 
 EXPOSE 8000
 CMD ["python", "server.py"]

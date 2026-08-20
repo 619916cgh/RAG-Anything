@@ -910,7 +910,7 @@ async def upload_file(request: Request, file: UploadFile = File(...), background
         await ws_broadcast({
             "type": "duplicate", "file": file.filename,
             "existing_task_id": existing_task, "kb": kb,
-        })
+        }, owner_user_id=int(current_user["id"]))
         file_path.unlink(missing_ok=True)
         raise HTTPException(
             409,
@@ -5004,6 +5004,54 @@ async def get_retrieval_health(
             "vector_count": int(quality.get("vector_count") or 0),
         })
     return {"kb": kb, "healthy": not rows, "counts": counts, "documents": rows}
+
+
+@router.get("/knowledge/legacy-readiness-preview")
+async def legacy_document_readiness_preview(
+    kb: str = Depends(verify_kb_access),
+    _perm: None = Depends(require_permission(Permission.KB_READ)),
+):
+    """List evidence-backed legacy readiness candidates without changing state.
+
+    This is intentionally a review surface, not a repair API.  It reads the
+    authoritative document status and strict PostgreSQL retrieval evidence but
+    never initializes a KB, writes metadata, or queues any work.
+    """
+    statuses = await _load_doc_status_json(kb)
+    candidates: list[dict[str, str]] = []
+    excluded: dict[str, int] = {}
+    terminal_statuses = {"processed", "completed", "success"}
+    for doc_id, info in sorted((statuses or {}).items()):
+        if not isinstance(info, dict):
+            excluded["invalid_status_record"] = excluded.get("invalid_status_record", 0) + 1
+            continue
+        metadata = info.get("metadata") if isinstance(info.get("metadata"), dict) else {}
+        if metadata.get("content_ready") is True:
+            excluded["content_ready_present"] = excluded.get("content_ready_present", 0) + 1
+            continue
+        if str(info.get("status") or "").lower() not in terminal_statuses:
+            excluded["non_terminal"] = excluded.get("non_terminal", 0) + 1
+            continue
+        if any(info.get(key) for key in ("error", "error_message", "failure_stage")) or any(
+            metadata.get(key) for key in ("last_error", "error", "failure_stage")
+        ):
+            excluded["failure_evidence"] = excluded.get("failure_evidence", 0) + 1
+            continue
+        if not [chunk_id for chunk_id in info.get("chunks_list") or [] if chunk_id]:
+            excluded["missing_chunk_evidence"] = excluded.get("missing_chunk_evidence", 0) + 1
+            continue
+        quality = await evaluate_document_retrieval_health(kb, str(doc_id))
+        if not quality.get("ready"):
+            reason = str(quality.get("reason_code") or "strict_retrieval_not_ready")
+            excluded[reason] = excluded.get(reason, 0) + 1
+            continue
+        candidates.append({"doc_id": str(doc_id), "reason_code": "verified_legacy_ready"})
+    return {
+        "kb": kb,
+        "candidates": candidates,
+        "candidate_count": len(candidates),
+        "excluded_counts": excluded,
+    }
 
 
 @router.post("/knowledge/documents/{doc_id}/repair-retrieval")

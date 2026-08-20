@@ -20,10 +20,11 @@ export default defineConfig({
   plugins: [react(), uploadTimeoutPlugin()],
   server: {
     port: 5173,
+    // Isolated acceptance runs the API on a disposable host port. Keep the
+    // local default while allowing the browser proxy to target that API.
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
-        // http-proxy inactivity timeout (default 0 = disabled); set explicitly
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8001',
         timeout: 600_000,
       },
     },

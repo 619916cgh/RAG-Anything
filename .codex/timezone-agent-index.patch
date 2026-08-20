@@ -1,0 +1,51 @@
+diff --git a/raganything/routers/agent.py b/raganything/routers/agent.py
+--- a/raganything/routers/agent.py
++++ b/raganything/routers/agent.py
+@@ -12 +12 @@ import uuid
+-from datetime import datetime
++from datetime import datetime, timezone
+@@ -1671 +1641 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                            "time": datetime.now().isoformat(),
++                            "time": datetime.now(timezone.utc).isoformat(),
+@@ -1679 +1649 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                            "time": datetime.now().isoformat(),
++                            "time": datetime.now(timezone.utc).isoformat(),
+@@ -1687 +1657 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                            "images": [], "time": datetime.now().isoformat(),
++                            "images": [], "time": datetime.now(timezone.utc).isoformat(),
+@@ -1779 +1749 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -1786 +1756 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -1796 +1766 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "images": agent_images, "time": datetime.now().isoformat(),
++                    "images": agent_images, "time": datetime.now(timezone.utc).isoformat(),
+@@ -1917 +1887 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -1926 +1896 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -1938 +1908 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -2030 +2000 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -2039 +2009 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -2051 +2021 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                    "time": datetime.now().isoformat(),
++                    "time": datetime.now(timezone.utc).isoformat(),
+@@ -2174 +2144 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                "time": datetime.now().isoformat(),
++                "time": datetime.now(timezone.utc).isoformat(),
+@@ -2183 +2153 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                "time": datetime.now().isoformat(),
++                "time": datetime.now(timezone.utc).isoformat(),
+@@ -2195 +2165 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
+-                "time": datetime.now().isoformat(),
++                "time": datetime.now(timezone.utc).isoformat(),

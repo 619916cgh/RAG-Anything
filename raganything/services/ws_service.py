@@ -24,7 +24,10 @@ ws_logger = logging.getLogger("rag_server.ws")
 # ── WebSocket State ────────────────────────────────────────
 
 ws_clients: list[WebSocket] = []
-"""All connected WebSocket clients for general broadcast."""
+"""Authenticated ordinary task-event connections."""
+
+monitor_ws_clients: list[WebSocket] = []
+"""Explicitly monitor-authorized event connections."""
 
 active_ws_connections: dict[str, list] = {}
 """Per-run WebSocket connections: run_id → [ws1, ws2, ...]."""
@@ -50,27 +53,70 @@ def _event_pg_ready() -> bool:
     except RuntimeError:
         return False
 
-async def ws_broadcast(data: dict[str, Any]) -> None:
-    """Broadcast a JSON message to all connected WebSocket clients.
+_TASK_EVENT_FIELDS = {
+    "type", "task_id", "progress", "phase", "phase_status", "status",
+    "outcome", "failure_stage",
+}
+_MONITOR_EVENT_FIELDS = {"time", "event", "outcome", "failure_stage", "status"}
 
-    Dead connections are automatically removed.
 
-    Args:
-        data: JSON-serializable dict to broadcast
-    """
+async def is_ws_session_current(session: dict[str, Any]) -> bool:
+    """Fail closed before accepting input or delivering a WS event."""
+    return await _session_is_current(session)
+
+
+async def ws_send_to_owner(owner_user_id: int | None, data: dict[str, Any]) -> None:
+    """Deliver a minimally projected task event to its durable owner only."""
+    if not isinstance(owner_user_id, int) or owner_user_id <= 0:
+        ws_logger.warning("Dropping task event without an owner: type=%s", data.get("type"))
+        return
+    payload = {key: value for key, value in data.items() if key in _TASK_EVENT_FIELDS}
+    if not payload.get("type"):
+        return
     dead = []
     for ws in ws_clients:
         try:
-            if not await _session_is_current(_ws_sessions.get(ws, {})):
+            session = _ws_sessions.get(ws, {})
+            if not await _session_is_current(session):
                 await ws.close(code=4001, reason="Account session is no longer valid")
                 dead.append(ws)
                 continue
-            await ws.send_json(data)
+            if session.get("id") != owner_user_id:
+                continue
+            await ws.send_json(payload)
         except Exception:
             dead.append(ws)
     for ws in dead:
         if ws in ws_clients:
             ws_clients.remove(ws)
+        _ws_sessions.pop(ws, None)
+
+
+async def ws_broadcast(data: dict[str, Any], *, owner_user_id: int | None = None) -> None:
+    """Compatibility boundary for task events.
+
+    Ordinary task updates are no longer global broadcasts. Callers must supply
+    a server-derived owner; missing ownership is intentionally dropped.
+    """
+    await ws_send_to_owner(owner_user_id, data)
+
+
+async def ws_monitor_broadcast(event: dict[str, Any]) -> None:
+    """Deliver aggregate, projected monitor events to authorized sockets."""
+    payload = {key: value for key, value in event.items() if key in _MONITOR_EVENT_FIELDS}
+    dead = []
+    for ws in monitor_ws_clients:
+        try:
+            if not await _session_is_current(_ws_sessions.get(ws, {})):
+                await ws.close(code=4001, reason="Account session is no longer valid")
+                dead.append(ws)
+                continue
+            await ws.send_json(payload)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        if ws in monitor_ws_clients:
+            monitor_ws_clients.remove(ws)
         _ws_sessions.pop(ws, None)
 
 
@@ -113,7 +159,7 @@ async def _session_is_current(session: dict[str, Any]) -> bool:
         from raganything.services.auth import get_user_by_id, is_token_revoked
 
         jti = session.get("token_jti")
-        if jti and await is_token_revoked(jti):
+        if not jti or await is_token_revoked(jti):
             return False
         account = await get_user_by_id(user_id)
         return bool(
@@ -128,7 +174,9 @@ async def _session_is_current(session: dict[str, Any]) -> bool:
 
 # ── Progress ───────────────────────────────────────────────
 
-async def emit_progress(task_id: str, progress: int, msg: str = "") -> None:
+async def emit_progress(
+    task_id: str, progress: int, msg: str = "", *, owner_user_id: int | None = None
+) -> None:
     """Emit a progress update for a processing task.
 
     Updates PG + local cache via ``update_task_progress()`` and broadcasts
@@ -142,11 +190,10 @@ async def emit_progress(task_id: str, progress: int, msg: str = "") -> None:
     from raganything.services.state_service import update_task_progress
 
     await update_task_progress(task_id, progress, message=msg)
-    await ws_broadcast({
+    await ws_send_to_owner(owner_user_id, {
         "type": "progress",
         "task_id": task_id,
         "progress": progress,
-        "message": msg,
     })
 
 
@@ -225,6 +272,7 @@ async def add_event(event: str, user_id: int = 0, **kw: Any) -> None:
             await insert_monitor_event(e)
         except Exception as exc:
             ws_logger.warning("Failed to persist monitor event %s: %s", event, exc)
+    await ws_monitor_broadcast(e)
 
 
 # ── Connection Management ──────────────────────────────────
@@ -246,6 +294,12 @@ def register_ws(run_id: str, ws: WebSocket, session: dict[str, Any] | None = Non
 def register_general_ws(ws: WebSocket, session: dict[str, Any]) -> None:
     """Register a general WebSocket together with its validated session."""
     ws_clients.append(ws)
+    _ws_sessions[ws] = dict(session)
+
+
+def register_monitor_ws(ws: WebSocket, session: dict[str, Any]) -> None:
+    """Register a monitor-authorized connection separately from task sockets."""
+    monitor_ws_clients.append(ws)
     _ws_sessions[ws] = dict(session)
 
 
@@ -273,11 +327,21 @@ def unregister_general_ws(ws: WebSocket) -> None:
     _ws_sessions.pop(ws, None)
 
 
+def unregister_monitor_ws(ws: WebSocket) -> None:
+    if ws in monitor_ws_clients:
+        monitor_ws_clients.remove(ws)
+    _ws_sessions.pop(ws, None)
+
+
 __all__ = [
     "ws_clients",
+    "monitor_ws_clients",
     "active_ws_connections",
     "processing_events",
     "ws_broadcast",
+    "ws_send_to_owner",
+    "ws_monitor_broadcast",
+    "is_ws_session_current",
     "push_run_status",
     "emit_progress",
     "load_persisted_monitor_events",
@@ -287,4 +351,6 @@ __all__ = [
     "unregister_ws",
     "register_general_ws",
     "unregister_general_ws",
+    "register_monitor_ws",
+    "unregister_monitor_ws",
 ]
