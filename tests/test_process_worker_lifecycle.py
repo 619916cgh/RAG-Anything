@@ -1,9 +1,48 @@
 import asyncio
 import importlib
 import io
+import json
 import sys
 
 import pytest
+
+
+def test_worker_status_selector_ignores_foreign_duplicate_placeholder():
+    from process_worker import _worker_status_matches_task
+
+    assert _worker_status_matches_task(
+        {"track_id": "task-current", "metadata": {}}, "task-current",
+    )
+    assert not _worker_status_matches_task(
+        {"track_id": "task-foreign", "metadata": {"is_duplicate": True}},
+        "task-current",
+    )
+    assert _worker_status_matches_task({"metadata": {}}, "task-current")
+
+
+def test_worker_stuck_status_update_keeps_foreign_same_name_record(tmp_path):
+    worker = _load_process_worker()
+    status_path = tmp_path / "kv_store_doc_status.json"
+    status_path.write_text(json.dumps({
+        "doc-foreign": {
+            "file_path": "manual.docx",
+            "status": "processing",
+            "track_id": "task-foreign",
+        },
+        "doc-current": {
+            "file_path": "a1b2c3d4_manual.docx",
+            "status": "processing",
+            "track_id": "task-current",
+        },
+    }), encoding="utf-8")
+
+    assert worker._fix_stuck_doc(
+        "manual.docx", str(tmp_path), "worker crashed", task_id="task-current",
+    )
+
+    statuses = json.loads(status_path.read_text(encoding="utf-8"))
+    assert statuses["doc-foreign"]["status"] == "processing"
+    assert statuses["doc-current"]["status"] == "failed"
 
 
 def _load_process_worker():

@@ -316,6 +316,7 @@ async def test_verify_document_persisted_rejects_terminal_zero_chunk_row(monkeyp
                 "file_path": "manual.pdf",
                 "status": "processed",
                 "chunks_count": 0,
+                "track_id": "task-current",
             }
         }
 
@@ -323,7 +324,9 @@ async def test_verify_document_persisted_rejects_terminal_zero_chunk_row(monkeyp
     monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: True)
 
     with pytest.raises(kb_service.DocumentProcessingFailedError, match="chunks=0"):
-        await kb_service._verify_document_persisted("demo", "manual.pdf")
+        await kb_service._verify_document_persisted(
+            "demo", "manual.pdf", task_id="task-current",
+        )
 
 
 @pytest.mark.asyncio
@@ -392,21 +395,27 @@ async def test_deferred_tag_task_is_tracked_until_completion(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_verify_document_persisted_prefers_newest_same_name_upload(monkeypatch):
+async def test_verify_document_persisted_uses_task_owned_duplicate_original(monkeypatch):
     import raganything.services.kb_service as kb_service
 
     async def duplicate_statuses(_kb_name):
         return {
-            "doc-old": {
+            "doc-original": {
                 "file_path": "11111111_manual.pdf",
                 "status": "processed",
-                "chunks_count": 2,
+                "chunks_count": 154,
+                "track_id": "task-original",
                 "updated_at": "2026-07-19T10:00:00",
             },
-            "doc-current": {
+            "dup-current": {
                 "file_path": "22222222_manual.pdf",
-                "status": "processed",
-                "chunks_count": 3,
+                "status": "failed",
+                "chunks_count": 0,
+                "track_id": "task-current",
+                "metadata": {
+                    "is_duplicate": True,
+                    "original_doc_id": "doc-original",
+                },
                 "updated_at": "2026-07-20T10:00:00",
             },
         }
@@ -414,9 +423,185 @@ async def test_verify_document_persisted_prefers_newest_same_name_upload(monkeyp
     monkeypatch.setattr(kb_service, "_load_doc_status_json", duplicate_statuses)
     monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: True)
 
-    document_id = await kb_service._verify_document_persisted("demo", "manual.pdf")
+    document_id = await kb_service._verify_document_persisted(
+        "demo", "manual.pdf", task_id="task-current",
+    )
 
-    assert document_id == "doc-current"
+    assert document_id == "doc-original"
+
+
+@pytest.mark.asyncio
+async def test_verify_document_persisted_defers_duplicate_until_original_is_processed(monkeypatch):
+    from raganything.services import kb_service
+
+    async def statuses(_kb_name):
+        return {
+            "doc-original": {
+                "file_path": "11111111_manual.pdf",
+                "status": "processing",
+                "chunks_count": 154,
+                "track_id": "task-original",
+            },
+            "dup-current": {
+                "file_path": "22222222_manual.pdf",
+                "status": "failed",
+                "chunks_count": 0,
+                "track_id": "task-current",
+                "metadata": {
+                    "is_duplicate": True,
+                    "original_doc_id": "doc-original",
+                },
+            },
+        }
+
+    monkeypatch.setattr(kb_service, "_load_doc_status_json", statuses)
+    monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: True)
+
+    with pytest.raises(kb_service.DocumentStatusPendingError, match="原始记录尚不可检索"):
+        await kb_service._verify_document_persisted(
+            "demo", "manual.pdf", task_id="task-current",
+        )
+
+
+@pytest.mark.asyncio
+async def test_verify_document_persisted_ignores_foreign_zero_chunk_duplicate(monkeypatch):
+    from raganything.services import kb_service
+
+    async def statuses(_kb_name):
+        return {
+            "doc-current": {
+                "file_path": "a1b2c3d4_manual.pdf", "status": "processed",
+                "chunks_count": 3, "track_id": "task-current",
+            },
+            "dup-foreign": {
+                "file_path": "manual.pdf", "status": "failed", "chunks_count": 0,
+                "track_id": "task-foreign", "metadata": {"is_duplicate": True},
+                "updated_at": "2026-08-20T16:51:00+00:00",
+            },
+        }
+
+    monkeypatch.setattr(kb_service, "_load_doc_status_json", statuses)
+    monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: True)
+
+    assert await kb_service._verify_document_persisted(
+        "demo", "a1b2c3d4_manual.pdf", task_id="task-current",
+    ) == "doc-current"
+
+
+@pytest.mark.asyncio
+async def test_verify_document_persisted_defers_foreign_same_name_records(monkeypatch):
+    from raganything.services import kb_service
+
+    async def statuses(_kb_name):
+        return {
+            "dup-foreign": {
+                "file_path": "manual.pdf", "status": "failed", "chunks_count": 0,
+                "track_id": "task-foreign", "metadata": {"is_duplicate": True},
+            },
+        }
+
+    monkeypatch.setattr(kb_service, "_load_doc_status_json", statuses)
+    monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: True)
+
+    with pytest.raises(kb_service.DocumentStatusPendingError, match="当前任务"):
+        await kb_service._verify_document_persisted(
+            "demo", "manual.pdf", task_id="task-current",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_upload_completion_enqueues_canonical_document_tags(
+    monkeypatch, tmp_path,
+):
+    import raganything.services.document_tagging as document_tagging
+    import raganything.services.kb_service as kb_service
+    import raganything.services.state_service as state_service
+    import raganything.services.user_settings as user_settings
+    import raganything.services.ws_service as ws_service
+
+    file_path = tmp_path / "a1b2c3d4_manual.docx"
+    file_path.write_bytes(b"document")
+    resolved = []
+    enqueued = []
+    completed = []
+    persisted_snapshots = []
+    upload_statuses = []
+
+    class EmptyStream:
+        async def readline(self):
+            return b""
+
+    class SuccessfulWorker:
+        returncode = 0
+        stdout = EmptyStream()
+        stderr = EmptyStream()
+
+        async def wait(self):
+            return 0
+
+    async def fake_subprocess(*_args, **_kwargs):
+        return SuccessfulWorker()
+
+    async def fake_resolve(kb_name, persisted_filename, **kwargs):
+        resolved.append((kb_name, persisted_filename, kwargs))
+        return "doc-original"
+
+    async def fake_enqueue(kb_name, doc_id, **kwargs):
+        enqueued.append((kb_name, doc_id, kwargs))
+        return {"id": 1, "status": "queued"}
+
+    async def fake_wait(*_args, **_kwargs):
+        return {"tag_status": "ready"}
+
+    async def fake_snapshot(*args):
+        persisted_snapshots.append(args)
+        return "dup-current"
+
+    async def fake_pg_status(_task_id, status, **_kwargs):
+        upload_statuses.append(status)
+        return {"task_id": _task_id, "status": status}
+
+    async def fake_complete(task_id):
+        completed.append(task_id)
+
+    async def no_op(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(kb_service.asyncio, "create_subprocess_exec", fake_subprocess)
+    monkeypatch.setattr(kb_service, "_resolve_uploaded_document_id", fake_resolve)
+    monkeypatch.setattr(kb_service, "persist_document_processing_snapshot", fake_snapshot)
+    monkeypatch.setattr(kb_service, "pg_update_upload_status_by_task_id", fake_pg_status)
+    monkeypatch.setattr(kb_service, "_register_processing_file", lambda *_args: None)
+    monkeypatch.setattr(kb_service, "_unregister_processing_file", lambda *_args: None)
+    monkeypatch.setattr(kb_service, "_kb_worker_procs", {})
+    monkeypatch.setattr(kb_service, "_pg_storage_ready", lambda: False)
+    monkeypatch.setattr(
+        user_settings,
+        "load_task_text_embedding_identity",
+        lambda _snapshot: {"identity_hash": "test-embedding"},
+    )
+    monkeypatch.setattr(document_tagging, "enqueue_document_tagging", fake_enqueue)
+    monkeypatch.setattr(document_tagging, "wait_for_document_tagging", fake_wait)
+    monkeypatch.setattr(state_service, "processing_tasks", {"task-current": {}})
+    monkeypatch.setattr(state_service, "upsert_task_state", no_op)
+    monkeypatch.setattr(state_service, "update_task_progress", no_op)
+    monkeypatch.setattr(state_service, "complete_task", fake_complete)
+    monkeypatch.setattr(ws_service, "emit_progress", no_op)
+    monkeypatch.setattr(ws_service, "add_event", no_op)
+    monkeypatch.setattr(ws_service, "ws_broadcast", no_op)
+
+    await kb_service._process_uploaded_file(
+        "task-current", str(file_path), "manual.docx", kb_name="demo", user_id=7,
+    )
+
+    assert resolved == [("demo", "a1b2c3d4_manual.docx", {"task_id": "task-current"})]
+    assert enqueued == [(
+        "demo", "doc-original",
+        {"filename": "manual.docx", "user_id": 7, "task_id": "task-current"},
+    )]
+    assert persisted_snapshots and persisted_snapshots[0][2] == "task-current"
+    assert upload_statuses == ["processing", "completed"]
+    assert completed == ["task-current"]
 
 
 @pytest.mark.asyncio

@@ -889,6 +889,7 @@ class DocProcessorMixin:
             **kwargs: Additional parameters for parser (e.g., lang, device, start_page, end_page, formula, table, backend, source)
         """
         callback_manager = getattr(self, "callback_manager", None)
+        track_id = kwargs.pop("track_id", None)
         doc_start_time = time.time()
         stage = "parse"
         file_name = file_name or self._get_file_reference(file_path)
@@ -970,6 +971,7 @@ class DocProcessorMixin:
                     split_by_character=split_by_character,
                     split_by_character_only=split_by_character_only,
                     ids=doc_id,
+                    track_id=track_id,
                 )
                 # Ensure LightRAG internal pipelines flush in-memory data to disk
                 try:
@@ -1389,6 +1391,7 @@ class DocProcessorMixin:
         doc_id: str | None = None,
         display_stats: bool = None,
         chunking_strategy: str | None = None,
+        track_id: str | None = None,
     ):
         """
         Insert content list directly without document parsing
@@ -1498,6 +1501,7 @@ class DocProcessorMixin:
                 split_by_character=split_by_character,
                 split_by_character_only=split_by_character_only,
                 ids=doc_id,
+                track_id=track_id,
             )
             # Persist LightRAG storages to disk (text_chunks, entities, etc.)
             try:

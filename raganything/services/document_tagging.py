@@ -788,19 +788,58 @@ async def reconcile_missing_document_tags(limit: int = 200) -> int:
                 FROM uploaded_files u
                 WHERE u.kb_name = m.name
                   AND u.status IN ('queued', 'processing', 'retry_wait')
-                  AND d.created_at >= (u.created_at AT TIME ZONE 'UTC') - INTERVAL '5 seconds'
                   AND (
-                      regexp_replace(replace(d.file_path, E'\\\\', '/'), '^.*/', '') = u.filename
+                      (
+                          d.created_at >= (u.created_at AT TIME ZONE 'UTC') - INTERVAL '5 seconds'
+                          AND (
+                              NULLIF(d.track_id, '') = u.task_id
+                              OR NULLIF(d.metadata->>'task_id', '') = u.task_id
+                          )
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM LIGHTRAG_DOC_STATUS duplicate_status
+                          WHERE duplicate_status.workspace = d.workspace
+                            AND duplicate_status.metadata->>'is_duplicate' = 'true'
+                            AND duplicate_status.metadata->>'original_doc_id' = d.id
+                            AND duplicate_status.created_at >= (u.created_at AT TIME ZONE 'UTC') - INTERVAL '5 seconds'
+                            AND (
+                                NULLIF(duplicate_status.track_id, '') = u.task_id
+                                OR NULLIF(duplicate_status.metadata->>'task_id', '') = u.task_id
+                            )
+                      )
                       OR (
-                          length(regexp_replace(replace(d.file_path, E'\\\\', '/'), '^.*/', ''))
-                              = length(u.filename) + 9
-                          AND right(
-                              regexp_replace(replace(d.file_path, E'\\\\', '/'), '^.*/', ''),
-                              length(u.filename) + 1
-                          ) = '_' || u.filename
+                          d.created_at >= (u.created_at AT TIME ZONE 'UTC') - INTERVAL '5 seconds'
+                          AND NULLIF(d.track_id, '') IS NULL
+                          AND NULLIF(d.metadata->>'task_id', '') IS NULL
+                          AND (
+                              regexp_replace(replace(d.file_path, E'\\\\', '/'), '^.*/', '') = u.filename
+                              OR (
+                                  length(regexp_replace(replace(d.file_path, E'\\\\', '/'), '^.*/', ''))
+                                      = length(u.filename) + 9
+                                  AND right(
+                                      regexp_replace(replace(d.file_path, E'\\\\', '/'), '^.*/', ''),
+                                      length(u.filename) + 1
+                                  ) = '_' || u.filename
+                              )
+                          )
                       )
                   )
-                ORDER BY u.created_at DESC
+                ORDER BY CASE
+                    WHEN NULLIF(d.track_id, '') = u.task_id
+                         OR NULLIF(d.metadata->>'task_id', '') = u.task_id THEN 0
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM LIGHTRAG_DOC_STATUS duplicate_status
+                        WHERE duplicate_status.workspace = d.workspace
+                          AND duplicate_status.metadata->>'is_duplicate' = 'true'
+                          AND duplicate_status.metadata->>'original_doc_id' = d.id
+                          AND duplicate_status.created_at >= (u.created_at AT TIME ZONE 'UTC') - INTERVAL '5 seconds'
+                          AND (
+                              NULLIF(duplicate_status.track_id, '') = u.task_id
+                              OR NULLIF(duplicate_status.metadata->>'task_id', '') = u.task_id
+                          )
+                    ) THEN 1 ELSE 2 END, u.created_at DESC
                 LIMIT 1
             ) active_upload ON TRUE
             LEFT JOIN document_tag_jobs j

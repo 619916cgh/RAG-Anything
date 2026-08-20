@@ -578,6 +578,8 @@ async def test_reconciliation_enqueues_durable_documents_missing_jobs(monkeypatc
         async def fetch(self, sql, *args):
             assert "LIGHTRAG_DOC_STATUS" in sql
             assert "u.status IN ('queued', 'processing', 'retry_wait')" in sql
+            assert "NULLIF(d.track_id, '') = u.task_id" in sql
+            assert "NULLIF(d.metadata->>'task_id', '') = u.task_id" in sql
             assert "d.created_at >=" in sql
             assert "j.id IS NULL" in sql
             assert "terminal_failed" not in sql
@@ -604,6 +606,40 @@ async def test_reconciliation_enqueues_durable_documents_missing_jobs(monkeypatc
         "demo", "doc-1", {
             "filename": "paper.docx", "task_id": "task-1", "priority": 0,
         }
+    )]
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_follows_task_owned_duplicate_to_canonical_document(monkeypatch):
+    from raganything.services import auto_tagging, document_tagging
+
+    queued = []
+
+    class Connection:
+        async def fetch(self, sql, *args):
+            assert "duplicate_status.metadata->>'original_doc_id' = d.id" in sql
+            assert "duplicate_status.metadata->>'is_duplicate' = 'true'" in sql
+            assert "NULLIF(duplicate_status.track_id, '') = u.task_id" in sql
+            assert args == (200,)
+            return [{
+                "kb_name": "demo",
+                "doc_id": "doc-original",
+                "file_path": "manual.docx",
+                "upload_task_id": "task-current",
+            }]
+
+    async def enqueue(kb_name, doc_id, **kwargs):
+        queued.append((kb_name, doc_id, kwargs))
+        return {"id": 1}
+
+    monkeypatch.setattr(auto_tagging, "automatic_tagging_enabled", lambda: True)
+    monkeypatch.setattr(document_tagging, "get_pg_pool", lambda: _Pool(Connection()))
+    monkeypatch.setattr(document_tagging, "enqueue_document_tagging", enqueue)
+
+    assert await document_tagging.reconcile_missing_document_tags() == 1
+    assert queued == [(
+        "demo", "doc-original",
+        {"filename": "manual.docx", "task_id": "task-current", "priority": 0},
     )]
 
 

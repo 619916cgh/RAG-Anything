@@ -428,16 +428,20 @@ def kb_dir(name: str) -> str:
     return "./rag_storage" if name == "default" else f"./rag_storage_{name}"
 
 
-def _fix_stuck_doc(filename: str, target_dir: str, error_msg: str) -> bool:
-    """修复卡在 handling 的文档状态为 failed"""
+def _fix_stuck_doc(
+    filename: str, target_dir: str, error_msg: str, *, task_id: str = "",
+) -> bool:
+    """Mark only the current upload's stuck document status as failed."""
     sp = Path(target_dir) / "kv_store_doc_status.json"
     if not sp.exists():
         return False
     try:
         with open(sp, "r", encoding="utf-8") as f:
             ds = json.load(f)
-        changed = False
+        candidates = []
         for did, info in ds.items():
+            if not isinstance(info, dict):
+                continue
             stored = info.get("file_path", "")
             stored_base = os.path.basename(stored)
             search_base = os.path.basename(filename)
@@ -447,11 +451,34 @@ def _fix_stuck_doc(filename: str, target_dir: str, error_msg: str) -> bool:
                     or stored_base == search_base
                     or (stored_base.endswith("_" + search_base)
                         and len(stored_base) - len(search_base) == 9)):
-                if info.get("status") != "failed":
-                    info["status"] = "failed"
-                    info["error_msg"] = error_msg
-                    changed = True
-                break
+                metadata = info.get("metadata") or {}
+                metadata = metadata if isinstance(metadata, dict) else {}
+                markers = {
+                    str(value) for value in (info.get("track_id"), metadata.get("task_id"))
+                    if value
+                }
+                candidates.append((did, info, markers))
+
+        if task_id:
+            owned = [candidate for candidate in candidates if task_id in candidate[2]]
+            unscoped = [candidate for candidate in candidates if not candidate[2]]
+            has_foreign = any(candidate[2] and task_id not in candidate[2] for candidate in candidates)
+            if owned:
+                candidates = owned
+            elif len(unscoped) == 1 and not has_foreign:
+                # Compatibility for a single legacy JSON row. Any task marker
+                # makes a filename-only mutation unsafe.
+                candidates = unscoped
+            else:
+                return False
+
+        changed = False
+        for _did, info, _markers in candidates:
+            if info.get("status") != "failed":
+                info["status"] = "failed"
+                info["error_msg"] = error_msg
+                changed = True
+            break
         if changed:
             with open(sp, "w", encoding="utf-8") as f:
                 json.dump(ds, f, ensure_ascii=False, indent=2)
@@ -460,6 +487,16 @@ def _fix_stuck_doc(filename: str, target_dir: str, error_msg: str) -> bool:
     except Exception as e:
         print(f"[WORKER] 无法更新文档状态: {e}", flush=True)
         return False
+
+
+def _worker_status_matches_task(info: dict, task_id: str) -> bool:
+    metadata = info.get("metadata") or {}
+    metadata = metadata if isinstance(metadata, dict) else {}
+    markers = {
+        str(value) for value in (info.get("track_id"), metadata.get("task_id"))
+        if value
+    }
+    return not markers or task_id in markers
 
 
 # Maximum seconds to wait for background multimodal tasks before giving up.
@@ -653,6 +690,8 @@ async def process_file(
                         or (_s_base.endswith("_" + _f_base)
                             and len(_s_base) - len(_f_base) == 9)):
                     continue
+                if not _worker_status_matches_task(_info, task_id):
+                    continue
                 if _info.get("status") == "processing":
                     from datetime import datetime, timezone
                     _updated = _info.get("updated_at", "")
@@ -792,6 +831,7 @@ async def process_file(
                     [{"type": "text", "text": text_content, "page_idx": 0}],
                     file_path=filename,
                     chunking_strategy=strategy,
+                    track_id=task_id,
                 )
             print(f"[PROGRESS] phase=parsing status=done file={filename}", flush=True)
         else:
@@ -803,6 +843,7 @@ async def process_file(
                     safe_path,
                     output_dir=output_dir,
                     chunking_strategy=strategy,
+                    track_id=task_id,
                 )
                 docling_ok = True
             except Exception as e:
@@ -860,6 +901,7 @@ async def process_file(
                                 safe_path,
                                 output_dir=output_dir,
                                 chunking_strategy=strategy,
+                                track_id=task_id,
                             )
                             docling_ok = True
                         else:
@@ -882,6 +924,8 @@ async def process_file(
                                 or _s_base == _f_base
                                 or (_s_base.endswith("_" + _f_base)
                                     and len(_s_base) - len(_f_base) == 9)):
+                            if not _worker_status_matches_task(info, task_id):
+                                continue
                             if info.get("chunks_count", 0) > 0:
                                 chunks_ok = True
                             break
@@ -915,6 +959,7 @@ async def process_file(
                                 fallback_content,
                                 file_path=filename,
                                 chunking_strategy=strategy,
+                                track_id=task_id,
                             )
                             ocr_characters = sum(
                                 len(str(item.get("text") or ""))
@@ -939,30 +984,48 @@ async def process_file(
             found = False
             for did, info in ds.items():
                 stored = info.get("file_path", "")
-                if stored == filename or stored.endswith(filename) or os.path.basename(stored) == filename:
-                    found = True
-                    chunks_count = info.get("chunks_count", 0)
-                    doc_status = info.get("status", "")
-                    if chunks_count == 0:
-                        # Truly failed: no text chunks were produced
-                        merge_failed = True
-                        print(
-                            f"[WORKER] ERROR: 文档处理失败 (chunks=0). "
-                            f"status={doc_status} doc_id={did}",
-                            flush=True,
-                        )
-                    elif doc_status == "failed":
-                        # Partial success: chunks exist but entity extraction failed
-                        # Data is still usable for Q&A; log warning, don't exit 1
-                        print(
-                            f"[WORKER] WARNING: 实体提取失败但文本块已入库 "
-                            f"(chunks={chunks_count} status=failed doc_id={did}). "
-                            f"向量检索可用，知识图谱可能不完整。",
-                            flush=True,
-                        )
-                    break
+                metadata = info.get("metadata") or {}
+                metadata = metadata if isinstance(metadata, dict) else {}
+                markers = {
+                    str(value) for value in (info.get("track_id"), metadata.get("task_id"))
+                    if value
+                }
+                if not (
+                    (stored == filename or stored.endswith(filename) or os.path.basename(stored) == filename)
+                    and task_id in markers
+                ):
+                    continue
+                found = True
+                chunks_count = info.get("chunks_count", 0)
+                doc_status = info.get("status", "")
+                if metadata.get("is_duplicate") is True:
+                    print(
+                        f"[WORKER] 当前任务命中重复文档占位，交由服务端解析原始文档 "
+                        f"(doc_id={did})",
+                        flush=True,
+                    )
+                elif chunks_count == 0:
+                    # This task's own status produced no text chunks.
+                    merge_failed = True
+                    print(
+                        f"[WORKER] ERROR: 文档处理失败 (chunks=0). "
+                        f"status={doc_status} doc_id={did}",
+                        flush=True,
+                    )
+                elif doc_status == "failed":
+                    # Partial success: chunks exist but entity extraction failed.
+                    print(
+                        f"[WORKER] WARNING: 实体提取失败但文本块已入库 "
+                        f"(chunks={chunks_count} status=failed doc_id={did}). "
+                        f"向量检索可用，知识图谱可能不完整。",
+                        flush=True,
+                    )
+                break
             if not found:
-                print(f"[WORKER] WARNING: 文档记录未在 doc_status 中找到: {filename}", flush=True)
+                print(
+                    f"[WORKER] WARNING: 当前任务文档记录未在本地 doc_status 中找到: {filename}",
+                    flush=True,
+                )
 
         if merge_failed:
             print(f"[WORKER] 失败 (合并阶段错误): {filename}", flush=True)
@@ -1015,7 +1078,12 @@ async def process_file(
         ):
             current_stage = "entity_extraction"
         if current_stage != "model_preflight":
-            _fix_stuck_doc(filename, target_dir, f"Worker 异常退出: {str(e)[:200]}")
+            _fix_stuck_doc(
+                filename,
+                target_dir,
+                f"Worker 异常退出: {str(e)[:200]}",
+                task_id=task_id,
+            )
 
     finally:
         if rag is not None and not finalized:

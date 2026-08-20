@@ -2765,7 +2765,7 @@ def _matching_uploaded_document_statuses(
     statuses: dict[str, Any], filename: str, task_id: str,
 ) -> list[tuple[str, dict[str, Any]]]:
     filename_key = _upload_filename_key(filename)
-    matches: list[tuple[str, dict[str, Any]]] = []
+    candidates: list[tuple[str, dict[str, Any], set[str], bool]] = []
     for doc_id, status in (statuses or {}).items():
         if not isinstance(status, dict):
             continue
@@ -2775,13 +2775,65 @@ def _matching_uploaded_document_statuses(
         metadata = metadata if isinstance(metadata, dict) else {}
         markers = {
             str(value) for value in (
+                status.get("track_id"),
                 status.get("task_id"),
                 metadata.get("task_id"),
             ) if value
         }
-        if not markers or task_id in markers:
-            matches.append((str(doc_id), status))
-    return matches
+        has_legacy_task_marker = bool(status.get("task_id") or metadata.get("task_id"))
+        candidates.append((str(doc_id), status, markers, has_legacy_task_marker))
+
+    owned = [
+        (doc_id, status) for doc_id, status, markers, _legacy_marker in candidates
+        if task_id in markers
+    ]
+    if owned:
+        return owned
+    # Snapshots predate upload task IDs in LightRAG. A single same-name legacy
+    # row may retain an internal insertion track ID, but it has no competing
+    # task marker and is still safe to annotate after final resolution.
+    legacy = [
+        (doc_id, status) for doc_id, status, _markers, legacy_marker in candidates
+        if not legacy_marker
+    ]
+    return legacy if len(candidates) == 1 and len(legacy) == 1 else []
+
+
+def _select_uploaded_document_statuses(
+    statuses: dict[str, Any], filename: str, task_id: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Select one task's rows without letting same-name tasks steal ownership."""
+    filename_key = _upload_filename_key(filename)
+    candidates: list[tuple[str, dict[str, Any], set[str]]] = []
+    for doc_id, status in (statuses or {}).items():
+        if not isinstance(status, dict):
+            continue
+        stored_path = str(status.get("file_path") or "")
+        if (
+            _upload_filename_key(stored_path) != filename_key
+            and not _matches_staged_upload_filename(stored_path, filename)
+        ):
+            continue
+        metadata = status.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        markers = {
+            str(value) for value in (
+                status.get("track_id"), status.get("task_id"),
+                metadata.get("task_id"),
+            ) if value
+        }
+        candidates.append((str(doc_id), status, markers))
+
+    owned = [(doc_id, status) for doc_id, status, markers in candidates if task_id in markers]
+    if owned:
+        return owned
+    # Older JSON-backed documents have no durable task marker. Preserve that
+    # compatibility only when there is exactly one unscoped candidate and no
+    # competing task-owned record for the same staged filename.
+    unscoped = [(doc_id, status) for doc_id, status, markers in candidates if not markers]
+    if len(unscoped) == 1 and not any(markers for _doc_id, _status, markers in candidates):
+        return unscoped
+    return []
 
 
 async def persist_document_processing_snapshot(
@@ -4877,7 +4929,9 @@ async def _defer_tagging_schedule(
         _unregister_processing_file(kb_name, file_hash)
 
 
-async def _verify_document_persisted(kb_name: str, filename: str) -> str | None:
+async def _verify_document_persisted(
+    kb_name: str, filename: str, *, task_id: str = "",
+) -> str | None:
     """Verify that a processed document has chunks in doc_status.
 
     Uses PG dispatch when PG storage is active, file fallback otherwise.
@@ -4897,26 +4951,34 @@ async def _verify_document_persisted(kb_name: str, filename: str) -> str | None:
         )
 
     fname = os.path.basename(filename)
-    matches: list[tuple[str, dict[str, Any], bool]] = []
-    for doc_id, info in data.items():
-        if not isinstance(info, dict):
-            continue
-        stored_raw = info.get("file_path", "")
-        stored_base = os.path.basename(stored_raw)
-        is_exact = stored_base == fname
-        if _matches_staged_upload_filename(stored_base, fname):
-            matches.append((str(doc_id), info, is_exact))
+    matches = _select_uploaded_document_statuses(data, filename, task_id) if task_id else [
+        (str(doc_id), info)
+        for doc_id, info in data.items()
+        if isinstance(info, dict)
+        and _matches_staged_upload_filename(str(info.get("file_path") or ""), fname)
+    ]
     if matches:
-        # Exact staged filenames win. For repeated display names, the newest
-        # persisted status is the current upload rather than an older document.
         matches.sort(
-            key=lambda match: (
-                match[2],
-                str(match[1].get("updated_at") or match[1].get("created_at") or ""),
-            ),
+            key=lambda match: str(match[1].get("updated_at") or match[1].get("created_at") or ""),
             reverse=True,
         )
-        doc_id, info, _is_exact = matches[0]
+        doc_id, info = matches[0]
+        metadata = info.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        if metadata.get("is_duplicate") is True:
+            original_doc_id = str(metadata.get("original_doc_id") or "")
+            original = data.get(original_doc_id)
+            if not isinstance(original, dict):
+                raise DocumentStatusPendingError(
+                    f"重复文档的原始记录暂不可见 (doc_id={original_doc_id[:16]})"
+                )
+            original_chunks = int(original.get("chunks_count") or 0)
+            original_status = str(original.get("status") or "").lower()
+            if original_chunks <= 0 or original_status != "processed":
+                raise DocumentStatusPendingError(
+                    f"重复文档的原始记录尚不可检索 (doc_id={original_doc_id[:16]})"
+                )
+            return original_doc_id
         chunks_list = info.get("chunks_list") or []
         chunks = info.get("chunks_count")
         if chunks is None:
@@ -4955,7 +5017,7 @@ async def _verify_document_persisted(kb_name: str, filename: str) -> str | None:
         return doc_id
     if _pg_storage_ready():
         raise DocumentStatusPendingError(
-            f"PG doc_status 中暂未找到匹配记录 ({fname})"
+            f"PG doc_status 中暂未找到当前任务的匹配记录 ({fname})"
         )
     raise RuntimeError(
         f"文档处理异常：doc_status 中未找到匹配记录 ({fname})"
@@ -4966,6 +5028,7 @@ async def _resolve_uploaded_document_id(
     kb_name: str,
     filename: str,
     *,
+    task_id: str = "",
     attempts: int = 5,
     retry_delay: float = 0.5,
 ) -> str | None:
@@ -4981,7 +5044,10 @@ async def _resolve_uploaded_document_id(
         )
     for attempt in range(total_attempts):
         try:
-            document_id = await _verify_document_persisted(kb_name, filename)
+            verify_kwargs = {"task_id": task_id} if task_id else {}
+            document_id = await _verify_document_persisted(
+                kb_name, filename, **verify_kwargs,
+            )
         except DocumentProcessingFailedError:
             raise
         except DocumentStatusPendingError as exc:
@@ -5398,11 +5464,14 @@ async def _retry_deferred_uploaded_document_tags(
     *,
     display_filename: str = "",
     user_id: int,
+    task_id: str = "",
 ) -> None:
     """Compensate an upload whose PG document status was temporarily hidden."""
     try:
+        resolve_kwargs = {"task_id": task_id} if task_id else {}
         document_id = await _resolve_uploaded_document_id(
             kb_name, persisted_filename, attempts=10, retry_delay=2.0,
+            **resolve_kwargs,
         )
         if not document_id:
             kb_logger.error(
@@ -5435,13 +5504,16 @@ def _schedule_deferred_uploaded_document_tags(
     *,
     display_filename: str = "",
     user_id: int,
+    task_id: str = "",
 ) -> None:
+    retry_kwargs = {"task_id": task_id} if task_id else {}
     task = asyncio.create_task(
         _retry_deferred_uploaded_document_tags(
             kb_name,
             persisted_filename,
             display_filename=display_filename,
             user_id=user_id,
+            **retry_kwargs,
         )
     )
     _deferred_auto_tag_tasks[task] = kb_name
@@ -5744,7 +5816,7 @@ async def _process_uploaded_file(
         # LightRAG internally marked the document as failed.
         persisted_filename = os.path.basename(file_path)
         document_id = await _resolve_uploaded_document_id(
-            kb_name, persisted_filename,
+            kb_name, persisted_filename, task_id=task_id,
         )
 
         if document_id and _pg_storage_ready():
@@ -6037,7 +6109,7 @@ async def _process_uploaded_file(
         if isinstance(e, WorkerProcessError) and e.stage in {"embedding", "vlm_ocr"}:
             try:
                 residual_doc_id = await _resolve_uploaded_document_id(
-                    kb_name, os.path.basename(file_path),
+                    kb_name, os.path.basename(file_path), task_id=task_id,
                 )
                 if residual_doc_id:
                     from raganything.services.document_quality import (

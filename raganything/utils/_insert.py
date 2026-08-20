@@ -22,6 +22,7 @@ async def insert_text_content(
     split_by_character_only: bool = False,
     ids: str | list[str] | None = None,
     file_paths: str | list[str] | None = None,
+    track_id: str | None = None,
 ):
     """
     Insert pure text content into LightRAG
@@ -39,6 +40,7 @@ async def insert_text_content(
             if not provided, MD5 hash IDs will be generated
         file_paths: single string of the file path or list of file paths,
             used for citation
+        track_id: durable upload task ID used for document-status ownership
     """
     logger.info("Starting text content insertion into LightRAG...")
 
@@ -48,6 +50,7 @@ async def insert_text_content(
         split_by_character=split_by_character,
         split_by_character_only=split_by_character_only,
         ids=ids,
+        track_id=track_id,
     )
 
     logger.info("Text content insertion complete")
