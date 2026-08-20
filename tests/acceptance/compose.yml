@@ -44,6 +44,12 @@ services:
       LLM_MODEL: acceptance-mock
       EMBEDDING_MODEL: acceptance-mock
       EMBEDDING_DIM: "1536"
+      VISION_EMBEDDING_HOST: http://mock-provider:18000/v1
+      VISION_EMBEDDING_API_KEY: acceptance-only
+      VISION_EMBEDDING_MODEL: acceptance-mock
+      VISION_EMBEDDING_DIM: "1536"
+      VISION_SEARCH_ENABLED: "true"
+      ENABLE_VISION_EMBEDDING: "true"
       ENABLE_IMAGE_PROCESSING: "false"
       ENABLE_TABLE_PROCESSING: "false"
       ENABLE_EQUATION_PROCESSING: "false"

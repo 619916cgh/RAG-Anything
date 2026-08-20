@@ -26,6 +26,7 @@ def test_video_mock_contains_all_battery_terms():
 
     assert all(term in mock_video_provider.SUMMARY for term in mock_video_provider.TERMS)
     assert mock_video_provider._embedding("检查腐蚀漏液")[0] == 1.0
+    assert mock_video_provider.MultimodalEmbeddingRequest.model_fields["dimensions"].default is None
 
 
 def test_video_stage_evidence_is_whitelisted_and_path_free(tmp_path):
@@ -78,6 +79,12 @@ def test_health_wait_retries_startup_http_errors():
 def test_acceptance_proxy_allows_a_real_video_fixture():
     nginx_config = (Path(__file__).parent / "acceptance" / "nginx.conf").read_text(encoding="utf-8")
     assert "client_max_body_size 256m;" in nginx_config
+
+
+def test_acceptance_compose_uses_the_local_vision_embedding_mock():
+    compose = (Path(__file__).parent / "acceptance" / "compose.yml").read_text(encoding="utf-8")
+    assert "VISION_EMBEDDING_HOST: http://mock-provider:18000/v1" in compose
+    assert 'VISION_EMBEDDING_MODEL: acceptance-mock' in compose
 
 
 def test_video_failure_phase_is_allowlisted(tmp_path):

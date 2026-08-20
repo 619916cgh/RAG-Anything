@@ -25,6 +25,12 @@ class ChatRequest(BaseModel):
     messages: list[dict] | None = None
 
 
+class MultimodalEmbeddingRequest(BaseModel):
+    input: list[dict]
+    model: str
+    dimensions: int | None = None
+
+
 def _embedding(text: str, dimension: int = 1536) -> list[float]:
     digest = hashlib.sha256(text.encode("utf-8", errors="replace")).digest()
     values = [((digest[index % len(digest)] / 255.0) - 0.5) / 50 for index in range(dimension)]
@@ -52,6 +58,13 @@ async def embeddings(request: EmbeddingRequest):
         {"object": "embedding", "index": index, "embedding": _embedding(value)}
         for index, value in enumerate(values)
     ], "model": request.model}
+
+
+@app.post("/v1/embeddings/multimodal")
+async def multimodal_embeddings(request: MultimodalEmbeddingRequest):
+    dimension = request.dimensions or 1536
+    canonical = json.dumps(request.input, ensure_ascii=True, sort_keys=True)
+    return {"object": "list", "data": [{"object": "embedding", "index": 0, "embedding": _embedding(canonical, dimension)}], "model": request.model}
 
 
 async def _stream() -> AsyncIterator[str]:
