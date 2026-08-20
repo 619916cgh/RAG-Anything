@@ -1,49 +1,53 @@
-## ADDED Requirements
+## Purpose
 
-### Requirement: KB access enforces strict ownership isolation
-All knowledge-base-scoped API endpoints SHALL enforce that non-admin users can only access knowledge bases they own (`owner_id == current_user["id"]`). Any attempt by a non-admin user to access another user's knowledge base MUST result in the request being redirected to the user's own knowledge base, or receiving a 403 Forbidden error. Under no circumstances SHALL a non-admin user receive data from another user's knowledge base.
+Define globally visible knowledge-base access and role-derived mutation capabilities.
 
-#### Scenario: Non-admin user with own KB attempts cross-user access
-- **WHEN** a non-admin user who already owns at least one knowledge base sends a request targeting another user's knowledge base (e.g., `GET /api/knowledge/documents?kb=other_user_kb`)
-- **THEN** the system SHALL silently redirect the request to the requesting user's own knowledge base instead, returning data from their own KB
+## Requirements
 
-#### Scenario: Non-admin new user with zero KBs attempts cross-user access
-- **WHEN** a newly registered non-admin user who owns zero knowledge bases sends a request targeting another user's knowledge base
-- **THEN** the system SHALL auto-create a personal knowledge base for the user and redirect the request to it, returning empty data from the newly created KB
+### Requirement: KB access follows global read permission
+All knowledge-base-scoped API endpoints SHALL allow an authenticated caller with `kb:read` to access every existing knowledge base. Knowledge-base ownership and persisted grants SHALL NOT restrict list, switch, read, download, statistics, graph, or retrieval access. A caller without `kb:read` MUST receive 403 Forbidden and a nonexistent KB MUST return 404 Not Found.
 
-#### Scenario: Admin user accesses any KB
-- **WHEN** an admin user sends a request targeting any knowledge base
-- **THEN** the system SHALL allow access and return data from the requested knowledge base
+#### Scenario: Student reads another creator's KB
+- **WHEN** a student with `kb:read` requests a KB-scoped read endpoint for a KB created by another user
+- **THEN** the request SHALL succeed and return data from the requested KB
 
-#### Scenario: User accesses their own KB
-- **WHEN** a user sends a request targeting a knowledge base where `owner_id == current_user["id"]`
-- **THEN** the system SHALL allow access and return data from the requested knowledge base
+#### Scenario: Caller lacks KB read permission
+- **WHEN** an authenticated caller without `kb:read` targets an existing KB
+- **THEN** the system SHALL return 403 Forbidden
 
-### Requirement: KB list endpoint filters by ownership
-The `/api/kb/list` endpoint SHALL return only knowledge bases owned by the requesting user for non-admin users. Admin users SHALL receive the full list of all knowledge bases.
+#### Scenario: Unknown KB is requested
+- **WHEN** a caller targets a KB that does not exist
+- **THEN** the system SHALL return 404 Not Found
 
-#### Scenario: Non-admin user lists KBs
-- **WHEN** a non-admin user requests `GET /api/kb/list`
-- **THEN** the response SHALL contain only knowledge bases where `owner_id` matches the current user's ID
+### Requirement: KB list projects role-derived capabilities
+The `/api/kb/list` endpoint SHALL return every knowledge base to a caller with `kb:read`. Returned capabilities SHALL be derived only from the caller's global role permissions: content operation from `kb:write`, rename from `kb:manage`, and deletion from `kb:delete`. Ownership and persisted grants SHALL NOT alter those capabilities.
 
-#### Scenario: New user with zero KBs lists KBs
-- **WHEN** a non-admin user who owns zero knowledge bases requests `GET /api/kb/list`
-- **THEN** the system SHALL auto-create a personal knowledge base, and the response SHALL contain exactly that one KB with `active: true`
+#### Scenario: New student lists existing KBs
+- **WHEN** a newly created student with no owned KB and no historical grant requests `GET /api/kb/list`
+- **THEN** the response SHALL contain every existing KB with read capability
 
-### Requirement: Frontend defers KB data loading until ownership is confirmed
-The knowledge base page frontend SHALL NOT request any knowledge-base-scoped data (documents, stats, entities, graph) until the user's KB list has been successfully fetched and the active KB has been confirmed to belong to the user.
+#### Scenario: Assistant operates another creator's KB
+- **WHEN** an assistant with `kb:write` inspects another user's KB in the list
+- **THEN** its operation capability SHALL be true regardless of owner or grant
 
-#### Scenario: KnowledgePage mounts for the first time
+#### Scenario: Student has no KB mutation capability
+- **WHEN** a student inspects any KB in the list
+- **THEN** its operation, rename, and delete capabilities SHALL be false
+
+### Requirement: Frontend defers KB data loading until global-list confirmation
+The knowledge-base frontend SHALL NOT request KB-scoped data until it has successfully loaded `/api/kb/list` and confirmed the selected KB is present in that caller's returned global list. It SHALL NOT impose ownership or persisted grant checks on a KB returned by that list.
+
+#### Scenario: Knowledge page mounts for the first time
 - **WHEN** the KnowledgePage component mounts
-- **THEN** it SHALL first call `/api/kb/list` and await the response before making any KB-scoped data calls (documents, stats, entities, graph)
+- **THEN** it SHALL fetch `/api/kb/list` before issuing KB-scoped data requests
 
-#### Scenario: KB data loading uses confirmed active KB
+#### Scenario: KB data loading uses a confirmed visible KB
 - **WHEN** `loadKBData()` executes
-- **THEN** the `activeKB` value used SHALL have been derived from the `/api/kb/list` response and confirmed present in the user's KB list, never from a hardcoded default
+- **THEN** the selected KB SHALL have been confirmed present in the caller's loaded `/api/kb/list` result, regardless of its owner or historical grant
 
-### Requirement: Module-level KB state validates before use
-The frontend module-level `currentKB` state SHALL validate that the KB name is non-empty and exists in the user's KB list before appending it to any API request URL. Requests with an unconfirmed or empty KB name SHALL NOT be dispatched.
+### Requirement: Module-level KB state validates global-list membership before use
+The frontend module-level `currentKB` state SHALL validate that the KB name is non-empty and exists in the caller's loaded `/api/kb/list` result before using it in an API request URL. Requests with an unconfirmed or empty KB name SHALL NOT be dispatched.
 
 #### Scenario: API request with uninitialized KB state
-- **WHEN** an API call is made before `currentKB` has been set to a confirmed user-owned KB
+- **WHEN** an API call is made before `currentKB` has been set to a KB in the caller's loaded list
 - **THEN** the request SHALL be skipped or deferred, not dispatched with a hardcoded or stale KB name

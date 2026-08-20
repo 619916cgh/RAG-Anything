@@ -39,3 +39,30 @@ those capabilities.
 #### Scenario: Student has no KB mutation capability
 - **WHEN** a student inspects any KB in the list
 - **THEN** its operation, rename, and delete capabilities SHALL be false
+
+### Requirement: Frontend defers KB data loading until global-list confirmation
+The knowledge-base frontend SHALL NOT request KB-scoped data until it has
+successfully loaded `/api/kb/list` and confirmed the selected KB is present in
+that caller's returned global list. It SHALL NOT impose ownership or persisted
+grant checks on a KB returned by that list.
+
+#### Scenario: Knowledge page mounts for the first time
+- **WHEN** the KnowledgePage component mounts
+- **THEN** it SHALL fetch `/api/kb/list` before issuing KB-scoped data requests
+
+#### Scenario: KB data loading uses a confirmed visible KB
+- **WHEN** `loadKBData()` executes
+- **THEN** the selected KB SHALL have been confirmed present in the caller's
+  loaded `/api/kb/list` result, regardless of its owner or historical grant
+
+### Requirement: Module-level KB state validates global-list membership before use
+The frontend module-level `currentKB` state SHALL validate that the KB name is
+non-empty and exists in the caller's loaded `/api/kb/list` result before using
+it in an API request URL. Requests with an unconfirmed or empty KB name SHALL
+NOT be dispatched.
+
+#### Scenario: API request with uninitialized KB state
+- **WHEN** an API call is made before `currentKB` has been set to a KB in the
+  caller's loaded list
+- **THEN** the request SHALL be skipped or deferred, not dispatched with a
+  hardcoded or stale KB name

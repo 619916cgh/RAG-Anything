@@ -17,4 +17,4 @@ async def test_admin_user_update_rejects_legacy_allowed_kbs_before_mutation():
         )
 
     assert exc.value.status_code == 422
-    assert "成员" in str(exc.value.detail)
+    assert "已退役" in str(exc.value.detail)

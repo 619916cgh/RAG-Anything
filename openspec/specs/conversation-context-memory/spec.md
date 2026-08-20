@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Define durable agent conversations, context handling, and strict conversation ownership.
+
+## Requirements
 
 ### Requirement: 会话生命周期管理
 
@@ -26,11 +30,19 @@
 
 ### Requirement: 会话用户隔离
 
-系统 SHALL 确保每个用户只能访问自己创建的会话。
+系统 SHALL 确保每个 agent 会话仅对其记录的 owner 可访问。该规则适用于列表、读取、针对共享 agent 创建、标题更新、删除、消息编辑、历史加载和带 `thread_id` 的流式查询；super_admin 不得绕过。无 owner 的历史会话不得经普通 API 暴露。
 
-#### Scenario: 跨用户访问被拒绝
-- **WHEN** 用户 A 尝试通过 `GET /api/conversations` 或 `DELETE /api/conversations/{thread_id}` 操作用户 B 的会话
-- **THEN** 系统返回空列表（GET）或 404（DELETE），不暴露其他用户数据
+#### Scenario: 共享 agent 仍保持会话私有
+- **WHEN** 用户 A 和 B 分别针对同一共享 agent 创建会话
+- **THEN** 每个用户仅能列出和读取自己的会话
+
+#### Scenario: 跨用户线程标识被拒绝
+- **WHEN** 用户 A 向会话或流式查询端点提交用户 B 的 `thread_id`
+- **THEN** 系统拒绝请求，且不得读取或追加用户 B 的消息
+
+#### Scenario: 超级管理员不能查看其他用户会话
+- **WHEN** super_admin 指向另一个用户拥有的会话
+- **THEN** 系统拒绝请求且不暴露会话数据
 
 ### Requirement: 对话历史注入 LLM Prompt
 

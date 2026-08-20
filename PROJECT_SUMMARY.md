@@ -6,7 +6,7 @@
 
 | 项目 | 当前值 |
 |---|---|
-| 最后核验日期 | 2026-08-19（Asia/Shanghai） |
+| 最后核验日期 | 2026-08-20（Asia/Shanghai） |
 | 核验分支 | `feature/custom-enhancements` |
 | 基准提交 | `52e0482714de` |
 | 工作区状态 | 有未提交改动；未提交实现不得视为已发布 |
@@ -83,6 +83,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 - WebSocket 握手持久化 `token_jti`；每次收发复核撤销和 session generation，失效以 `4001` 关闭。
 - 普通任务事件只发给持久化 owner，payload 不含文件名、路径、KB 名或原始异常；监控通道要求 `monitor:read` 并只发聚合脱敏字段。
 - Agent/会话必须绑定调用者可访问的 KB；媒体只能通过受控端点访问。
+- `persist-kb-access-grants` 的运行时授权模型已被 `global-resource-visibility-retire-kb-membership` 替代：有 `kb:read` 的角色全局可见现有 KB，写入/管理/删除仍分别由全局能力与每 KB capability 投影控制；`allowed_kbs`、管理员 grant 控件和成员运行时已退役，历史表和迁移仅保留审计/回滚语义。
 - 隔离查询容量优化已确认 30 VU 的非成功阶段为测试镜像固定码
   `query_core_acquire`：独立 KB 并发初始化时，query core 可能在 lease 登记前被
   LRU 淘汰；已在缓存发布、lease 登记和淘汰之间加原子顺序并补回归测试。修复后的
@@ -145,6 +146,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
+| 2026-08-20 | persist-kb-access-grants closure | 规格收口/归档、回归与隔离 PG/浏览器验收 | 后续全局资源可见性规格已替代旧 `allowed_kbs` 持久授权和管理员 grant UI；替代规格已同步到主规格，两项 change 均以不回写旧 delta 的方式归档，未恢复已退役运行时 | KB RBAC、认证会话、管理员编辑、前端 capability gates | 后端聚焦 120 passed，前端聚焦 221 passed；一次性 pgvector 容器完成 39 个 migration fresh/verify、repeat=0、认证 API 2 passed、grant-level backfill/repeat 1 passed。干净 detached 候选 `36c2dda` 的 revision-labeled 镜像经隔离 Vite/PG/App/Nginx 以真实浏览器完成五角色列表、详情深链、读写删除控件和用户编辑无 `allowed_kbs` 验收；受影响主规格 strict 通过 | 既有数据库 checksum drift 未被写入或修复；本 change 的 Worker 和生产验收仍未执行，不可据此宣称生产发布或 Worker E2E。临时容器、卷、网络和浏览器页面已清理 |
 | 2026-08-20 | video-semantic-segment-index | 验收能力实现 | 新增隔离真实 MP4 -> App 子进程 Worker -> PostgreSQL -> SSE 验收驱动；任务 5.2/5.3 未勾选 | 临时 Compose、视频 mock、HTTP/PG/SSE 契约 | 新契约测试 2 passed、编译、OpenSpec strict、diff check；未运行实际 MP4 | 必须在干净 detached、带 revision label 的镜像上提供 `--video-fixture` 后运行；mock 只证明管线，不证明外部模型语义。 |
 | 2026-08-20 | production-readiness-and-durable-ingestion | 隔离预生产验收 | 完整受控 Compose 通过，OpenSpec 4.2/5.2 已完成 | 临时 pgvector、Redis、mock provider、App、Worker、Nginx | 候选 `f8af072` revision label；live/ready/health、迁移四阶段、五角色矩阵、TXT Worker 终态、PG text/vector 严格计数、retrieval-health、认证回答引用及标签清理均通过 | 仅 mock provider 与临时资源；外部模型、视频、浏览器、生产审批仍未验收，不可作为发布或生产数据变更证据。 |
 | 2026-08-19 | run-isolated-cloud-capacity-benchmark | 云端隔离容量测量 | 50 个独立用户/Kb/Agent 的 retrieval-ready 门禁通过；查询 5 并发完整通过，10 并发连续 CPU 超阈停止；文本上传单任务/3 并发通过，PDF 因离线 Docling 模型缺失失败 | 临时 mock Compose、pgvector、Redis、Marker、Nginx、临时卷 | perf 工具 23 passed、编译与 diff 检查；1 用户冷/热各 55/55，5 并发 5184/5184、TTFT P95 409ms、总耗时 P95 991ms；10 并发 773/773 后 app CPU 连续 89.28/95.42/92.06% 触发停止；120 个恢复样本与生产只读探针健康 | 结论仅适用于 2 CPU/3GiB app、mock 模型和隔离容量模式；不继续 20/35/50、PDF 并发或 soak。PDF 解析会在无预置模型时尝试外网，必须由受控离线基础镜像补齐，报告见 `outputs/isolated-cloud-perf/cloud-capacity-20260819.md` |

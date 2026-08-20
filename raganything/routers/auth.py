@@ -587,7 +587,7 @@ async def admin_update_user(
     if "allowed_kbs" in update_data:
         raise HTTPException(
             422,
-            "知识库成员授权已迁移至知识库页面的成员与权限管理",
+            "allowed_kbs 授权模型已退役，不再支持",
         )
 
     # is_admin 已废弃，忽略此字段（使用 role_id 代替）

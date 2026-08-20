@@ -17,10 +17,10 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Add backend coverage for persistence, atomic validation, session invalidation, five-role owner/granted/ungranted access, and direct API denial.
-- [ ] 4.2 Add frontend coverage for administrator-only grant controls and role-aware KB behavior.
+- [x] 4.1 Superseded by `global-resource-visibility-retire-kb-membership`: add backend regression coverage for global KB visibility, role-derived capabilities, permission denial, session-generation invalidation, and retired `allowed_kbs` rejection; do not restore persistent grant runtime behavior.
+- [x] 4.2 Superseded by `global-resource-visibility-retire-kb-membership`: add frontend coverage for five-role capability gating, confirmed KB membership, `users:write` user editing, and the absence of retired grant controls.
 - [x] 4.3 Repair the migration-runner applied-status display for empty failure diagnostics and cover it with a regression test.
-- [ ] 4.4 Run targeted tests, OpenSpec strict validation, diff checks, migration status, and authenticated PostgreSQL/browser acceptance.
+- [x] 4.4 Run targeted tests, OpenSpec strict validation, diff checks, migration status, and authenticated PostgreSQL/browser acceptance. Code-level and isolated PostgreSQL fresh/verify/repeat/auth/backfill checks passed. A clean detached candidate with a revision-labeled image completed five-role browser list/detail/capability and user-editor acceptance against an isolated PostgreSQL stack; Worker and production acceptance remain out of scope and unexecuted.
 
 ## 5. Project Record
 
