@@ -164,6 +164,19 @@ def _load_video_stage_evidence(path: Path) -> dict[str, object]:
     return sanitized
 
 
+def _load_video_failure_phase(path: Path) -> str:
+    allowed = {
+        "container-probe", "login", "kb-create", "upload", "task-poll",
+        "retrieval-health", "storage-probe", "segment-validation", "agent-create",
+        "sse", "media-range", "ungranted-user", "evidence-write",
+    }
+    try:
+        phase = path.read_text(encoding="ascii").strip()
+    except OSError:
+        return "unknown"
+    return phase if phase in allowed else "unknown"
+
+
 def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, timeout: int = 180) -> dict[str, object]:
     target = _safe_target(target_id)
     revision = _require_clean_detached_commit(commit)
@@ -177,6 +190,7 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, time
     evidence: list[dict[str, object]] = []
     result: dict[str, object] = {"schema_version": 1, "target_id": target, "revision": revision, "non_production": True, "stages": evidence, "deferred": ["external-provider", "video", "browser-uat", "production-approval"]}
     video_stage_evidence = workdir / "video-stage-evidence.json"
+    video_phase = workdir / "video-stage-phase.txt"
     try:
         fixture = _stage_video_fixture(video_fixture, workdir)
         run_id = secrets.token_hex(8)
@@ -242,9 +256,14 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, time
             "VIDEO_ACCEPTANCE_DATABASE_URL": stage_env["DATABASE_URL"],
             "VIDEO_ACCEPTANCE_COMPOSE": json.dumps(compose),
             "VIDEO_ACCEPTANCE_EVIDENCE_PATH": str(video_stage_evidence),
+            "VIDEO_ACCEPTANCE_PHASE_PATH": str(video_phase),
         })
         def video_worker_sse():
-            pytest_stage("tests/acceptance/test_video_worker_sse.py")
+            try:
+                pytest_stage("tests/acceptance/test_video_worker_sse.py")
+            except RuntimeError:
+                result["video_failure_phase"] = _load_video_failure_phase(video_phase)
+                raise
             result["video"] = _load_video_stage_evidence(video_stage_evidence)
         if not _stage("video-worker-sse", video_worker_sse, evidence):
             return result
@@ -256,7 +275,7 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, time
             cleanup = _run(compose + ["down", "--volumes", "--remove-orphans"], env=env, timeout=timeout)
             evidence.append({"name": "cleanup", "outcome": "passed" if cleanup.returncode == 0 else "failed", "duration_seconds": 0, "detail": "" if cleanup.returncode == 0 else "compose-cleanup"})
         cleanup_ok = True
-        transient_paths = [workdir / name for name in ("compose.env", "pgvector-init.sql", "nginx.conf", "mock_provider.py", "video-stage-evidence.json")]
+        transient_paths = [workdir / name for name in ("compose.env", "pgvector-init.sql", "nginx.conf", "mock_provider.py", "video-stage-evidence.json", "video-stage-phase.txt")]
         if fixture is not None:
             transient_paths.append(fixture)
         for transient in transient_paths:

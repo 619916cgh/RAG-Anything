@@ -78,3 +78,11 @@ def test_health_wait_retries_startup_http_errors():
 def test_acceptance_proxy_allows_a_real_video_fixture():
     nginx_config = (Path(__file__).parent / "acceptance" / "nginx.conf").read_text(encoding="utf-8")
     assert "client_max_body_size 256m;" in nginx_config
+
+
+def test_video_failure_phase_is_allowlisted(tmp_path):
+    phase = tmp_path / "video-stage-phase.txt"
+    phase.write_text("upload", encoding="ascii")
+    assert acceptance._load_video_failure_phase(phase) == "upload"
+    phase.write_text("C:/sensitive", encoding="ascii")
+    assert acceptance._load_video_failure_phase(phase) == "unknown"

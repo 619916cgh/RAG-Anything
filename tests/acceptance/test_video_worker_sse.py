@@ -21,9 +21,10 @@ FIXTURE = Path(os.getenv("VIDEO_ACCEPTANCE_FIXTURE", ""))
 DATABASE_URL = os.getenv("VIDEO_ACCEPTANCE_DATABASE_URL", "")
 COMPOSE = json.loads(os.getenv("VIDEO_ACCEPTANCE_COMPOSE", "[]"))
 EVIDENCE_PATH = Path(os.getenv("VIDEO_ACCEPTANCE_EVIDENCE_PATH", ""))
+PHASE_PATH = Path(os.getenv("VIDEO_ACCEPTANCE_PHASE_PATH", ""))
 LOCAL_PATH_RE = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|file://|/(?:app|tmp|var|home|Users|uploads)(?:[\\/]|$))", re.IGNORECASE)
 pytestmark = pytest.mark.skipif(
-    not (BASE and DATABASE_URL and FIXTURE.is_file() and COMPOSE and EVIDENCE_PATH),
+    not (BASE and DATABASE_URL and FIXTURE.is_file() and COMPOSE and EVIDENCE_PATH and PHASE_PATH),
     reason="video acceptance environment is required",
 )
 
@@ -88,18 +89,29 @@ def _write_stage_evidence(summary):
     temp.replace(EVIDENCE_PATH)
 
 
+def _record_phase(phase):
+    temp = PHASE_PATH.with_suffix(".tmp")
+    temp.write_text(phase, encoding="ascii")
+    temp.replace(PHASE_PATH)
+
+
 def test_video_worker_pg_and_sse_contract():
+    _record_phase("container-probe")
     _container_probe()
+    _record_phase("login")
     _, login = _json("/api/auth/login", method="POST", payload={"username": "acceptance_admin", "password": os.environ["DEFAULT_ADMIN_PASSWORD"]})
     token = login["access_token"]
     kb = f"videoacc{uuid.uuid4().hex[:12]}"
+    _record_phase("kb-create")
     assert _json("/api/kb/create?" + urlencode({"kb_name": kb}), method="POST", token=token)[0] == 200
+    _record_phase("upload")
     body, content_type = _multipart(FIXTURE.name, FIXTURE.read_bytes())
     status, _, reply = _request("/api/upload?" + urlencode({"kb": kb, "enable_video": "true"}), method="POST", token=token, body=body, headers={"Content-Type": content_type})
     assert status == 200
     task_id = json.loads(reply.decode())["task_id"]
     task = {}
     until = time.monotonic() + 600
+    _record_phase("task-poll")
     while time.monotonic() < until:
         _, listing = _json("/api/upload/tasks?" + urlencode({"kb": kb}), token=token)
         task = next((value for value in listing["tasks"] if value["task_id"] == task_id), {})
@@ -107,6 +119,7 @@ def test_video_worker_pg_and_sse_contract():
             break
         time.sleep(2)
     assert task.get("status") == "completed", "upload task did not complete"
+    _record_phase("retrieval-health")
     _, health = _json("/api/knowledge/retrieval-health?" + urlencode({"kb": kb}), token=token)
     assert not health.get("documents"), "retrieval health reported unhealthy documents"
 
@@ -120,6 +133,7 @@ def test_video_worker_pg_and_sse_contract():
             await connection.close()
 
     asset, segments = asyncio.run(rows())
+    _record_phase("storage-probe")
     assert asset and asset["duration_ms"] > 0 and asset["fps"] > 0 and asset["profile_version"] == "v2", "video asset metadata invalid"
     probe = _container_probe(str(asset["server_path"]))
     streams = probe.get("streams") if isinstance(probe, dict) else None
@@ -134,6 +148,7 @@ def test_video_worker_pg_and_sse_contract():
     assert abs(probe_fps - float(asset["fps"])) <= 0.1, "probe and asset fps differ"
     assert bool(audio_stream) is bool(asset["has_audio"]), "probe and asset audio presence differ"
 
+    _record_phase("segment-validation")
     assert len(segments) > 1, "fixture did not produce multiple semantic segments"
     indexes = [int(row["segment_index"]) for row in segments]
     assert indexes == list(range(len(segments))), "segment indexes are not strictly ordered"
@@ -145,9 +160,11 @@ def test_video_worker_pg_and_sse_contract():
     assert all(row["media_id"] == asset["media_id"] and row["chunk_id"] and row["frame_refs"] for row in segments), "segment storage metadata invalid"
     range_by_segment = {(str(row["segment_id"]), int(row["start_ms"]), int(row["end_ms"])) for row in segments}
 
+    _record_phase("agent-create")
     _, created = _json("/api/agents", method="POST", token=token, payload={"name": "video acceptance", "kb_name": kb, "query_mode": "hybrid", "agent_mode": "none", "include_references": True})
     agent_id = created["agent"]["id"]
     citation = None
+    _record_phase("sse")
     for question in ("如何检查腐蚀漏液", "观察孔黑白代表什么", "端子为什么要按5 Nm紧固", "SVW2606如何核对"):
         status, _, stream = _request(f"/api/agents/{agent_id}/query/stream", method="POST", token=token, body=json.dumps({"query": question}).encode(), headers={"Content-Type": "application/json", "Accept": "text/event-stream"})
         assert status == 200
@@ -162,9 +179,11 @@ def test_video_worker_pg_and_sse_contract():
         assert isinstance(citation.get("media_url"), str) and citation["media_url"].startswith("/api/knowledge/media/"), "citation media URL invalid"
         _assert_no_local_paths({"events": events, "citation": citation})
 
+    _record_phase("media-range")
     status, headers, _ = _request(citation["media_url"], token=token, headers={"Range": "bytes=0-31"})
     assert status == 206 and "Content-Range" in headers, "authorized media range request failed"
     intruder_name, intruder_password = f"video_reader_{uuid.uuid4().hex[:12]}", "VideoReader!2026"
+    _record_phase("ungranted-user")
     assert _json("/api/admin/users", method="POST", token=token, payload={"username": intruder_name, "password": intruder_password})[0] == 201
     _, intruder_login = _json("/api/auth/login", method="POST", payload={"username": intruder_name, "password": intruder_password})
     intruder_token = intruder_login["access_token"]
@@ -174,6 +193,7 @@ def test_video_worker_pg_and_sse_contract():
         assert denied.value.code in {401, 403}, "ungranted user was not denied"
         _assert_no_local_paths(denied.value.read().decode(errors="replace"))
 
+    _record_phase("evidence-write")
     _write_stage_evidence({
         "schema_version": 1,
         "video": {
