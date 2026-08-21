@@ -31,16 +31,14 @@ async def test():
         await check("audit_logs", _test_audit(conn))
         # 3. image_vision_vectors + cosine (Phase 2)
         await check("image_vision_vectors + array_cosine_similarity", _test_vision(conn))
-        # 4. workflow_definitions + runs CASCADE (Phase 3)
-        await check("workflow_definitions + runs (CASCADE)", _test_workflow(conn))
-        # 5. fault_cases (Phase 3)
+        # 4. fault_cases (Phase 3)
         await check("fault_cases", _test_fault(conn))
-        # 6. process_documents (Phase 3)
+        # 5. process_documents (Phase 3)
         await check("process_documents", _test_process(conn))
-        # 7. dashboard_query_log (Phase 3)
+        # 6. dashboard_query_log (Phase 3)
         await check("dashboard_query_log", _test_dashboard(conn))
 
-    print(f"\nResult: {passed}/7 passed, {failed}/7 failed")
+    print(f"\nResult: {passed}/6 passed, {failed}/6 failed")
     await pool.close()
     return failed == 0
 
@@ -88,24 +86,6 @@ async def _test_vision(conn):
     )
     assert abs(score2 - 0.0) < 0.001, f"orthogonal expected 0.0, got {score2}"
     await conn.execute("DELETE FROM image_vision_vectors WHERE id='e2e-img'")
-
-
-async def _test_workflow(conn):
-    await conn.execute(
-        "INSERT INTO workflow_definitions (id, name, definition) "
-        "VALUES ('e2e-wf', 'Test WF', $1::jsonb)",
-        '{"nodes":[],"edges":[]}',
-    )
-    await conn.execute(
-        "INSERT INTO workflow_runs (run_id, workflow_id, status) "
-        "VALUES ('e2e-run', 'e2e-wf', 'completed')"
-    )
-    row = await conn.fetchrow("SELECT * FROM workflow_runs WHERE run_id='e2e-run'")
-    assert row and row["status"] == "completed", "run insert failed"
-    # CASCADE delete
-    await conn.execute("DELETE FROM workflow_definitions WHERE id='e2e-wf'")
-    row = await conn.fetchrow("SELECT * FROM workflow_runs WHERE run_id='e2e-run'")
-    assert row is None, "CASCADE delete failed"
 
 
 async def _test_fault(conn):

@@ -220,10 +220,6 @@ const doc = new Document({
           new TableCell({ borders, width: { size: 3500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("图表")] })] }),
           new TableCell({ borders, width: { size: 5860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("recharts 2.12.0")] })] })
         ]}),
-        new TableRow({ children: [
-          new TableCell({ borders, width: { size: 3500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("工作流编辑器")] })] }),
-          new TableCell({ borders, width: { size: 5860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("@xyflow/react 12.11.0")] })] })
-        ]})
       ]}),
       new Paragraph({ text: "", spacing: { after: 180 } }),
 
@@ -256,10 +252,6 @@ const doc = new Document({
           new TableCell({ borders, width: { size: 5860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("KnowledgePage.jsx, UploadPage.jsx")] })] })
         ]}),
         new TableRow({ children: [
-          new TableCell({ borders, width: { size: 3500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("工作流")] })] }),
-          new TableCell({ borders, width: { size: 5860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("WorkflowPage.jsx - 可视化工作流编辑器")] })] })
-        ]}),
-        new TableRow({ children: [
           new TableCell({ borders, width: { size: 3500, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("用户管理")] })] }),
           new TableCell({ borders, width: { size: 5860, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("AdminUsersPage.jsx")] })] })
         ]}),
@@ -288,10 +280,6 @@ const doc = new Document({
           new TableCell({ borders, width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("VideoSegmentPlayer.jsx")] })] }),
           new TableCell({ borders, width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("视频分段播放器，支持时间戳定位、帧预览")] })] })
         ]}),
-        new TableRow({ children: [
-          new TableCell({ borders, width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("WorkflowCanvas.jsx")] })] }),
-          new TableCell({ borders, width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [new Paragraph({ children: [new TextRun("工作流画布，基于 @xyflow/react，支持节点拖拽、连线")] })] })
-        ]})
       ]}),
       new Paragraph({ text: "", spacing: { after: 180 } }),
 

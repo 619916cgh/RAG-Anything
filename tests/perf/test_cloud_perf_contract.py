@@ -30,7 +30,6 @@ def test_cloud_runner_is_manifest_owned_and_never_uses_global_prune():
     assert "PERF_SSE_PHASE_ATTRIBUTION" in content
     assert "--read-only" in content
     assert "--network none" in content
-    assert "--tmpfs /app/workflows:rw,nosuid,size=1m" in content
     assert "LOG_DIR=/tmp/logs" in content
     assert "WORKING_DIR=/tmp/rag_storage" in content
     assert "RUNTIME_SETTINGS_FILE=/tmp/runtime_settings.json" in content

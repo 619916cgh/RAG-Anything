@@ -31,9 +31,6 @@ class Permission:
     ANALYTICS_READ = "analytics:read"
     EMBEDDING_DIAGNOSTICS_READ = "embedding:diagnostics_read"
 
-    WORKFLOW_READ = "workflow:read"
-    WORKFLOW_WRITE = "workflow:write"
-
     GRAPH_READ = "graph:read"
     GRAPH_WRITE = "graph:write"
 
@@ -94,8 +91,6 @@ DEFAULT_ROLES: Dict[str, Dict[str, object]] = {
             Permission.AUDIT_READ,
             Permission.MONITOR_READ,
             Permission.ANALYTICS_READ,
-            Permission.WORKFLOW_READ,
-            Permission.WORKFLOW_WRITE,
             Permission.AUTOREPAIR_READ,
             Permission.AUTOREPAIR_WRITE,
             Permission.GRAPH_READ,
@@ -112,7 +107,6 @@ DEFAULT_ROLES: Dict[str, Dict[str, object]] = {
             Permission.AGENT_WRITE,
             Permission.MONITOR_READ,
             Permission.ANALYTICS_READ,
-            Permission.WORKFLOW_READ,
             Permission.AUTOREPAIR_READ,
             Permission.AUTOREPAIR_WRITE,
             Permission.GRAPH_READ,

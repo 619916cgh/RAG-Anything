@@ -12,7 +12,7 @@ Full-screen modal, drawer, and confirmation overlay backdrops SHALL use a neutra
 - **AND** the backdrop SHALL NOT contain a blue hue
 
 #### Scenario: All fixed overlay backdrops
-- **WHEN** any fixed full-screen overlay opens (create knowledge base `bg-black/20`, delete agent / workflow confirm / workflow load `bg-black/25`, knowledge graph create/delete `bg-black/20`, agent config `rgba(0,0,0,0.24)`)
+- **WHEN** any fixed full-screen overlay opens (create knowledge base `bg-black/20`, delete agent `bg-black/25`, knowledge graph create/delete `bg-black/20`, agent config `rgba(0,0,0,0.24)`)
 - **THEN** the backdrop SHALL use an equal-alpha neutral black tint with no blue hue
 - **AND** the backdrop blur SHALL remain unchanged from the pre-change behavior
 - **AND** dark mode SHALL keep the existing `dark:bg-black/40` overlay variant where present

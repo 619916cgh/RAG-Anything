@@ -63,8 +63,6 @@ const PERMISSION_LABELS = {
   'audit:read': '审计查看',
   'monitor:read': '监控查看',
   'analytics:read': '分析查看',
-  'workflow:read': '工作流查看',
-  'workflow:write': '工作流编辑',
   'graph:read': '图谱查看',
   'graph:write': '图谱编辑',
   'autorepair:read': '汽修查看',

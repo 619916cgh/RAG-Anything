@@ -29,9 +29,6 @@ ws_clients: list[WebSocket] = []
 monitor_ws_clients: list[WebSocket] = []
 """Explicitly monitor-authorized event connections."""
 
-active_ws_connections: dict[str, list] = {}
-"""Per-run WebSocket connections: run_id → [ws1, ws2, ...]."""
-
 _ws_sessions: dict[WebSocket, dict[str, Any]] = {}
 """Authenticated account session snapshot for each connected WebSocket."""
 
@@ -118,36 +115,6 @@ async def ws_monitor_broadcast(event: dict[str, Any]) -> None:
         if ws in monitor_ws_clients:
             monitor_ws_clients.remove(ws)
         _ws_sessions.pop(ws, None)
-
-
-async def push_run_status(
-    run_id: str, node_id: str | None, status: str, data: dict[str, Any] | None = None,
-) -> None:
-    """Push workflow execution status to all subscribers of a run.
-
-    Args:
-        run_id: Workflow run identifier
-        node_id: Current node ID (None for run-level events)
-        status: Status string
-        data: Optional additional payload
-    """
-    msg = {
-        "type": "node_status" if node_id else "run_complete",
-        "run_id": run_id,
-        "status": status,
-    }
-    if node_id:
-        msg["node_id"] = node_id
-    if data:
-        msg["data"] = data
-    for ws in active_ws_connections.get(run_id, []):
-        try:
-            if not await _session_is_current(_ws_sessions.get(ws, {})):
-                await ws.close(code=4001, reason="Account session is no longer valid")
-                continue
-            await ws.send_json(msg)
-        except Exception:
-            pass
 
 
 async def _session_is_current(session: dict[str, Any]) -> bool:
@@ -277,20 +244,6 @@ async def add_event(event: str, user_id: int = 0, **kw: Any) -> None:
 
 # ── Connection Management ──────────────────────────────────
 
-def register_ws(run_id: str, ws: WebSocket, session: dict[str, Any] | None = None):
-    """Register a WebSocket connection for a workflow run.
-
-    Args:
-        run_id: Workflow run identifier
-        ws: WebSocket connection
-    """
-    if run_id not in active_ws_connections:
-        active_ws_connections[run_id] = []
-    active_ws_connections[run_id].append(ws)
-    if session is not None:
-        _ws_sessions[ws] = dict(session)
-
-
 def register_general_ws(ws: WebSocket, session: dict[str, Any]) -> None:
     """Register a general WebSocket together with its validated session."""
     ws_clients.append(ws)
@@ -301,23 +254,6 @@ def register_monitor_ws(ws: WebSocket, session: dict[str, Any]) -> None:
     """Register a monitor-authorized connection separately from task sockets."""
     monitor_ws_clients.append(ws)
     _ws_sessions[ws] = dict(session)
-
-
-def unregister_ws(run_id: str, ws: WebSocket):
-    """Unregister a WebSocket connection from a workflow run.
-
-    Args:
-        run_id: Workflow run identifier
-        ws: WebSocket connection to remove
-    """
-    if run_id in active_ws_connections:
-        try:
-            active_ws_connections[run_id].remove(ws)
-        except ValueError:
-            pass
-        if not active_ws_connections[run_id]:
-            del active_ws_connections[run_id]
-    _ws_sessions.pop(ws, None)
 
 
 def unregister_general_ws(ws: WebSocket) -> None:
@@ -336,19 +272,15 @@ def unregister_monitor_ws(ws: WebSocket) -> None:
 __all__ = [
     "ws_clients",
     "monitor_ws_clients",
-    "active_ws_connections",
     "processing_events",
     "ws_broadcast",
     "ws_send_to_owner",
     "ws_monitor_broadcast",
     "is_ws_session_current",
-    "push_run_status",
     "emit_progress",
     "load_persisted_monitor_events",
     "get_monitor_events",
     "add_event",
-    "register_ws",
-    "unregister_ws",
     "register_general_ws",
     "unregister_general_ws",
     "register_monitor_ws",

@@ -86,6 +86,60 @@ def test_complete_chain_fresh_install_and_repeat(isolated_database):
     assert repeat_plan.pending == ()
 
 
+def test_complete_chain_creates_provider_governance_schema(isolated_database):
+    root = Path(__file__).resolve().parents[1]
+    runner = MigrationRunner(
+        root, executor=PsqlExecutor(env=isolated_database, cwd=root)
+    )
+    runner.apply(backup_acknowledged=True)
+
+    columns = _run(
+        PsqlExecutor(env=isolated_database),
+        [
+            "-At",
+            "-c",
+            """
+            SELECT table_name || ':' || column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name IN ('provider_call_leases', 'provider_waiters', 'provider_circuit_state')
+            ORDER BY table_name, column_name;
+            """,
+        ],
+    ).splitlines()
+    assert "provider_call_leases:owner_fence" in columns
+    assert "provider_call_leases:expires_at" in columns
+    assert "provider_waiters:concurrency_limit" in columns
+    assert "provider_waiters:enqueue_seq" in columns
+    assert "provider_circuit_state:probe_owner" in columns
+
+
+def test_complete_chain_retires_workflow_schema_and_permissions(isolated_database):
+    root = Path(__file__).resolve().parents[1]
+    runner = MigrationRunner(
+        root, executor=PsqlExecutor(env=isolated_database, cwd=root)
+    )
+    runner.apply(backup_acknowledged=True)
+
+    state = _run(
+        PsqlExecutor(env=isolated_database),
+        [
+            "-At",
+            "-c",
+            """
+            SELECT to_regclass('public.workflow_runs') IS NULL
+                AND to_regclass('public.workflow_definitions') IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM roles
+                    WHERE permissions ?| ARRAY['workflow:read', 'workflow:write']
+                );
+            """,
+        ],
+    )
+    assert state == "t"
+    assert runner.apply(backup_acknowledged=True).pending == ()
+
+
 def test_recorded_checkpoint_upgrades_only_the_new_migration(
     isolated_database, tmp_path
 ):

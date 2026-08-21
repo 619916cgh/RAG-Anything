@@ -83,26 +83,21 @@ from raganything.services.kb_service import (  # noqa: F401 — re-export
     EMB_DIM,
     WORKING_DIR,
     CHUNKING_STRATEGY,
-    WORKFLOW_DIR,
 )
 
 # ── WebSocket Service (canonical source) ───────────────────
 from raganything.services.ws_service import (  # noqa: F401 — re-export
     ws_clients,
-    active_ws_connections,
     processing_events,
     ws_broadcast,
     ws_send_to_owner,
     ws_monitor_broadcast,
     is_ws_session_current,
-    push_run_status,
     emit_progress,
     register_general_ws,
     unregister_general_ws,
     register_monitor_ws,
     unregister_monitor_ws,
-    register_ws,
-    unregister_ws,
     load_persisted_monitor_events,
     get_monitor_events,
     add_event,
@@ -1146,12 +1141,11 @@ __all__ = [
     "_build_citation_block", "_get_kb_doc_list", "infer_entity_type",
     "API_KEY", "BASE_URL", "LLM_MODEL", "VISION_MODEL",
     "EMB_MODEL", "EMB_DIM", "WORKING_DIR", "CHUNKING_STRATEGY",
-    "WORKFLOW_DIR",
     # WebSocket
-    "ws_clients", "active_ws_connections", "processing_events",
+    "ws_clients", "processing_events",
     "ws_broadcast", "ws_send_to_owner", "ws_monitor_broadcast", "is_ws_session_current",
-    "push_run_status", "emit_progress",
-    "register_general_ws", "unregister_general_ws", "register_monitor_ws", "unregister_monitor_ws", "register_ws", "unregister_ws",
+    "emit_progress",
+    "register_general_ws", "unregister_general_ws", "register_monitor_ws", "unregister_monitor_ws",
     "load_persisted_monitor_events", "get_monitor_events", "add_event",
     # State
     "processing_tasks", "query_history", "QUERY_HISTORY_FILE", "load_query_history", "save_query_history",

@@ -73,8 +73,6 @@ PURGED_TABLES = {
     "uploaded_files",
     "user_entities",
     "user_relations",
-    "workflow_definitions",
-    "workflow_runs",
 }
 EXPECTED_TABLES = PRESERVED_TABLES | PURGED_TABLES
 SERVICE_PORTS = (8001, 5173)
@@ -168,7 +166,6 @@ def collect_reset_targets(root: Path = ROOT) -> list[Path]:
     for relative in (
         Path("frontend/dist"),
         Path("frontend/node_modules/.vite"),
-        Path("workflows/runs"),
         Path(".pytest_cache"),
         Path(".ruff_cache"),
         Path(".mypy_cache"),

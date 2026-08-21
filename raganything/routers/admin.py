@@ -1,31 +1,23 @@
 """
 Admin Router — /api/settings, /api/monitor, /api/health,
-/api/workflows, /api/autorepair/*, WebSocket endpoints.
+/api/autorepair/*, WebSocket endpoints.
 Extracted from server.py.
 """
-import json
 import os
-import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import (
     APIRouter,
     Depends,
-    File,
     HTTPException,
-    Request,
     Response,
-    UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
 from pydantic import BaseModel
 
-from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from raganything.routers import shared  # mutable state accessed via shared. prefix
-from raganything.workflow_executor import execute_workflow, RUNS_DIR, ExecutionContext
 from raganything.dependencies import (
     get_current_user,
     require_permission,
@@ -37,7 +29,6 @@ from raganything.services.auth import (
     check_account_locked,
     has_permission as _auth_has_permission,
     is_token_revoked as _auth_is_token_revoked,
-    user_is_admin as _auth_user_is_admin,
 )
 import raganything.services.runtime_settings as runtime_settings
 from raganything.utils.media import SUPPORTED_VIDEO_EXTENSIONS
@@ -123,236 +114,6 @@ def _serialize_settings() -> dict:
             "enabled_channels": os.getenv("RRF_ENABLED_CHANNELS", "bm25,vector,graph"),
         },
     }
-
-
-class WorkflowRunRequest(BaseModel):
-    query_text: str = ""
-
-
-# ════════════════════════════════════════════════════════
-# 工作流编排 API — PG-backed (Phase 3 migration)
-# ════════════════════════════════════════════════════════
-
-async def _wf_pg_pool():
-    from raganything.services.pg_state_repo import get_pg_pool
-    return get_pg_pool()
-
-
-@router.get("/workflows")
-async def list_workflows(
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_READ)),
-    current_user: dict = Depends(get_current_user),
-):
-    """列出所有工作流 — PG-backed"""
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, name, created_at, updated_at "
-            "FROM workflow_definitions ORDER BY updated_at DESC"
-        )
-    def _fmt(t):
-        return t.isoformat() if hasattr(t, 'isoformat') else str(t)
-    return {
-        "workflows": [
-            {"id": r["id"], "name": r["name"],
-             "created_at": _fmt(r["created_at"]),
-             "updated_at": _fmt(r["updated_at"])}
-            for r in rows
-        ]
-    }
-
-
-@router.get("/workflows/files")
-async def list_workflow_files(file_type: str = "", _perm: None = Depends(require_permission(Permission.WORKFLOW_READ)), current_user: dict = Depends(get_current_user)):
-    """列出 uploads/ 目录下的文件供工作流选择"""
-    upload_dir = Path("./uploads")
-    upload_dir.mkdir(exist_ok=True)
-    files = []
-    for f in sorted(upload_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        if f.is_file():
-            if file_type and f.suffix.lower() != file_type:
-                continue
-            files.append({
-                "name": f.name, "size": f.stat().st_size, "suffix": f.suffix.lower(),
-                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            })
-    return {"files": files}
-
-
-@router.post("/workflows/upload")
-async def upload_workflow(file: UploadFile = File(...), _perm: None = Depends(require_permission(Permission.WORKFLOW_WRITE)), current_user: dict = Depends(get_current_user)):
-    """上传文件到 uploads/ 供工作流使用"""
-    upload_dir = Path("./uploads")
-    upload_dir.mkdir(exist_ok=True)
-    content = await file.read()
-    (upload_dir / file.filename).write_bytes(content)
-    return {"status": "ok", "filename": file.filename, "size": len(content)}
-
-
-@router.get("/workflows/models")
-async def get_workflow_models(
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_READ)),
-    current_user: dict = Depends(get_current_user),
-    type: str = "",
-):
-    """返回系统配置的可用模型列表（来自 .env 配置），支持 ?type=llm|embed 分类"""
-    llm_model = os.getenv("LLM_MODEL", "")
-    vision_model = os.getenv("VISION_MODEL", "")
-    embed_model = os.getenv("EMBEDDING_MODEL", "")
-    extra_llm = os.getenv("LLM_AVAILABLE_MODELS", "")
-    extra_embed = os.getenv("EMBEDDING_AVAILABLE_MODELS", "")
-
-    def _collect(*sources: str) -> list[dict]:
-        seen = set()
-        result = []
-        for src in sources:
-            for m in src.split(","):
-                m = m.strip()
-                if m and m not in seen:
-                    seen.add(m)
-                    result.append({"id": m, "name": m, "source": "env"})
-        return result
-
-    if type == "llm":
-        models = _collect(llm_model, vision_model, extra_llm)
-        if not models:
-            models.append({"id": "qwen-plus", "name": "qwen-plus (默认)", "source": "fallback"})
-    elif type == "embed":
-        models = _collect(embed_model, extra_embed)
-        if not models:
-            models.append({"id": "text-embedding-v4", "name": "text-embedding-v4 (默认)", "source": "fallback"})
-    else:
-        # 兼容旧调用，不分类
-        models = _collect(llm_model, vision_model, embed_model, extra_llm, extra_embed)
-        if not models:
-            models.append({"id": "qwen-plus", "name": "qwen-plus (默认)", "source": "fallback"})
-
-    return {"models": models}
-
-
-@router.get("/workflows/{workflow_id}")
-async def get_workflow(
-    workflow_id: str,
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_READ)),
-    current_user: dict = Depends(get_current_user),
-):
-    """获取单个工作流 — PG-backed"""
-    user_id = current_user.get("id", 0)
-
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, name, definition, created_at, updated_at "
-            "FROM workflow_definitions WHERE id = $1",
-            workflow_id,
-        )
-    if row:
-        return {
-            "id": row["id"],
-            "name": row["name"],
-            "created_at": row["created_at"].isoformat(),
-            "updated_at": row["updated_at"].isoformat(),
-            "nodes": row["definition"].get("nodes", []),
-            "edges": row["definition"].get("edges", []),
-        }
-    raise HTTPException(404, "工作流不存在")
-
-
-@router.post("/workflows")
-async def create_workflow(
-    request: Request,
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_WRITE)),
-    current_user: dict = Depends(get_current_user),
-):
-    """创建新工作流 — PG-backed"""
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "无效的请求体")
-
-    wf_id = str(uuid.uuid4())
-    user_id = current_user.get("id", 0)
-    nodes = body.get("nodes", [])
-    edges = body.get("edges", [])
-    name = body.get("name", "未命名工作流")
-
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """INSERT INTO workflow_definitions (id, user_id, name, definition)
-               VALUES ($1, $2, $3, $4::jsonb) RETURNING *""",
-            wf_id, user_id, name, json.dumps({"nodes": nodes, "edges": edges}),
-        )
-    return {
-        "id": row["id"], "name": row["name"],
-        "created_at": row["created_at"].isoformat(),
-        "updated_at": row["updated_at"].isoformat(),
-        "nodes": row["definition"].get("nodes", []),
-        "edges": row["definition"].get("edges", []),
-    }
-
-
-@router.put("/workflows/{workflow_id}")
-async def update_workflow(
-    workflow_id: str, request: Request,
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_WRITE)),
-    current_user: dict = Depends(get_current_user),
-):
-    """更新工作流 — PG-backed"""
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "无效的请求体")
-
-    nodes = body.get("nodes")
-    edges = body.get("edges")
-    name = body.get("name")
-
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            "SELECT id, name, definition FROM workflow_definitions WHERE id = $1",
-            workflow_id,
-        )
-        if not existing:
-            raise HTTPException(404, "工作流不存在")
-        new_name = name if name is not None else existing["name"]
-        new_def = dict(existing["definition"])
-        if nodes is not None:
-            new_def["nodes"] = nodes
-        if edges is not None:
-            new_def["edges"] = edges
-        row = await conn.fetchrow(
-            """UPDATE workflow_definitions
-               SET name = $1, definition = $2::jsonb, updated_at = NOW()
-               WHERE id = $3 RETURNING *""",
-            new_name, json.dumps(new_def), workflow_id,
-        )
-    return {
-        "id": row["id"], "name": row["name"],
-        "created_at": row["created_at"].isoformat(),
-        "updated_at": row["updated_at"].isoformat(),
-        "nodes": row["definition"].get("nodes", []),
-        "edges": row["definition"].get("edges", []),
-    }
-
-
-@router.delete("/workflows/{workflow_id}")
-async def delete_workflow(
-    workflow_id: str,
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_WRITE)),
-    current_user: dict = Depends(get_current_user),
-):
-    """删除工作流 — PG-backed (CASCADE deletes runs)"""
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM workflow_definitions WHERE id = $1", workflow_id,
-        )
-    deleted = result and "DELETE 0" not in result
-    if not deleted:
-        raise HTTPException(404, "工作流不存在")
-    return {"status": "ok"}
 
 
 # ── WebSocket 认证辅助 ─────────────────────────────
@@ -441,165 +202,6 @@ async def _ws_session_is_current(user: dict) -> bool:
 
 
 # ── WebSocket 端点 ─────────────────────────────────
-
-@router.websocket("/ws/workflow-run/{run_id}")
-async def websocket_workflow_run(ws: WebSocket, run_id: str):
-    """WebSocket: 推送工作流执行状态（需要 token 查询参数 + workflow:read 权限）"""
-    user = await _authenticate_ws(ws, required_permission=Permission.WORKFLOW_READ)
-    if user is None:
-        return  # 认证失败，连接已关闭
-
-    # 属主隔离：非管理员只能订阅自己的运行记录
-    try:
-        is_admin = await _auth_user_is_admin(user["id"])
-    except Exception:
-        is_admin = False
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        if is_admin:
-            run_row = await conn.fetchrow(
-                "SELECT 1 FROM workflow_runs WHERE run_id = $1", run_id,
-            )
-        else:
-            run_row = await conn.fetchrow(
-                "SELECT 1 FROM workflow_runs WHERE run_id = $1 AND user_id = $2",
-                run_id, user["id"],
-            )
-    if run_row is None:
-        await ws.close(code=4001, reason="Run not found or not owned")
-        return
-
-    await ws.accept()
-    shared.register_ws(run_id, ws, user)
-    try:
-        while True:
-            await ws.receive_text()  # 保持连接，忽略客户端消息
-            if not await _ws_session_is_current(user):
-                await ws.close(code=4001, reason="Account session is no longer valid")
-                return
-    except WebSocketDisconnect:
-        pass
-    finally:
-        shared.unregister_ws(run_id, ws)
-
-
-@router.post("/workflows/{workflow_id}/run")
-async def run_workflow(workflow_id: str, body: WorkflowRunRequest = WorkflowRunRequest(), _perm: None = Depends(require_permission(Permission.WORKFLOW_WRITE)), current_user: dict = Depends(get_current_user)):
-    """执行工作流 DAG，支持运行时 query_text 注入到 retriever 节点 — PG-backed"""
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT definition FROM workflow_definitions WHERE id = $1",
-            workflow_id,
-        )
-    if not row:
-        raise HTTPException(404, "工作流不存在")
-    wf = row["definition"]
-    nodes = wf.get("nodes", [])
-    if not nodes:
-        raise HTTPException(400, "工作流没有节点")
-
-    # 运行时注入 query_text 到所有 retriever 节点
-    if body.query_text.strip():
-        for node in wf.get("nodes", []):
-            if node.get("data", {}).get("nodeType") == "retriever":
-                node["data"]["query_text"] = body.query_text.strip()
-
-    # 构建执行上下文（注入真实 RAG 组件）
-    default_kb = await shared.get_kb("default")
-    exec_ctx = ExecutionContext(
-        llm_model=shared.LLM_MODEL,
-        llm_api_key=shared.API_KEY,
-        llm_base_url=shared.BASE_URL,
-        embed_model=shared.EMB_MODEL,
-        embed_dim=shared.EMB_DIM,
-        embed_api_key=shared.API_KEY,
-        embed_base_url=shared.BASE_URL,
-        kb_instance=default_kb,
-        upload_dir=Path("./uploads"),
-        openai_complete_func=openai_complete_if_cache,
-        openai_embed_func=openai_embed,
-        user_id=current_user.get("id", 0),
-    )
-
-    async def status_cb(node_id, status, data=None):
-        # exec_ctx._run_id_cache is set by execute_workflow() when run starts
-        if exec_ctx._run_id_cache:
-            await shared.push_run_status(exec_ctx._run_id_cache, node_id, status, data)
-
-    try:
-        result = await execute_workflow(wf, ctx=exec_ctx, status_callback=status_cb)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-
-    return result
-
-
-@router.get("/workflows/{workflow_id}/runs")
-async def list_workflow_runs(
-    workflow_id: str,
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_READ)),
-    current_user: dict = Depends(get_current_user),
-):
-    """列出工作流的所有运行记录 — PG-backed（非管理员仅见自己的运行）"""
-    is_admin = current_user.get("is_admin", False)
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        if is_admin:
-            rows = await conn.fetch(
-                "SELECT run_id, status, started_at, completed_at, workflow_name "
-                "FROM workflow_runs WHERE workflow_id = $1 "
-                "ORDER BY started_at DESC LIMIT 100",
-                workflow_id,
-            )
-        else:
-            rows = await conn.fetch(
-                "SELECT run_id, status, started_at, completed_at, workflow_name "
-                "FROM workflow_runs WHERE workflow_id = $1 AND user_id = $2 "
-                "ORDER BY started_at DESC LIMIT 100",
-                workflow_id, current_user.get("id", 0),
-            )
-    def _fmt(t):
-        return t.isoformat() if hasattr(t, 'isoformat') else str(t) if t else None
-    return {
-        "runs": [
-            {"run_id": r["run_id"], "status": r["status"],
-             "started_at": _fmt(r["started_at"]),
-             "completed_at": _fmt(r["completed_at"]),
-             "workflow_name": r["workflow_name"]}
-            for r in rows
-        ]
-    }
-
-
-@router.get("/workflows/{workflow_id}/runs/{run_id}")
-async def get_workflow_run(
-    workflow_id: str, run_id: str,
-    _perm: None = Depends(require_permission(Permission.WORKFLOW_READ)),
-    current_user: dict = Depends(get_current_user),
-):
-    """获取单次运行详情 — PG-backed（非管理员仅可读取自己的运行）"""
-    is_admin = current_user.get("is_admin", False)
-    pool = await _wf_pg_pool()
-    async with pool.acquire() as conn:
-        if is_admin:
-            row = await conn.fetchrow(
-                "SELECT * FROM workflow_runs WHERE run_id = $1", run_id,
-            )
-        else:
-            row = await conn.fetchrow(
-                "SELECT * FROM workflow_runs WHERE run_id = $1 AND user_id = $2",
-                run_id, current_user.get("id", 0),
-            )
-    if row:
-        r = dict(row)
-        def _fmt(t):
-            return t.isoformat() if hasattr(t, 'isoformat') else str(t) if t else None
-        r["started_at"] = _fmt(r["started_at"])
-        r["completed_at"] = _fmt(r["completed_at"])
-        return r
-    raise HTTPException(404, "运行记录不存在")
-
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):

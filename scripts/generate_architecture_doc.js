@@ -118,7 +118,6 @@ const frontendTable = tbl(TBL_W, [2800, 6560], [
   row([cell("动画", 2800), cell("Framer Motion", 6560)]),
   row([cell("图标", 2800), cell("Lucide React", 6560)]),
   row([cell("知识图谱", 2800), cell("D3.js v7", 6560)]),
-  row([cell("工作流编辑器", 2800), cell("xyflow (React Flow) v12", 6560)]),
   row([cell("Markdown 渲染", 2800), cell("react-markdown + rehype-raw", 6560)]),
   row([cell("图表", 2800), cell("Recharts", 6560)]),
   row([cell("状态管理", 2800), cell("React Context (AuthContext)", 6560)]),
@@ -162,7 +161,7 @@ const routerTable = tbl(TBL_W, [2200, 1800, 5360], [
   row([cell("auth.py", 2200), cell("/api/auth", 1800), cell("注册、登录、Token刷新、密码修改、用户管理、角色管理、审计日志", 5360)]),
   row([cell("knowledge.py", 2200), cell("/api/upload, /api/knowledge, /api/kb, /api/files", 1800), cell("文件上传、解析、分块、嵌入、KB管理、文档列表、图片服务", 5360)]),
   row([cell("agent.py", 2200), cell("/api/agents", 1800), cell("智能体CRUD、对话管理、流式查询、历史记录、答案编辑", 5360)]),
-  row([cell("admin.py", 2200), cell("/api/settings, /api/monitor, /api/workflows, /api/autorepair", 1800), cell("系统设置、监控、健康检查、工作流执行、AutoRepair专项", 5360)]),
+  row([cell("admin.py", 2200), cell("/api/settings, /api/monitor, /api/autorepair", 1800), cell("系统设置、监控、健康检查、AutoRepair专项", 5360)]),
 ]);
 
 // 解析器表
@@ -186,17 +185,6 @@ const chunkTable = tbl(TBL_W, [2000, 2400, 4960], [
   row([cell("agentic", 2000), cell("较高成本", 2400), cell("LLM 驱动的智能分块，需要 LLM API", 4960)]),
 ]);
 
-// 工作流节点表
-const workflowTable = tbl(TBL_W, [2000, 7360], [
-  row([hcell("节点类型", 2000), hcell("功能", 7360)]),
-  row([cell("parse", 2000), cell("文档解析节点，将上传文件解析为 Markdown", 7360)]),
-  row([cell("chunk", 2000), cell("分块节点，应用分块策略", 7360)]),
-  row([cell("embed", 2000), cell("嵌入节点，将文本块转换为向量", 7360)]),
-  row([cell("graph", 2000), cell("图谱节点，提取实体/关系构建知识图谱", 7360)]),
-  row([cell("query", 2000), cell("查询节点，执行 RAG 查询", 7360)]),
-  row([cell("multimodal", 2000), cell("多模态处理节点，处理图片/表格/视频", 7360)]),
-]);
-
 // 前端页面表
 const pagesTable = tbl(TBL_W, [2800, 6560], [
   row([hcell("页面", 2800), hcell("功能", 6560)]),
@@ -205,7 +193,6 @@ const pagesTable = tbl(TBL_W, [2800, 6560], [
   row([cell("KnowledgeDetailPage", 2800), cell("单个知识库详情：文档列表、上传、图谱、查询、分块详情", 6560)]),
   row([cell("AgentsPage", 2800), cell("智能体列表与管理", 6560)]),
   row([cell("AgentChatPage", 2800), cell("智能体对话界面，支持流式输出、答案编辑", 6560)]),
-  row([cell("WorkflowPage", 2800), cell("工作流可视化编辑与执行", 6560)]),
   row([cell("MonitorPage", 2800), cell("系统监控与健康检查", 6560)]),
   row([cell("SettingsPage", 2800), cell("系统配置", 6560)]),
   row([cell("AdminUsersPage", 2800), cell("用户管理（创建/编辑/角色分配）", 6560)]),
@@ -241,7 +228,6 @@ const apiTable = tbl(TBL_W, [2200, 1400, 5760], [
   row([cell("查询", 2200), cell("POST", 1400), cell("/api/agent/{kb_name}/stream (SSE)", 5760)]),
   row([cell("智能体", 2200), cell("CRUD", 1400), cell("/api/agents, /api/agents/{id}", 5760)]),
   row([cell("对话", 2200), cell("POST/GET", 1400), cell("/api/agents/{id}/conversations", 5760)]),
-  row([cell("工作流", 2200), cell("POST/GET", 1400), cell("/api/workflows/{id}/execute", 5760)]),
   row([cell("监控", 2200), cell("GET", 1400), cell("/api/monitor, /api/health, /metrics", 5760)]),
   row([cell("WebSocket", 2200), cell("WS", 1400), cell("/ws/{run_id} (实时进度推送)", 5760)]),
 ]);
@@ -294,7 +280,6 @@ const permTable = tbl(TBL_W, [2600, 2260, 2260, 2240], [
   row([cell("monitor:read", 2600), cell("✅", 2260), cell("❌", 2260), cell("❌", 2240)]),
   row([cell("graph:read", 2600), cell("✅", 2260), cell("✅", 2260), cell("✅", 2240)]),
   row([cell("graph:write", 2600), cell("✅", 2260), cell("✅", 2260), cell("❌", 2240)]),
-  row([cell("workflow:read / workflow:write", 2600), cell("✅", 2260), cell("✅", 2260), cell("❌", 2240)]),
   row([cell("autorepair:read / autorepair:write", 2600), cell("✅", 2260), cell("✅", 2260), cell("❌", 2240)]),
 ]);
 
@@ -384,14 +369,13 @@ const doc = new Document({
           "知识图谱 (GraphRAG)：自动实体/关系提取、图查询、图可视化、图编辑。",
           "Agentic RAG：ReAct/CoT 多步推理引擎，支持工具调用、流式输出。",
           "智能体管理：可配置的 AI 智能体，支持多轮对话、历史记录、答案编辑。",
-          "工作流引擎：DAG 编排，6 种节点类型（解析/分块/嵌入/图谱/查询/多模态）。",
           "多知识库管理：支持多个独立知识库实例，每个 KB 独立配置。",
           "RBAC 权限体系：admin/editor/viewer 三级角色，精细到 resource:action 级别的权限控制。",
           "汽修智能助手 (AutoRepair)：专项模块，包含故障案例库、工艺库、知识图谱、部署平台。",
         ].map(bullet),
 
         h2("1.2 系统定位 (System Positioning)"),
-        p("RAG-Anything 定位为一个全流程多模态 RAG 中台，既可以作为 Python 库 (pip install raganything) 嵌入到其他项目中，也可以通过 FastAPI 服务器 + React 前端独立部署。它的核心依赖是 LightRAG 框架，在此基础上增加了多模态处理、混合检索、工作流编排、RBAC 等企业级功能。"),
+        p("RAG-Anything 定位为一个全流程多模态 RAG 中台，既可以作为 Python 库 (pip install raganything) 嵌入到其他项目中，也可以通过 FastAPI 服务器 + React 前端独立部署。它的核心依赖是 LightRAG 框架，在此基础上增加了多模态处理、混合检索、RBAC 等企业级功能。"),
         brk(),
 
         // ═══════════════════ 第2章 ═══════════════════
@@ -453,7 +437,7 @@ const doc = new Document({
           "认证：JWT Token（HS256）+ Refresh Token 机制。Access Token 默认 1 小时过期，Refresh Token 7 天。",
           "安全：bcrypt 密码哈希、账户锁定保护（5次失败锁定 15 分钟）、Token 黑名单、服务器启动唯一标识符。",
           "角色：admin（全部权限）、editor（读写知识库和智能体）、viewer（只读）。",
-          "权限模型：Permission 类定义 resource:action 格式的权限常量，包括 users、kb、agent、settings、audit、monitor、workflow、graph、autorepair 等资源。",
+          "权限模型：Permission 类定义 resource:action 格式的权限常量，包括 users、kb、agent、settings、audit、monitor、graph、autorepair 等资源。",
           "依赖注入：require_permission() FastAPI 依赖项，在路由层声明式检查。",
           "审计日志：记录所有操作日志（登录、操作、权限变更），支持分页查询。",
           "存储：所有认证数据存储在 PostgreSQL 中，由 pg_auth_repo 服务统一管理。",
@@ -518,12 +502,7 @@ const doc = new Document({
         ].map(bullet),
         brk(),
 
-        h2("4.9 工作流引擎 (Workflow Engine)"),
-        p("WorkflowExecutor 提供 DAG 工作流编排与执行，支持 6 种节点类型："),
-        workflowTable,
-        new Paragraph({ spacing: { after: 200 } }),
-
-        h2("4.10 汽修智能助手 (AutoRepair)"),
+        h2("4.9 汽修智能助手 (AutoRepair)"),
         p("AutoRepair 是一个专项子系统，专注于汽车维修领域的智能化应用："),
         ...[
           "agent/：智能体模块（qa_engine、code_parser、lineage_pusher、source_tracer）。",
@@ -542,7 +521,6 @@ const doc = new Document({
           "react-router-dom v6：客户端路由，支持路由级代码拆分 (lazy loading)。",
           "framer-motion：页面过渡动画和微交互。",
           "D3.js v7：知识图谱可视化，力导向图渲染。",
-          "xyflow (React Flow) v12：工作流编辑器，拖拽式节点配置。",
           "react-markdown + rehype-raw：Markdown 内容渲染。",
           "Recharts：数据图表（统计、分析）。",
           "lucide-react：图标库。",
@@ -701,14 +679,13 @@ const doc = new Document({
         bp("认证：", "pyjwt, passlib[bcrypt]"),
         bp("文档处理：", "Pillow, reportlab, weasyprint, markdown, pygments"),
         bp("LLM：", "openai (兼容 API)"),
-        bp("前端：", "react 18, vite 5, tailwindcss 3, d3 7, xyflow/react 12, framer-motion 11, lucide-react, react-markdown, rehype-raw, recharts"),
+        bp("前端：", "react 18, vite 5, tailwindcss 3, d3 7, framer-motion 11, lucide-react, react-markdown, rehype-raw, recharts"),
 
         h2("12.2 版本历史"),
         p("当前版本：1.3.1"),
-        p("RAG-Anything 持续迭代，从最初的单一文档解析工具，发展为涵盖解析、检索、图谱、智能体、工作流、汽修专项的全流程 RAG 平台。主要里程碑包括："),
+        p("RAG-Anything 持续迭代，从最初的单一文档解析工具，发展为涵盖解析、检索、图谱、智能体、汽修专项的全流程 RAG 平台。主要里程碑包括："),
         ...[
           "v1.0: 基础文档解析 + LightRAG 集成",
-          "v1.1: 多模态处理、混合检索、工作流引擎",
           "v1.2: RBAC 权限体系、智能体管理、AutoRepair 专项",
           "v1.3: 图编辑、分块详情面板、答案编辑、性能优化",
         ].map(bullet),

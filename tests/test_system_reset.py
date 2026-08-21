@@ -7,7 +7,7 @@ import pytest
 def test_reset_table_manifest_covers_current_application_schema():
     from scripts.reset_system import EXPECTED_TABLES, PRESERVED_TABLES, PURGED_TABLES
 
-    assert len(EXPECTED_TABLES) == 40
+    assert len(EXPECTED_TABLES) == 38
     assert PRESERVED_TABLES == {"roles", "settings", "users"}
     assert PRESERVED_TABLES.isdisjoint(PURGED_TABLES)
     assert {
@@ -30,7 +30,6 @@ def test_reset_targets_are_scoped_and_do_not_include_configuration(tmp_path: Pat
         "rag_storage_demo/graph.graphml",
         "output_demo/page.png",
         "frontend/dist/index.html",
-        "workflows/runs/run.json",
         "raganything/__pycache__/module.pyc",
         "auth.db-wal",
         "auth.db-shm",
@@ -59,7 +58,6 @@ def test_reset_targets_are_scoped_and_do_not_include_configuration(tmp_path: Pat
     assert "rag_storage_demo" in relative_targets
     assert "output_demo" in relative_targets
     assert "frontend/dist" in relative_targets
-    assert "workflows/runs" in relative_targets
     assert "raganything/__pycache__" in relative_targets
     assert "auth.db-wal" in relative_targets
     assert "auth.db-shm" in relative_targets

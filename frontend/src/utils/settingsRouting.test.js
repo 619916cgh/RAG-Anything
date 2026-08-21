@@ -12,7 +12,7 @@ test('legacy settings and denied direct routes have a stable personal fallback',
 })
 
 test('denied routes recover to the first readable business page', () => {
-  const permissions = new Set(['autorepair:read', 'workflow:read'])
+  const permissions = new Set(['autorepair:read', 'monitor:read'])
   assert.equal(resolveDeniedRoute(value => permissions.has(value), '/admin/platform'), '/autorepair')
-  assert.equal(resolveDeniedRoute(value => permissions.has(value), '/autorepair'), '/workflow')
+  assert.equal(resolveDeniedRoute(value => permissions.has(value), '/autorepair'), '/monitor')
 })

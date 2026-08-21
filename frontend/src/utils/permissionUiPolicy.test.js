@@ -27,9 +27,9 @@ test('five built-in role permission sets expose only their actual UI capabilitie
   const roles = {
     student: ['kb:read', 'agent:read', 'autorepair:read', 'graph:read'],
     assistant: ['kb:read', 'kb:write', 'agent:read', 'monitor:read', 'autorepair:read', 'graph:read', 'graph:write'],
-    teacher: ['kb:read', 'kb:write', 'agent:read', 'agent:write', 'monitor:read', 'workflow:read', 'autorepair:read', 'autorepair:write', 'graph:read', 'graph:write'],
-    dept_admin: ['kb:read', 'kb:write', 'kb:delete', 'agent:read', 'agent:write', 'agent:delete', 'settings:read', 'monitor:read', 'workflow:read', 'workflow:write', 'autorepair:read', 'autorepair:write', 'graph:read', 'graph:write'],
-    super_admin: ['kb:read', 'kb:write', 'kb:delete', 'agent:read', 'agent:write', 'agent:delete', 'settings:read', 'settings:write', 'monitor:read', 'workflow:read', 'workflow:write', 'autorepair:read', 'autorepair:write', 'graph:read', 'graph:write'],
+    teacher: ['kb:read', 'kb:write', 'agent:read', 'agent:write', 'monitor:read', 'autorepair:read', 'autorepair:write', 'graph:read', 'graph:write'],
+    dept_admin: ['kb:read', 'kb:write', 'kb:delete', 'agent:read', 'agent:write', 'agent:delete', 'settings:read', 'monitor:read', 'autorepair:read', 'autorepair:write', 'graph:read', 'graph:write'],
+    super_admin: ['kb:read', 'kb:write', 'kb:delete', 'agent:read', 'agent:write', 'agent:delete', 'settings:read', 'settings:write', 'monitor:read', 'autorepair:read', 'autorepair:write', 'graph:read', 'graph:write'],
   }
 
   const student = createPermissionUiPolicy(permissions(roles.student))
@@ -50,12 +50,10 @@ test('five built-in role permission sets expose only their actual UI capabilitie
   assert.equal(teacher.canDeleteKnowledge, false)
   assert.equal(teacher.canWriteAgents, true)
   assert.equal(teacher.canDeleteAgents, false)
-  assert.equal(teacher.canWriteWorkflow, false)
 
   const deptAdmin = createPermissionUiPolicy(permissions(roles.dept_admin))
   assert.equal(deptAdmin.canDeleteKnowledge, true)
   assert.equal(deptAdmin.canDeleteAgents, true)
-  assert.equal(deptAdmin.canWriteWorkflow, true)
   assert.equal(deptAdmin.canWriteSettings, false)
 
   const superAdmin = createPermissionUiPolicy(permissions(roles.super_admin))
@@ -66,9 +64,9 @@ test('five built-in role permission sets expose only their actual UI capabilitie
 })
 
 test('denied route recovery prefers the first permitted destination and skips current path', () => {
-  const has = permissions(['workflow:read', 'monitor:read'])
-  assert.equal(getDeniedRouteRecovery(has, '/workflow'), '/monitor')
-  assert.equal(getDeniedRouteRecovery(has, '/admin/platform'), '/workflow')
+  const has = permissions(['autorepair:read', 'monitor:read'])
+  assert.equal(getDeniedRouteRecovery(has, '/autorepair'), '/monitor')
+  assert.equal(getDeniedRouteRecovery(has, '/admin/platform'), '/autorepair')
   assert.equal(getDeniedRouteRecovery(permissions([]), '/knowledge'), '/preferences')
   assert.deepEqual(ROUTE_RECOVERY_CANDIDATES.at(-1), { path: '/preferences', permission: null })
 })

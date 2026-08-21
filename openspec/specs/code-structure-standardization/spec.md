@@ -12,7 +12,7 @@ The system SHALL organize all API routes into 5 dedicated Router modules based o
 - `routers/knowledge.py` SHALL handle all `/api/upload/*`, `/api/knowledge/*`, `/api/kb/*`, and `/api/files/*` endpoints
 - `routers/agent.py` SHALL handle all `/api/agents/*` endpoints
 - `routers/query.py` SHALL handle all `/api/query/*` and `/api/conversations/*` endpoints
-- `routers/admin.py` SHALL handle all `/api/settings`, `/api/monitor/*`, `/api/health`, `/api/workflows/*`, and `/api/manufacturing/*` endpoints
+- `routers/admin.py` SHALL handle all `/api/settings`, `/api/monitor/*`, `/api/health`, and `/api/manufacturing/*` endpoints
 
 Each Router file SHALL be ≤ 400 lines.
 

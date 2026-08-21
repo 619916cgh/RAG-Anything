@@ -6,7 +6,7 @@
 
 | 项目 | 当前值 |
 |---|---|
-| 最后核验日期 | 2026-08-20（Asia/Shanghai） |
+| 最后核验日期 | 2026-08-21（Asia/Shanghai） |
 | 核验分支 | `feature/custom-enhancements` |
 | 基准提交 | `52e0482714de` |
 | 工作区状态 | 有未提交改动；未提交实现不得视为已发布 |
@@ -18,7 +18,7 @@
 
 ## 1. 项目定位与用户
 
-RAG-Anything 是面向教育和专业实训的多模态知识库与智能体平台，提供文档解析、分块、向量/图谱检索、智能体问答、工作流和领域应用。用户角色为 `super_admin`、`dept_admin`、`teacher`、`assistant`、`student`。中文为主要界面语言，目标 WCAG 2.2 AA。
+RAG-Anything 是面向教育和专业实训的多模态知识库与智能体平台，提供文档解析、分块、向量/图谱检索、智能体问答和领域应用。用户角色为 `super_admin`、`dept_admin`、`teacher`、`assistant`、`student`。中文为主要界面语言，目标 WCAG 2.2 AA。
 
 ## 2. 当前能力与状态
 
@@ -51,7 +51,7 @@ RAG-Anything 是面向教育和专业实训的多模态知识库与智能体平�
 ### 已废弃
 
 - 旧三角色模型、SQLite 认证、`users.email`/`DEFAULT_ADMIN_EMAIL`、旧 `/upload`/`/query` 描述均不代表当前实现。
-- 工作流上传、工作流文件隔离及相关前端内容不在本轮范围。
+- DAG 工作流页面、接口、执行器、权限和持久化已从当前代码移除；`037_remove_dag_workflow.sql` 会不可逆删除历史定义与运行记录。生产执行前必须核验可恢复备份，并完成隔离 PostgreSQL fresh/upgrade/repeat/failure 验收。
 
 ## 3. 架构与数据流
 
@@ -146,6 +146,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
+| 2026-08-21 | remove-dag-workflow | 实现/隔离 PostgreSQL 迁移验收 | 移除 DAG 页面、REST/WS、执行器、RBAC 权限、React Flow 依赖、现行规格和可变产品资料；新增 037 前向迁移，先剥离角色权限再删除运行与定义表 | Admin/WS、RBAC、前端、迁移、重置与性能脚本 | 后端聚焦 58 passed；隔离 PostgreSQL migration fresh/upgrade/repeat 5 passed；前端 220/220、Vite build、py_compile、OpenSpec strict、总结检查和 diff check 通过 | 未部署或执行生产迁移；生产 apply 前必须确认可恢复备份并遵守现有迁移确认门禁，删除的数据只能由备份恢复 |
 | 2026-08-20 | persist-kb-access-grants closure | 规格收口/归档、回归与隔离 PG/浏览器验收 | 后续全局资源可见性规格已替代旧 `allowed_kbs` 持久授权和管理员 grant UI；替代规格已同步到主规格，两项 change 均以不回写旧 delta 的方式归档，未恢复已退役运行时 | KB RBAC、认证会话、管理员编辑、前端 capability gates | 后端聚焦 120 passed，前端聚焦 221 passed；一次性 pgvector 容器完成 39 个 migration fresh/verify、repeat=0、认证 API 2 passed、grant-level backfill/repeat 1 passed。干净 detached 候选 `36c2dda` 的 revision-labeled 镜像经隔离 Vite/PG/App/Nginx 以真实浏览器完成五角色列表、详情深链、读写删除控件和用户编辑无 `allowed_kbs` 验收；受影响主规格 strict 通过 | 既有数据库 checksum drift 未被写入或修复；本 change 的 Worker 和生产验收仍未执行，不可据此宣称生产发布或 Worker E2E。临时容器、卷、网络和浏览器页面已清理 |
 | 2026-08-20 | video-semantic-segment-index | 验收能力实现 | 新增隔离真实 MP4 -> App 子进程 Worker -> PostgreSQL -> SSE 验收驱动；任务 5.2/5.3 未勾选 | 临时 Compose、视频 mock、HTTP/PG/SSE 契约 | 新契约测试 2 passed、编译、OpenSpec strict、diff check；未运行实际 MP4 | 必须在干净 detached、带 revision label 的镜像上提供 `--video-fixture` 后运行；mock 只证明管线，不证明外部模型语义。 |
 | 2026-08-20 | production-readiness-and-durable-ingestion | 隔离预生产验收 | 完整受控 Compose 通过，OpenSpec 4.2/5.2 已完成 | 临时 pgvector、Redis、mock provider、App、Worker、Nginx | 候选 `f8af072` revision label；live/ready/health、迁移四阶段、五角色矩阵、TXT Worker 终态、PG text/vector 严格计数、retrieval-health、认证回答引用及标签清理均通过 | 仅 mock provider 与临时资源；外部模型、视频、浏览器、生产审批仍未验收，不可作为发布或生产数据变更证据。 |
@@ -157,7 +158,6 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 | 2026-08-18 | fix-perf-metrics-router-instrumentation | 实现/代码级与容器 smoke 验收 | ENABLE_METRICS 启用时兼容 FastAPI included-router 模板解析，保留默认/自定义路径、排除规则、in-progress 与 query Histogram | `raganything/runtime_metrics.py`、`server.py`、focused tests、临时 app/PG/Redis/mock Compose | 29 tests passed、py_compile、OpenSpec strict、diff check；锁定依赖容器 smoke；低资源 Compose 中 migrate、live/ready/metrics、included `/api/auth/login` 均 200，metrics 有 query Histogram 且无敏感/raw/self handler；app/PG/Redis/mock RSS 分别约250/79/6/71MiB | 以既有镜像加当前 `server.py`/helper 只读挂载运行，非容量结论；临时容器/卷/网络/凭据已清理；未访问现有 PostgreSQL、真实模型或生产，未验收 KB/SSE/Worker/Nginx/上传 |
 | 2026-08-18 | extend-isolated-performance-runtime-evidence | 受限隔离运行/云端门禁、清理与 source-only 发布 | 超低资源 mock direct-query 栈单用户 SSE 10/10 成功、metrics 与文本/视觉 mock 验证；上传诊断 app OOM 中断；性能完整候选 `6829432` 保持未部署，运行 metrics 改动已拆为候选 `afe40d3` 并通过 fast-release 发布 | tests/perf、perf runner/collector、临时 app/PG/Redis/mock、云端资源/发布门禁、生产 App/Nginx | 13 perf focused passed、py_compile；source-only metrics 测试 7 passed；发布后复核 App/Nginx/Marker 无重启，直连与 Nginx live/ready 均 200，`/metrics` 200；清理后根盘约58.1GiB可用，App/Nginx/Marker restart=0、直连与代理 live/ready 均200；当前云机8vCPU、约31.3GiB可用内存且低负载，满足受限全隔离栈门槛 | 已移除经容器引用校验的过期/失败发布标签、无挂载失败容器、全部无标签无引用镜像、旧回滚镜像与发布目录、CPU runtime 临时归档/源码、APT 缓存及 2 天前日志；本轮经用户授权进一步删除非挂载、无进程占用的 `/opt/rag-anything-backups`（约14.6GiB）、25份 `/tmp` 历史发布负载包（约2.1GiB）、无标签无引用 App 镜像、未运行 IDE 版本及可再生成 Node/pnpm 缓存，回收约22.2GiB；保留当前生产工作目录、运行容器、Docker 卷、数据库、当前/立即回滚镜像与 CPU runtime。完整压测仍须先补 Linux 运行器、每VU独立凭据及 full-stack 标签/资源采样；上传仅在唯一文本 diagnostic 达到 retrieval_ready 后开始。未重建基础镜像：完整候选的门禁来自测试专用 Dockerfile/requirements，且仓库无可执行的受控 base-release 入口；CPU runtime 的生产构建验收仍待完成。未发起真实查询，query phase Histogram 尚未在生产 scrape 中物化；结果不代表检索、吞吐、容量、真实模型或生产。报告见 outputs 受限查询运行证据 |
 | 2026-08-17 | harden-runtime-security-and-stream-resilience | 实现 | 18/18 tasks 完成 | RBAC/WS/Worker/迁移/SSE/部署 | 84 后端、216 前端、构建、strict | 外部 staging 仍开放 |
-| 2026-08-17 | isolated migration acceptance | 验收 | 竞争/失败/TLS 通过 | 临时 PostgreSQL | 3 passed | 未写生产 |
 | 2026-08-17 | chunk pagination | 实现/验收 | 分页、筛选、浏览器流程通过 | 文档详情 | 401 chunk 隔离库 | 冷启动需另测 |
 | 2026-08-17 | chunk pagination release | 发布 | fast release 健康 | App/Nginx | direct/proxy 200 | 无迁移 |
 | 2026-08-17 | agent stream zero body | 修复/发布 | 首事件、会话包装与 Nginx 无缓冲转发已部署 | Agent SSE | 11 后端、21 前端、构建、健康、浏览器库存问答 | 冷启动切换窗口可短暂 502，重试后稳定 |

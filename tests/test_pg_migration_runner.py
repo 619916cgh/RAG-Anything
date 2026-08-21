@@ -148,7 +148,35 @@ def test_repository_manifest_covers_every_sql_file_and_keeps_duplicate_prefixes(
         "010_manufacturing_to_autorepair_permissions.sql",
         "010_uploaded_files_task_queue.sql",
     }
-    assert migrations[-1].migration_id == "035_public_demo_shares.sql"
+    assert migrations[-1].migration_id == "037_remove_dag_workflow.sql"
+
+
+def test_provider_governance_migration_is_atomic_and_registered():
+    root = Path(__file__).resolve().parents[1]
+    migration = root / "migrations" / "036_provider_governance.sql"
+    body = transaction_body_for_migration(migration.read_text(encoding="utf-8"))
+    manifest = load_manifest(root)
+
+    assert any(item.migration_id == migration.name for item in manifest)
+    assert "provider_call_leases" in body
+    assert "provider_waiters" in body
+    assert "provider_circuit_state" in body
+    assert "concurrency_limit INTEGER NOT NULL" in body
+    assert "priority IN (0, 10, 20)" in body
+
+
+def test_workflow_retirement_migration_is_atomic_and_registered():
+    root = Path(__file__).resolve().parents[1]
+    migration = root / "migrations" / "037_remove_dag_workflow.sql"
+    body = transaction_body_for_migration(migration.read_text(encoding="utf-8"))
+    manifest = load_manifest(root)
+
+    assert manifest[-1].migration_id == migration.name
+    assert "workflow:read" in body
+    assert "workflow:write" in body
+    assert body.index("DROP TABLE IF EXISTS workflow_runs") < body.index(
+        "DROP TABLE IF EXISTS workflow_definitions"
+    )
 
 
 def test_manifest_rejects_missing_or_duplicate_entries(tmp_path):

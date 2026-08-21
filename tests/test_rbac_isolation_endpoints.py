@@ -1,14 +1,7 @@
-"""Targeted tests for the harden-rbac-isolation backend changes.
+"""Targeted tests for backend route isolation and resource cleanup."""
 
-Covers: GET /workflows/models read guard, workflow-run owner filtering,
-WebSocket run ownership, vision-settings read guard, and cleanup_kb_resources
-collection-before-begin_deletion order.
-"""
-
-import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -34,188 +27,17 @@ class _Req:
     client = None
 
 
-# ── GET /workflows/models guard ───────────────────────────
-
-class TestWorkflowModelsGuard:
-    def test_route_requires_workflow_read(self):
+class TestWorkflowRoutesRemoved:
+    def test_workflow_routes_and_permissions_are_absent(self):
         from raganything.routers import admin
 
-        names = _route_dependency_names(admin.router, "/workflows/models", "GET")
-        assert "require_workflow_read" in names
-
-    @pytest.mark.asyncio
-    async def test_rejects_user_without_workflow_read(self, monkeypatch):
-        from raganything.routers import admin
-
-        async def deny(user_id, permission):
-            assert permission == Permission.WORKFLOW_READ
-            return False
-
-        monkeypatch.setattr("raganything.dependencies._auth_has_permission", deny)
-        checker = admin.require_permission(Permission.WORKFLOW_READ)
-        with pytest.raises(HTTPException) as exc:
-            await checker(
-                request=_Req(),
-                current_user={"id": 5, "username": "student", "role": {"name": "student"}},
-            )
-        assert exc.value.status_code == 403
-
-
-# ── workflow run owner filtering ──────────────────────────
-
-class _FakeConn:
-    def __init__(self, rows):
-        self.rows = rows
-        self.queries = []
-
-    async def fetch(self, sql, *args):
-        self.queries.append((sql, args))
-        return self.rows
-
-    async def fetchrow(self, sql, *args):
-        self.queries.append((sql, args))
-        return self.rows[0] if self.rows else None
-
-
-class _FakePool:
-    def __init__(self, rows):
-        self.conn = _FakeConn(rows)
-
-    def acquire(self):
-        """Mimic asyncpg's pool.acquire() async context manager."""
-        return self
-
-    async def __aenter__(self):
-        return self.conn
-
-    async def __aexit__(self, *exc_info):
-        return False
-
-
-RUN_ROWS = [{
-    "run_id": "r1", "status": "completed", "started_at": None,
-    "completed_at": None, "workflow_name": "wf",
-}]
-
-
-@pytest.fixture
-def fake_wf_pool(monkeypatch):
-    from raganything.routers import admin
-
-    pool = _FakePool(RUN_ROWS)
-    monkeypatch.setattr(admin, "_wf_pg_pool", AsyncMock(return_value=pool))
-    return pool
-
-
-class TestWorkflowRunOwnerFiltering:
-    @pytest.mark.asyncio
-    async def test_list_filters_by_owner_for_non_admin(self, fake_wf_pool):
-        from raganything.routers import admin
-
-        result = await admin.list_workflow_runs(
-            workflow_id="wf1", _perm=None,
-            current_user={"id": 7, "username": "t", "is_admin": False},
-        )
-        sql, args = fake_wf_pool.conn.queries[0]
-        assert "user_id = $2" in sql
-        assert args == ("wf1", 7)
-        assert result["runs"][0]["run_id"] == "r1"
-
-    @pytest.mark.asyncio
-    async def test_list_admin_sees_all_runs(self, fake_wf_pool):
-        from raganything.routers import admin
-
-        result = await admin.list_workflow_runs(
-            workflow_id="wf1", _perm=None,
-            current_user={"id": 1, "username": "sa", "is_admin": True},
-        )
-        sql, args = fake_wf_pool.conn.queries[0]
-        assert "user_id" not in sql
-        assert args == ("wf1",)
-        assert result["runs"][0]["run_id"] == "r1"
-
-    @pytest.mark.asyncio
-    async def test_detail_filters_by_owner_for_non_admin(self, fake_wf_pool):
-        from raganything.routers import admin
-
-        result = await admin.get_workflow_run(
-            workflow_id="wf1", run_id="r1", _perm=None,
-            current_user={"id": 7, "username": "t", "is_admin": False},
-        )
-        sql, args = fake_wf_pool.conn.queries[0]
-        assert "user_id = $2" in sql
-        assert args == ("r1", 7)
-        assert result["run_id"] == "r1"
-
-    @pytest.mark.asyncio
-    async def test_detail_admin_sees_any_run(self, fake_wf_pool):
-        from raganything.routers import admin
-
-        result = await admin.get_workflow_run(
-            workflow_id="wf1", run_id="r1", _perm=None,
-            current_user={"id": 1, "username": "sa", "is_admin": True},
-        )
-        sql, args = fake_wf_pool.conn.queries[0]
-        assert "user_id" not in sql
-        assert args == ("r1",)
-        assert result["run_id"] == "r1"
-
-
-class TestWorkflowRunWebSocketOwnership:
-    @pytest.mark.asyncio
-    async def test_foreign_run_closed_with_4001(self, monkeypatch):
-        from raganything.routers import admin
-
-        calls = []
-
-        class _FakeWS:
-            async def close(self, code, reason):
-                calls.append((code, reason))
-
-            async def accept(self):
-                calls.append("accepted")
-
-        pool = _FakePool([])  # no rows -> run not owned
-        monkeypatch.setattr(admin, "_wf_pg_pool", AsyncMock(return_value=pool))
-        monkeypatch.setattr(admin, "_auth_user_is_admin", AsyncMock(return_value=False))
-
-        async def fake_auth(ws_obj, required_permission=None):
-            return {"id": 7, "username": "t"}
-
-        monkeypatch.setattr(admin, "_authenticate_ws", fake_auth)
-
-        await admin.websocket_workflow_run(_FakeWS(), "r1")
-        assert calls == [(4001, "Run not found or not owned")]
-
-    @pytest.mark.asyncio
-    async def test_own_run_is_accepted(self, monkeypatch):
-        from raganything.routers import admin
-
-        calls = []
-
-        class _FakeWS:
-            async def close(self, code, reason):
-                calls.append((code, reason))
-
-            async def accept(self):
-                calls.append("accepted")
-
-            async def receive_text(self):
-                calls.append("receive")
-                raise RuntimeError("disconnect")
-
-        pool = _FakePool([{"run_id": "r1"}])
-        monkeypatch.setattr(admin, "_wf_pg_pool", AsyncMock(return_value=pool))
-        monkeypatch.setattr(admin, "_auth_user_is_admin", AsyncMock(return_value=False))
-
-        async def fake_auth(ws_obj, required_permission=None):
-            return {"id": 7, "username": "t"}
-
-        monkeypatch.setattr(admin, "_authenticate_ws", fake_auth)
-
-        with pytest.raises(RuntimeError):
-            await admin.websocket_workflow_run(_FakeWS(), "r1")
-        assert calls == ["accepted", "receive"]
+        paths = {route.path for route in admin.router.routes}
+        assert not any(path.startswith("/workflows") for path in paths)
+        assert "/ws/workflow-run/{run_id}" not in paths
+        assert "/ws" in paths
+        assert "/ws/monitor" in paths
+        assert not hasattr(Permission, "WORKFLOW_READ")
+        assert not hasattr(Permission, "WORKFLOW_WRITE")
 
 
 # ── vision-settings read guard ────────────────────────────

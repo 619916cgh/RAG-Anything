@@ -12,7 +12,7 @@ const ROLE_PRESENTATION = {
   },
   dept_admin: {
     label: '系部管理员',
-    summary: '可管理本部门用户、知识库、智能体与教学工作流。',
+    summary: '可管理本部门用户、知识库、智能体与教学内容。',
     caution: '请确认其管理范围与实际职责一致。',
   },
   teacher: {

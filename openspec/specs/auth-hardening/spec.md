@@ -40,7 +40,7 @@ The `/api/knowledge/files/image` endpoint SHALL require authentication and SHALL
 - **THEN** the system returns HTTP 403 with detail "不允许符号链接"
 
 ### Requirement: Admin endpoints enforce RBAC permissions
-Settings, monitor, and workflow endpoints in the admin router SHALL use `require_permission()` dependency instead of bare `get_current_user`.
+Settings and monitor endpoints in the admin router SHALL use `require_permission()` dependency instead of bare `get_current_user`.
 
 #### Scenario: Viewer role accessing admin settings
 - **WHEN** a user with `viewer` role sends `GET /api/admin/settings`

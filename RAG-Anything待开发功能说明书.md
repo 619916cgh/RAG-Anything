@@ -293,99 +293,7 @@ raganything/
 
 ---
 
-### 3.3 可视化工作流 DAG 引擎 🔴
-
-**可行性**: 🔴 需降级 — 原方案（41 种节点 + cron 调度 + 完整执行引擎）实际需要 **3 周**，不是 1 周。
-
-**建议 MVP 版本**（第 3 周可交付）：
-- 节点类型缩减到 **5-8 种**（数据源: 文件上传+数据库 / 清洗: 筛选+去重 / AI: PDF解析+分段+向量化 / 输出: 导入知识库）
-- **仅支持手动执行**，cron 调度延后到远期
-- 节点配置用简单 JSON 表单，不做动态表单
-- 完整版 41 种节点 + 周期调度 → 远期规划
-
-**技术规格**:
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 前端库 | React Flow | 节点拖拽 + 贝塞尔连线 |
-| 节点类型 | 数据源(6) + 清洗算子(17) + AI算子(15) + 输出(3) | 共 41 种 |
-| 布局 | 自由/网格(20px) | 可切换 |
-| 连线规则 | DAG，禁止环路 | 拓扑排序校验 |
-| 周期调度 | cron 表达式 | 天/周/月 |
-| 并发限制 | 同项目 max 3 任务 | 超出排队 |
-
-**数据库表设计**:
-
-```sql
-CREATE TABLE workflows (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id UUID NOT NULL,
-    name VARCHAR(200) NOT NULL,
-    description TEXT,
-    nodes JSONB NOT NULL,       -- [{id,type,config,position}]
-    edges JSONB NOT NULL,       -- [{source,target,condition}]
-    schedule VARCHAR(100),      -- cron expression
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE workflow_runs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    workflow_id UUID REFERENCES workflows(id) ON DELETE CASCADE,
-    status VARCHAR(20) DEFAULT 'pending',  -- pending/running/completed/failed
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    node_results JSONB,         -- [{node_id, status, input_rows, output_rows, duration_ms, error}]
-    trigger_type VARCHAR(20),   -- manual/schedule
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-**前端组件树**:
-
-```
-frontend/src/
-└── pages/
-    └── WorkflowEditor/
-        ├── index.tsx                # 主页面
-        ├── Canvas.tsx               # React Flow 画布
-        ├── NodePalette.tsx          # 左侧算子面板
-        ├── NodeConfigPanel.tsx      # 右侧节点配置抽屉
-        ├── nodes/                   # 自定义节点组件
-        │   ├── DataSourceNode.tsx
-        │   ├── CleanNode.tsx
-        │   ├── AINode.tsx
-        │   └── OutputNode.tsx
-        ├── hooks/
-        │   ├── useWorkflow.ts       # 工作流状态管理
-        │   └── useWorkflowRun.ts    # 运行状态
-        └── utils/
-            ├── validateDAG.ts       # DAG 环路检测
-            └── nodeTemplates.ts     # 节点模板定义
-```
-
-**实现步骤**:
-
-1. 安装 `reactflow` 包
-2. 创建数据库迁移脚本（`workflows` + `workflow_runs` 表）
-3. 创建后端 CRUD API: `/api/workflows`
-4. 创建后端执行引擎: `workflow_engine.py`
-5. 前端构建 `WorkflowEditor` 页面
-6. 实现节点拖拽 + 连线 + 配置面板
-7. 实现 DAG 验证（环路检测）
-8. 实现周期调度（APScheduler / Celery Beat）
-
-**验收标准**:
-- [ ] 可从面板拖拽节点到画布
-- [ ] 节点间可连线，自动检测并阻止环路
-- [ ] 点击节点弹出配置面板
-- [ ] 可手动执行工作流并查看每节点运行结果
-- [ ] cron 定时任务正确触发
-
----
-
-### 3.4 SSO/OIDC 企业统一认证 ✅
+### 3.3 SSO/OIDC 企业统一认证 ✅
 
 **可行性**: ✅ 可行 — authlib 库成熟，Keycloak/OIDC 标准协议，现有 JWT 认证体系兼容。
 
@@ -433,7 +341,7 @@ server.py                       # 修改
 
 ---
 
-### 3.5 多轮对话上下文管理 ✅
+### 3.4 多轮对话上下文管理 ✅
 
 **可行性**: ✅ 可行 — conversations API 已有，滑动窗口+摘要压缩是纯逻辑层改动。
 
@@ -460,7 +368,7 @@ server.py                       # 修改
 
 ---
 
-### 3.6 密钥管理与依赖安全扫描 ✅
+### 3.5 密钥管理与依赖安全扫描 ✅
 
 **可行性**: ✅ 可行 — 两个都是配置+CI 集成类任务，无技术难点。
 
@@ -487,7 +395,7 @@ server.py                       # 修改
 
 ---
 
-### 3.7 核心测试覆盖
+### 3.6 核心测试覆盖
 
 **当前状态**: 已有基础测试（`tests/test_auth.py`, `tests/test_core_modules.py`），需扩展。
 
@@ -755,7 +663,7 @@ frontend/src/locales/
 | Hit Rate +50%（RRF） | 3.1 验收标准 | RRF 论文 + BEIR 基准推算 | 同上 |
 | 解析精度 +40%（Docling/Marker） | 4.2 验收标准 | Docling 官方 benchmark | 同上 |
 | 首Token < 5s | 4.4 验收标准 | qwen-max API 典型值 | 取决于模型 API 延迟，非系统可控 |
-| Token 节省 ≥ 60% | 3.5 验收标准 | LLM 摘要压缩论文推算 | 标为 📊 目标值 |
+| Token 节省 ≥ 60% | 3.4 验收标准 | LLM 摘要压缩论文推算 | 标为 📊 目标值 |
 
 > **原则**: 第 4 周压测完成后，用实测数据替换所有 📊 标记的数字。
 

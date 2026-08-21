@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, lazy, Suspense, Component } from 'react'
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Database, Settings, Activity, Zap, Cpu, Hash, Bot, Shield, LogOut, User, Sun, Moon, BookOpen, ChevronDown, Factory, GitBranch, ScrollText, AlertTriangle, Link2 } from 'lucide-react'
+import { Database, Settings, Activity, Zap, Cpu, Hash, Bot, Shield, LogOut, User, Sun, Moon, BookOpen, ChevronDown, Factory, ScrollText, AlertTriangle, Link2 } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import { api } from './utils/api'
@@ -24,14 +24,12 @@ const DemoSharesPage               = lazy(() => import('./pages/DemoSharesPage')
 const AutoRepairDashboardPage  = lazy(() => import('./pages/AutoRepairDashboardPage'))
 const AutoRepairKnowledgePage  = lazy(() => import('./pages/AutoRepairKnowledgePage'))
 const AutoRepairAgentPage      = lazy(() => import('./pages/AutoRepairAgentPage'))
-const WorkflowPage                = lazy(() => import('./pages/WorkflowPage'))
 
 // 导航 hover 预取：与 lazy() 使用相同的动态 import（模块缓存去重），
 // 仅在可见且有权限的导航项上触发，并遵守 saveData 节能约定。
 const ROUTE_PREFETCH = {
   '/knowledge': () => import('./pages/KnowledgePage'),
   '/agents': () => import('./pages/AgentsPage'),
-  '/workflow': () => import('./pages/WorkflowPage'),
   '/autorepair': () => import('./pages/AutoRepairDashboardPage'),
   '/monitor': () => import('./pages/MonitorPage'),
   '/admin/platform': () => import('./pages/AdminPlatformPage'),
@@ -137,7 +135,6 @@ function SuspenseWithTimeout({ children, fallback, timeout = SUSPENSE_TIMEOUT_MS
 const NAV = [
   { to: '/knowledge', icon: Database, label: '知识库', requiredPermission: 'kb:read' },
   { to: '/agents', icon: Bot, label: '智能体', requiredPermission: 'agent:read' },
-  { to: '/workflow', icon: GitBranch, label: '工作流', requiredPermission: 'workflow:read' },
   { to: '/autorepair', icon: Factory, label: '汽修智能助手', requiredPermission: 'autorepair:read' },
   { to: '/preferences', icon: Settings, label: '个人设置', requiredPermission: null },
   { to: '/monitor', icon: Activity, label: '监控', requiredPermission: 'monitor:read' },
@@ -146,7 +143,6 @@ const NAV = [
 const NAV_ITEMS = [
   { to: '/knowledge', icon: Database, label: '知识库', desc: '浏览文档 / 实体 / 图谱', requiredPermission: 'kb:read' },
   { to: '/agents', icon: Bot, label: '智能体', desc: '使用教学问答与推理', requiredPermission: 'agent:read' },
-  { to: '/workflow', icon: GitBranch, label: '工作流', desc: '查看知识处理链路', requiredPermission: 'workflow:read' },
   { to: '/autorepair', icon: Factory, label: '汽修智能助手', desc: '查看专业场景工作台', requiredPermission: 'autorepair:read' },
   { to: '/monitor', icon: Activity, label: '监控', desc: '服务状态与指标', requiredPermission: 'monitor:read' },
   { to: '/admin/platform', icon: Settings, label: '平台管理', desc: '默认值与资源上限', requiredPermission: 'settings:read' },
@@ -162,7 +158,6 @@ const ROUTE_META = [
   { test: p => p.startsWith('/knowledge'), kicker: '知识核心', title: '知识库中枢', subtitle: '组织多源文档、实体网络和可检索的知识空间。' },
   { test: p => p.startsWith('/agents/'), kicker: '智能体会话', title: '智能体对话', subtitle: '基于知识库进行检索增强问答、多模态理解与推理。' },
   { test: p => p.startsWith('/agents'), kicker: '智能体矩阵', title: '智能体矩阵', subtitle: '配置模型、检索模式和专业提示词，构建任务型助手。' },
-  { test: p => p.startsWith('/workflow'), kicker: '工作流引擎', title: '工作流编排', subtitle: '用节点化流程组织文档处理、检索和推理链路。' },
   { test: p => p.startsWith('/autorepair'), kicker: '场景实验室', title: '汽修智能制造工作台', subtitle: '面向专业教学与竞赛场景的知识图谱和智能问答系统。' },
   { test: p => p.startsWith('/monitor'), kicker: '运行管理', title: '运行监控', subtitle: '观察服务状态、处理吞吐和知识系统运行指标。' },
   { test: p => p.startsWith('/admin/platform'), kicker: '系统配置', title: '平台管理', subtitle: '维护默认值、允许范围和资源硬上限。' },
@@ -182,9 +177,6 @@ const getRouteMeta = (pathname, policy = {}) => {
       const isChunkRoute = pathname.includes('/chunks')
       return { ...route, subtitle: isChunkRoute ? '查看文档的检索切块与内容。' : '查看文档、实体关系与知识图谱结构。' }
     }
-    if (pathname.startsWith('/workflow')) {
-      return { ...route, subtitle: policy.canWriteWorkflow ? '用节点化流程组织文档处理、检索和推理链路。' : '查看已授权的节点化流程和处理链路。' }
-    }
     if (pathname.startsWith('/autorepair')) {
       return { ...route, subtitle: policy.canWriteAutoRepair ? '面向专业教学与竞赛场景的知识图谱和智能问答系统。' : '查看专业教学场景的知识图谱和可用内容。' }
     }
@@ -196,7 +188,7 @@ const getRouteMeta = (pathname, policy = {}) => {
   return {
     kicker: '知元平台',
     title: '多模态教学知识服务平台',
-    subtitle: '以课程资源、知识库、智能体和工作流连接教学内容与学习服务。',
+    subtitle: '以课程资源、知识库和智能体连接教学内容与学习服务。',
   }
 }
 
@@ -227,14 +219,6 @@ const getCockpitStats = (pathname, stats, hasPermission, policy = {}) => {
       { label: '助手', value: policy.canWriteAgents ? '可配置' : '可使用', icon: Bot, tone: 'blue' },
       { label: '知识库', value: policy.canWriteAgents ? '可绑定' : '可查看', icon: Database, tone: 'green' },
       { label: '模板', value: policy.canWriteAgents ? '可复用' : '可浏览', icon: BookOpen, tone: 'amber' },
-    ]
-  }
-
-  if (pathname.startsWith('/workflow')) {
-    return [
-      { label: '视图', value: policy.canWriteWorkflow ? '可编排' : '可查看', icon: GitBranch, tone: 'blue' },
-      { label: '链路', value: '节点化', icon: Cpu, tone: 'green' },
-      { label: '状态', value: '可用', icon: Shield, tone: 'amber' },
     ]
   }
 
@@ -718,7 +702,6 @@ export default function App() {
                   <Route path="/knowledge/:kbName" element={<ProtectedRoute requiredPermission="kb:read"><KnowledgeDetailPage /></ProtectedRoute>} />
                   <Route path="/knowledge/:kbName/documents/:docId/chunks" element={<ProtectedRoute requiredPermission="kb:read"><DocumentChunksPage /></ProtectedRoute>} />
                   <Route path="/knowledge/:kbName/documents/:docId/chunks/:chunkId" element={<ProtectedRoute requiredPermission="kb:read"><DocumentChunkDetailPage /></ProtectedRoute>} />
-                  <Route path="/workflow" element={<ProtectedRoute requiredPermission="workflow:read"><WorkflowPage /></ProtectedRoute>} />
                   <Route path="/autorepair" element={<ProtectedRoute requiredPermission="autorepair:read"><AutoRepairDashboardPage /></ProtectedRoute>} />
                   <Route path="/autorepair/knowledge" element={<ProtectedRoute requiredPermission="autorepair:read"><AutoRepairKnowledgePage /></ProtectedRoute>} />
                   <Route path="/autorepair/agent" element={<ProtectedRoute requiredPermission="autorepair:write"><AutoRepairAgentPage /></ProtectedRoute>} />

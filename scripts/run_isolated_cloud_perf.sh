@@ -303,11 +303,8 @@ case "$phase" in
         assert_no_active_profile_b_stack
     fi
     preflight_key=$(secret)
-    # Import-time setup creates the legacy relative workflows directory.  Keep
-    # every preflight write on tmpfs so the immutable image remains read-only.
     if ! docker run --rm --network none --read-only \
       --tmpfs /tmp:rw,noexec,nosuid,size=32m \
-      --tmpfs /app/workflows:rw,nosuid,size=1m \
       -e RAGANYTHING_ENV=performance -e LOG_DIR=/tmp/logs -e WORKING_DIR=/tmp/rag_storage \
       -e RUNTIME_SETTINGS_FILE=/tmp/runtime_settings.json \
       -e PERF_CPU_PROFILING=1 -e PERF_CPU_PROFILE_KEY="$preflight_key" \

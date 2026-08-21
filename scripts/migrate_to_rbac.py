@@ -31,7 +31,6 @@ PERMISSIONS = {
         "audit:read",
         "monitor:read",
         "analytics:read",
-        "workflow:read", "workflow:write",
         "manufacturing:read", "manufacturing:write",
     ],
     "dept_admin": [
@@ -40,14 +39,12 @@ PERMISSIONS = {
         "agent:read", "agent:write", "agent:delete",
         "settings:read", "audit:read", "monitor:read",
         "analytics:read",
-        "workflow:read", "workflow:write",
         "manufacturing:read", "manufacturing:write",
     ],
     "teacher": [
         "kb:read", "kb:write",
         "agent:read", "agent:write",
         "monitor:read", "analytics:read",
-        "workflow:read",
         "manufacturing:read", "manufacturing:write",
     ],
     "assistant": [

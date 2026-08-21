@@ -57,7 +57,6 @@
 |---|---|---|
 | 认证 / RBAC 后端 | `raganything/routers/auth.py`, `raganything/routers/admin.py`, `raganything/services/auth.py`, `raganything/permissions.py`, `raganything/dependencies.py`, 对应测试 | `server.py`, `auth.db`, `migrations/*.sql` |
 | 知识库 / 图谱前端 | `frontend/src/pages/KnowledgePage.jsx`, `frontend/src/pages/KnowledgeDetailPage.jsx`, `frontend/src/components/ChunkDetailDrawer.jsx`, `frontend/src/components/KnowledgeGraphD3.jsx` | `frontend/src/App.jsx`, `frontend/src/context/AuthContext.jsx`, `frontend/src/utils/api.js` |
-| 工作流前端 | `frontend/src/pages/WorkflowPage.jsx`, `frontend/src/components/workflow/*` | `frontend/src/App.jsx`, `frontend/src/index.css` |
 | 智能体 / 汽修场景前端 | `frontend/src/pages/AgentsPage.jsx`, `frontend/src/pages/AgentChatPage.jsx`, `frontend/src/pages/AutoRepair*.jsx`, `frontend/src/hooks/useAutoRepairKB.js` | `frontend/src/App.jsx`, `frontend/src/context/AuthContext.jsx` |
 | 知识库 / 查询后端 | `raganything/routers/knowledge.py`, `raganything/query/*`, `raganything/graph_rag/*`, `raganything/hybrid_search/*`, `raganything/services/kb_service.py` | `raganything/dependencies.py`, `server.py` |
 | 文档处理 / Worker 链路 | `process_worker.py`, `raganything/processor/*`, `raganything/modalprocessors/*`, `raganything/video_processor/*` | `migrations/*.sql`, `uv.lock`, 共享存储结构 |
@@ -66,7 +65,7 @@
 
 - 如果一个需求要同时修改 API 契约和页面行为，而且接口还没稳定，不要拆成两个对话，保持一个对话纵向打通更稳。
 - 如果接口已经稳定，可以把后端和前端拆成两个对话，但必须先固定请求 / 响应格式。
-- 不要让一个对话同时跨两个业务域，例如“RBAC + 工作流”或“知识图谱 + 汽修场景”。
+- 不要让一个对话同时跨两个业务域，例如“RBAC + 知识图谱”或“知识图谱 + 汽修场景”。
 - 能并行的最好是叶子模块改动，例如单页 UI、局部组件、独立 service、单组测试。
 - 共享状态、迁移、权限常量、启动入口，默认不作为并行切片，默认串行 owner。
 

@@ -6729,10 +6729,6 @@ async def durable_upload_queue_loop(interval_seconds: float = 5.0) -> None:
         await asyncio.sleep(interval_seconds)
 
 
-WORKFLOW_DIR = Path("./workflows")
-WORKFLOW_DIR.mkdir(exist_ok=True)
-
-
 # ── Utility: Citation block builder ────────────────────────
 
 def _build_citation_block(ctx: str, answer: str) -> str:
@@ -7129,5 +7125,4 @@ __all__ = [
     "EMB_DIM",
     "WORKING_DIR",
     "CHUNKING_STRATEGY",
-    "WORKFLOW_DIR",
 ]

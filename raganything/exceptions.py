@@ -43,7 +43,7 @@ class AccountDisabledError(RAGAnythingError):
 # ── 资源相关 ─────────────────────────────────────
 
 class NotFoundError(RAGAnythingError):
-    """请求的资源不存在（知识库、文档、智能体、工作流等）"""
+    """请求的资源不存在（知识库、文档、智能体等）"""
 
 
 class KnowledgeBaseNotFoundError(NotFoundError):
@@ -56,10 +56,6 @@ class DocumentNotFoundError(NotFoundError):
 
 class AgentNotFoundError(NotFoundError):
     """指定的智能体不存在"""
-
-
-class WorkflowNotFoundError(NotFoundError):
-    """指定的工作流不存在"""
 
 
 # ── 业务逻辑相关 ─────────────────────────────────────

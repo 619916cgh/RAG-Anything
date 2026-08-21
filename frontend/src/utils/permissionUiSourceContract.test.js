@@ -12,7 +12,6 @@ const ordinaryPages = [
   '../pages/DocumentChunksPage.jsx',
   '../pages/DocumentChunkDetailPage.jsx',
   '../pages/AgentChatPage.jsx',
-  '../pages/WorkflowPage.jsx',
   '../pages/MonitorPage.jsx',
   '../pages/AutoRepairDashboardPage.jsx',
   '../pages/AutoRepairKnowledgePage.jsx',
@@ -21,26 +20,11 @@ const ordinaryPages = [
 
 test('ordinary business pages do not disclose routine permission or read-only reasons', () => {
   const combined = ordinaryPages.map(source).join('\n')
-  for (const forbidden of ['只读模式', '需要 settings:write', '需要 kb:write', '无 autorepair:write 权限', '无 workflow:write 权限', '无权访问']) {
+  for (const forbidden of ['只读模式', '需要 settings:write', '需要 kb:write', '无 autorepair:write 权限', '无权访问']) {
     assert.equal(combined.includes(forbidden), false, `found forbidden ordinary-page copy: ${forbidden}`)
   }
   assert.doesNotMatch(combined, /disabled=\{!can[A-Z]/)
   assert.doesNotMatch(combined, /isAdmin\s*\|\|\s*hasPermission/)
-})
-
-test('workflow read-only mode is fail-closed across toolbar, canvas and node uploads', () => {
-  const toolbar = source('../components/workflow/WorkflowToolbar.jsx')
-  const canvas = source('../components/workflow/WorkflowCanvas.jsx')
-  const panel = source('../components/workflow/NodeConfigPanel.jsx')
-  const page = source('../pages/WorkflowPage.jsx')
-  assert.match(toolbar, /canEdit = false/)
-  assert.match(canvas, /nodesDraggable=\{editable\}/)
-  assert.match(canvas, /deleteKeyCode=\{editable \?/)
-  assert.match(panel, /if \(!canEdit\) return/)
-  assert.match(page, /if \(!canEdit\) return/)
-  assert.match(page, /\(e\.ctrlKey \|\| e\.metaKey\) && e\.key === 's'/)
-  assert.match(toolbar, /e\.key === 'Enter'/)
-  assert.match(page, /\{canEdit && <NodePalette/)
 })
 
 test('AutoRepair scoped loaders and parser require a confirmed KB', () => {
