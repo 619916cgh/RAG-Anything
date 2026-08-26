@@ -92,3 +92,33 @@ database 或 cached SBOM。因此 vulnerability snapshot 必须记录
 `scanner_database_unavailable`，不得表述为最新扫描。在提供可验证的离线 CVE database
 及扫描时间前，**v2 仍为 not-qualified**，不得标记 `offline-release-qualified`。
 本轮未访问云端、未生产部署、未生产迁移、未操作生产数据。
+
+## v3 supply-chain closeout
+
+`D:\stage3-offline-release-bundle-20260826-v3` is a new 83-file,
+run-owned copy of v2. Its `SHA256SUMS` hash is
+`7b2f8faac4ee749936318bb7a3b05a2ba0ba534b575242df24231cad8f885494`,
+which intentionally differs from v2. `manifests/supply-chain.json` records
+the v2 root checksum and all five byte-identical archive checksums. The
+read-only verifier passed with that v3 root checksum.
+
+Docker Scout `v1.23.1` was the only installed scanner. Syft, Grype and Trivy
+were absent. A public Anchore download attempt was bounded and stopped before
+completion; Scout archive and post-import local-image SBOM attempts for both
+candidate and rollback produced no SBOM before their bounded timeout. Both v3
+archives were nevertheless imported successfully and retained their recorded
+`linux/amd64` image digests. The package therefore contains explicit,
+digest/platform/scanner/time-bound `unavailable` SBOM, license-inventory and
+vulnerability-snapshot records, not inferred lockfile or image-metadata data.
+Scout reported no cached SBOM or usable local CVE database.
+
+**Current qualification remains `not-qualified`.** The single blocker is a
+verifiably current vulnerability database together with real, archive-bound
+candidate and rollback SBOMs from which license inventories can be derived.
+The locked frontend install and build both exited `0`; the resulting 114-file
+`dist` aggregate checksum was
+`e51c7ce21df023b3b7e5eed60d46be4ac66dc0968bb3a39ed39f7e87559ff6f9`.
+No cloud or production resource was accessed, and no production deployment,
+migration, backup/restore, or data operation was executed. The run-owned
+Scout temporary index directory could not be removed because the local command
+policy rejected the narrow deletion; no global Docker cleanup was attempted.
