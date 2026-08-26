@@ -18,6 +18,6 @@
 
 ## 4. Isolated rehearsal and closeout
 
-- [ ] 4.1 Run one complete rehearsal from a clean detached candidate with disposable Compose/PG resources where environment access is available.
+- [x] 4.1 Run one complete rehearsal from a clean detached candidate with disposable Compose/PG resources where environment access is available.
 - [x] 4.2 Record environment blockers and deferred provider/browser/video/production boundaries without weakening gates.
 - [x] 4.3 Update `PROJECT_SUMMARY.md` with candidate identity, rehearsal evidence, repair budget usage, cleanup result, and verification boundaries.
