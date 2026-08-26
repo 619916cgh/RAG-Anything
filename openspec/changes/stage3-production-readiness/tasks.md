@@ -27,4 +27,4 @@
 - [x] 5.1 Copy and attest the five immutable archives with separate candidate, rollback, and tooling identities.
 - [x] 5.2 Run two independent archive-only candidate-to-rollback clean rooms and disposable recovery verification.
 - [ ] 5.3 Provide archive-bound candidate and rollback SBOMs, license inventories, and vulnerability snapshots with a verifiably current local database before qualification.
-  - 2026-08-26 v3 checkpoint: archive identity, v3 verifier, and explicit unavailable evidence completed; Docker Scout v1.23.1 produced no SBOM within the bounded run and has no cached SBOM/current local CVE database. Keep `not-qualified` until this evidence is real and digest-bound.
+  - 2026-08-26 v3 checkpoint: archive identity and semantic evidence verifier completed; Docker Scout v1.23.1 produced no SBOM within bounded archive/post-import runs and has no cached SBOM/current local CVE database. The public Grype DB listing is reachable but its newest v5 build is 2026-03-09, outside the documented 120-hour freshness gate. Keep `not-qualified` until real digest-bound evidence exists.

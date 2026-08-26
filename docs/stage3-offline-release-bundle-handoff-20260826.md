@@ -97,7 +97,7 @@ database 或 cached SBOM。因此 vulnerability snapshot 必须记录
 
 `D:\stage3-offline-release-bundle-20260826-v3` is a new 83-file,
 run-owned copy of v2. Its `SHA256SUMS` hash is
-`7b2f8faac4ee749936318bb7a3b05a2ba0ba534b575242df24231cad8f885494`,
+`621b2d28a1ef737f8f28a60648bc7fcefe7c7f3f39a58dea10064ad23a1d100c`,
 which intentionally differs from v2. `manifests/supply-chain.json` records
 the v2 root checksum and all five byte-identical archive checksums. The
 read-only verifier passed with that v3 root checksum.

@@ -61,3 +61,68 @@ def test_archive_provenance_rejects_mismatched_copy(tmp_path):
     (images / "candidate.tar").write_bytes(b"changed")
     with pytest.raises(verifier.VerifyError, match="E_ARCHIVE_PROVENANCE"):
         verifier._verify_archive_provenance(tmp_path, identity)
+
+
+def _supply_chain_fixture(tmp_path):
+    bundle = tmp_path / "bundle"
+    (bundle / "manifests").mkdir(parents=True)
+    (bundle / "evidence" / "supply-chain").mkdir(parents=True)
+    archive_hashes = {name: "a" * 64 for name in verifier.REQUIRED_ARCHIVES}
+    identity = {
+        "archive_provenance": {"archives": archive_hashes},
+        "candidate": {"digest": "sha256:" + "1" * 64, "platform": "linux/amd64"},
+        "rollback": {"digest": "sha256:" + "2" * 64, "platform": "linux/amd64"},
+    }
+    artifacts = {}
+    for name, digest in (("candidate", identity["candidate"]["digest"]), ("rollback", identity["rollback"]["digest"])):
+        artifacts[name] = {}
+        for kind, (artifact, output_format) in verifier.SUPPLY_CHAIN_FILES.items():
+            relative = f"evidence/supply-chain/{name}-{kind}.json"
+            data = {
+                "archive_sha256": archive_hashes[name],
+                "artifact": artifact,
+                "completion_status": "unavailable",
+                "database_checked_at": "2026-08-26T00:00:00Z",
+                "database_status": "scanner_database_unavailable",
+                "database_updated_at": "unavailable",
+                "database_version": "unavailable",
+                "generated_at": "2026-08-26T00:00:00Z",
+                "image_digest": digest,
+                "output_format": output_format,
+                "platform": "linux/amd64",
+                "scanner": "docker-scout",
+                "scanner_version": "v1.23.1",
+                "status": "unavailable",
+            }
+            target = bundle / relative
+            target.write_text(json.dumps(data), encoding="utf-8")
+            artifacts[name][kind] = {"path": relative, "sha256": verifier.checksum(target)}
+    supply = {
+        "archive_checksums": archive_hashes,
+        "artifacts": artifacts,
+        "qualification": "not-qualified",
+        "v2_root_sha256": verifier.V2_REQUALIFIED_SUMS_SHA256,
+    }
+    (bundle / "manifests" / "supply-chain.json").write_text(json.dumps(supply), encoding="utf-8")
+    return bundle, identity
+
+
+def test_supply_chain_evidence_is_semantically_bound(tmp_path):
+    bundle, identity = _supply_chain_fixture(tmp_path)
+    verifier._verify_supply_chain(bundle, identity)
+    candidate = bundle / "evidence" / "supply-chain" / "candidate-sbom.json"
+    data = json.loads(candidate.read_text(encoding="utf-8"))
+    data["image_digest"] = "sha256:" + "9" * 64
+    candidate.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(verifier.VerifyError, match="E_SUPPLY_CHAIN_ARTIFACT"):
+        verifier._verify_supply_chain(bundle, identity)
+
+
+def test_supply_chain_evidence_rejects_absolute_artifact_path(tmp_path):
+    bundle, identity = _supply_chain_fixture(tmp_path)
+    supply_path = bundle / "manifests" / "supply-chain.json"
+    supply = json.loads(supply_path.read_text(encoding="utf-8"))
+    supply["artifacts"]["candidate"]["sbom"]["path"] = "C:/outside.json"
+    supply_path.write_text(json.dumps(supply), encoding="utf-8")
+    with pytest.raises(verifier.VerifyError, match="E_SUPPLY_CHAIN_ARTIFACT"):
+        verifier._verify_supply_chain(bundle, identity)

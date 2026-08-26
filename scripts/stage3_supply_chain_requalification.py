@@ -95,6 +95,80 @@ def _write_sums(bundle: Path) -> str:
     return checksum(sums)
 
 
+def _write_supply_chain(bundle: Path, archive_checksums: dict[str, str], *, scanner_version: str, database_status: str, scanner_attempt: str) -> None:
+    if not scanner_version or database_status not in {"scanner_database_unavailable", "unavailable-no-local-cve-cache", "unavailable"}:
+        raise RequalificationError("scanner_database_status_invalid")
+    identity_path = bundle / "manifests" / "oci-identity.json"
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    artifact_inputs = {"candidate": identity["candidate"], "rollback": identity["rollback"]}
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    evidence_root = bundle / "evidence" / "supply-chain"
+    artifacts: dict[str, dict[str, dict[str, str]]] = {}
+    for name, image in artifact_inputs.items():
+        if image.get("platform") != "linux/amd64" or not str(image.get("digest", "")).startswith("sha256:"):
+            raise RequalificationError("image_identity_invalid")
+        base = {
+            "archive_sha256": archive_checksums[name],
+            "database_checked_at": now,
+            "database_id": "unavailable",
+            "database_status": "scanner_database_unavailable",
+            "database_updated_at": "unavailable",
+            "database_version": "unavailable",
+            "generated_at": now,
+            "image_digest": image["digest"],
+            "platform": image["platform"],
+            "scanner": "docker-scout",
+            "scanner_version": scanner_version,
+            "source": "v3-image-archive",
+        }
+        records = {
+            "sbom": {**base, "artifact": "sbom", "completion_status": "unavailable", "output_format": "spdx-json", "status": "unavailable", "reason": scanner_attempt},
+            "licenses": {**base, "artifact": "license-inventory", "completion_status": "unavailable", "output_format": "json", "status": "unavailable", "reason": "no_verifiable_sbom_available"},
+            "vulnerabilities": {**base, "artifact": "vulnerability-snapshot", "completion_status": "unavailable", "output_format": "sarif", "status": "unavailable", "reason": "scanner_database_unavailable"},
+        }
+        artifacts[name] = {}
+        for kind, record in records.items():
+            filename = f"{name}-{kind}.json"
+            target = evidence_root / filename
+            _write_json(target, record)
+            artifacts[name][kind] = {"path": f"evidence/supply-chain/{filename}", "sha256": checksum(target)}
+    supply_chain = {
+        "archive_checksums": archive_checksums,
+        "artifacts": artifacts,
+        "created_at": now,
+        "qualification": "not-qualified",
+        "single_remaining_blocker": "scanner_database_and_real_sbom_unavailable",
+        "v2_root_sha256": V2_SUMS_SHA256,
+        "v3_archive_copy": "byte-identical",
+        "vulnerability_database": {"checked_at": now, "id": "unavailable", "status": "scanner_database_unavailable", "updated_at": "unavailable", "version": "unavailable"},
+    }
+    _write_json(bundle / "manifests" / "supply-chain.json", supply_chain)
+    identity["v3_supply_chain"] = {"qualification": supply_chain["qualification"], "source_v2_sha256sums": V2_SUMS_SHA256, "archives": archive_checksums}
+    _write_json(identity_path, identity)
+
+
+def _verify_existing_archives(bundle: Path) -> dict[str, str]:
+    actual: dict[str, str] = {}
+    for name, expected in ARCHIVES.items():
+        target = bundle / "images" / f"{name}.tar"
+        if not target.is_file() or target.is_symlink() or checksum(target) != expected:
+            raise RequalificationError(f"v3_archive_mismatch:{name}")
+        actual[name] = expected
+    return actual
+
+
+def refresh_v3(*, bundle: Path, scanner_version: str, database_status: str, scanner_attempt: str) -> dict[str, Any]:
+    bundle = bundle.resolve()
+    if not bundle.is_dir():
+        raise RequalificationError("v3_bundle_missing")
+    archive_checksums = _verify_existing_archives(bundle)
+    _write_supply_chain(bundle, archive_checksums, scanner_version=scanner_version, database_status=database_status, scanner_attempt=scanner_attempt)
+    root_checksum = _write_sums(bundle)
+    if root_checksum == V2_SUMS_SHA256:
+        raise RequalificationError("v3_root_checksum_unexpectedly_matches_v2")
+    return {"status": "not-qualified", "bundle": str(bundle), "files": len(_read_v3_sums(bundle)) + 1, "root_sha256": root_checksum, "archive_checksums": archive_checksums}
+
+
 def create_v3(*, v2: Path, output: Path, scanner_version: str, database_status: str, scanner_attempt: str) -> dict[str, Any]:
     if output.exists():
         raise RequalificationError("output_already_exists")
@@ -105,53 +179,7 @@ def create_v3(*, v2: Path, output: Path, scanner_version: str, database_status: 
     copied_checksums = {name: checksum(output / "images" / f"{name}.tar") for name in ARCHIVES}
     if copied_checksums != archive_checksums:
         raise RequalificationError("v3_archive_copy_mismatch")
-    identity_path = output / "manifests" / "oci-identity.json"
-    identity = json.loads(identity_path.read_text(encoding="utf-8"))
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    artifact_inputs = {
-        "candidate": identity["candidate"],
-        "rollback": identity["rollback"],
-    }
-    evidence_root = output / "evidence" / "supply-chain"
-    for name, image in artifact_inputs.items():
-        base = {
-            "archive_sha256": archive_checksums[name],
-            "database_status": database_status,
-            "generated_at": now,
-            "image_digest": image["digest"],
-            "platform": image["platform"],
-            "scanner": "docker-scout",
-            "scanner_version": scanner_version,
-            "source": "v3-image-archive",
-        }
-        _write_json(evidence_root / f"{name}-sbom.json", {
-            **base, "artifact": "sbom", "status": "unavailable",
-            "reason": scanner_attempt,
-        })
-        _write_json(evidence_root / f"{name}-licenses.json", {
-            **base, "artifact": "license-inventory", "status": "unavailable",
-            "reason": "no_verifiable_sbom_available",
-        })
-        _write_json(evidence_root / f"{name}-vulnerabilities.json", {
-            **base, "artifact": "vulnerability-snapshot", "status": "unavailable",
-            "reason": "scanner_database_unavailable",
-        })
-    supply_chain = {
-        "archive_checksums": archive_checksums,
-        "created_at": now,
-        "qualification": "not-qualified",
-        "single_remaining_blocker": "scanner_database_and_real_sbom_unavailable",
-        "v2_root_sha256": V2_SUMS_SHA256,
-        "v3_archive_copy": "byte-identical",
-        "vulnerability_database": {"status": database_status, "scanner": "docker-scout", "version": scanner_version},
-    }
-    _write_json(output / "manifests" / "supply-chain.json", supply_chain)
-    identity["v3_supply_chain"] = {
-        "qualification": supply_chain["qualification"],
-        "source_v2_sha256sums": V2_SUMS_SHA256,
-        "archives": archive_checksums,
-    }
-    _write_json(identity_path, identity)
+    _write_supply_chain(output, archive_checksums, scanner_version=scanner_version, database_status=database_status, scanner_attempt=scanner_attempt)
     root_checksum = _write_sums(output)
     if root_checksum == V2_SUMS_SHA256:
         raise RequalificationError("v3_root_checksum_unexpectedly_matches_v2")
@@ -163,25 +191,39 @@ def _read_v3_sums(bundle: Path) -> set[str]:
     sums = bundle / "SHA256SUMS"
     records: set[str] = set()
     for line in sums.read_text(encoding="utf-8").splitlines():
-        digest, relative = line.split("  ", 1)
+        try:
+            digest, relative = line.split("  ", 1)
+        except ValueError as exc:
+            raise RequalificationError("v3_checksum_format_invalid") from exc
+        relative_path = Path(relative)
         target = bundle / relative
-        if not re.fullmatch(r"[0-9a-f]{64}", digest) or not target.is_file() or checksum(target) != digest:
+        if (not re.fullmatch(r"[0-9a-f]{64}", digest) or relative_path.is_absolute()
+                or ".." in relative_path.parts or relative in records or not target.is_file()
+                or target.is_symlink() or checksum(target) != digest):
             raise RequalificationError("v3_checksum_mismatch")
         records.add(relative)
+    actual = {item.relative_to(bundle).as_posix() for item in bundle.rglob("*") if item.is_file() and item != sums}
+    if records != actual:
+        raise RequalificationError("v3_allowlist_mismatch")
     return records
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--v2", type=Path, required=True)
+    parser.add_argument("--v2", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scanner-version", required=True)
     parser.add_argument("--database-status", required=True)
     parser.add_argument("--scanner-attempt", required=True)
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(create_v3(v2=args.v2, output=args.output, scanner_version=args.scanner_version,
-                                   database_status=args.database_status, scanner_attempt=args.scanner_attempt),
+        if args.v2:
+            result = create_v3(v2=args.v2, output=args.output, scanner_version=args.scanner_version,
+                               database_status=args.database_status, scanner_attempt=args.scanner_attempt)
+        else:
+            result = refresh_v3(bundle=args.output, scanner_version=args.scanner_version,
+                                database_status=args.database_status, scanner_attempt=args.scanner_attempt)
+        print(json.dumps(result,
                          ensure_ascii=True, sort_keys=True))
         return 0
     except (OSError, ValueError, RequalificationError) as exc:

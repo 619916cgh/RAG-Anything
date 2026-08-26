@@ -21,8 +21,16 @@ from typing import Any, Iterable
 SHA = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 VARNAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+VALUE_SECRET = re.compile(r"(?:postgres(?:ql)?://|redis://|https?://[^\s]+:[^\s@]+@|(?:sk|ghp)_[A-Za-z0-9_-]{12,})", re.I)
 DEFAULT_SUMS_SHA256 = "b7576624c7ed2cb1eddcc151b4681501ee726dc48929ea75f5e8b99309150d41"
+V2_REQUALIFIED_SUMS_SHA256 = "e853de298fd8b487d3eea793943fc6f8dcc87e7a5333d8ea61f65cc1e69ff1ae"
 REQUIRED_ARCHIVES = {"candidate", "rollback", "postgres", "redis", "nginx"}
+SUPPLY_CHAIN_ARTIFACTS = {"sbom", "licenses", "vulnerabilities"}
+SUPPLY_CHAIN_FILES = {
+    "sbom": ("sbom", "spdx-json"),
+    "licenses": ("license-inventory", "json"),
+    "vulnerabilities": ("vulnerability-snapshot", "sarif"),
+}
 TOOLING_FILES = {
     "scripts/stage3_offline_release_bundle.py",
     "scripts/verify_stage3_offline_bundle.py",
@@ -35,6 +43,62 @@ class VerifyError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+def _verify_supply_chain(bundle: Path, identity: dict[str, Any]) -> None:
+    manifest_path = bundle / "manifests" / "supply-chain.json"
+    try:
+        supply = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise VerifyError("E_SUPPLY_CHAIN_MANIFEST") from exc
+    if not isinstance(supply, dict) or supply.get("qualification") != "not-qualified":
+        raise VerifyError("E_SUPPLY_CHAIN_STATUS")
+    if supply.get("v2_root_sha256") != V2_REQUALIFIED_SUMS_SHA256:
+        raise VerifyError("E_SUPPLY_CHAIN_PROVENANCE")
+    archive_provenance = identity.get("archive_provenance", {})
+    archives = archive_provenance.get("archives") if isinstance(archive_provenance, dict) else None
+    if supply.get("archive_checksums") != archives:
+        raise VerifyError("E_SUPPLY_CHAIN_ARCHIVE")
+    artifacts = supply.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != {"candidate", "rollback"}:
+        raise VerifyError("E_SUPPLY_CHAIN_ARTIFACT")
+    for image_name in ("candidate", "rollback"):
+        image = identity.get(image_name, {})
+        records = artifacts.get(image_name)
+        if not isinstance(records, dict) or set(records) != SUPPLY_CHAIN_ARTIFACTS:
+            raise VerifyError("E_SUPPLY_CHAIN_ARTIFACT")
+        archive_sha = archives.get(image_name) if isinstance(archives, dict) else None
+        for kind, (artifact_name, output_format) in SUPPLY_CHAIN_FILES.items():
+            record = records.get(kind)
+            if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+                raise VerifyError("E_SUPPLY_CHAIN_ARTIFACT")
+            relative_path = Path(record["path"])
+            if relative_path.is_absolute() or ".." in relative_path.parts:
+                raise VerifyError("E_SUPPLY_CHAIN_ARTIFACT")
+            target = bundle / relative_path
+            if target.is_symlink() or not target.is_file() or not SHA.fullmatch(str(record.get("sha256", ""))) or checksum(target) != record["sha256"]:
+                raise VerifyError("E_SUPPLY_CHAIN_ARTIFACT")
+            try:
+                data = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise VerifyError("E_SUPPLY_CHAIN_EVIDENCE") from exc
+            if (not isinstance(data, dict) or data.get("artifact") != artifact_name
+                    or data.get("image_digest") != image.get("digest")
+                    or data.get("platform") != image.get("platform")
+                    or data.get("platform") != "linux/amd64"
+                    or data.get("archive_sha256") != archive_sha
+                    or data.get("scanner") != "docker-scout"
+                    or not data.get("scanner_version")
+                    or data.get("output_format") != output_format
+                    or data.get("completion_status") != "unavailable"
+                    or data.get("status") != "unavailable"
+                    or data.get("database_status") != "scanner_database_unavailable"
+                    or not data.get("generated_at") or not data.get("database_checked_at")
+                    or not data.get("database_version") or not data.get("database_updated_at")
+                    or VALUE_SECRET.search(json.dumps(data, ensure_ascii=True))):
+                raise VerifyError("E_SUPPLY_CHAIN_EVIDENCE")
+            if any(token in json.dumps(data, ensure_ascii=True).lower() for token in ("authorization", "postgresql://", "redis://", "\\\\", "c:/", "/users/")):
+                raise VerifyError("E_SUPPLY_CHAIN_REDACTION")
 
 
 def checksum(path: Path) -> str:
@@ -260,6 +324,7 @@ def verify(bundle: Path, *, expected_sums_sha256: str = DEFAULT_SUMS_SHA256, git
         _verify_source(bundle, identity)
         _verify_tooling(bundle, identity)
         _verify_archive_provenance(bundle, identity)
+        _verify_supply_chain(bundle, identity)
     for name in REQUIRED_ARCHIVES:
         archive = bundle / "images" / f"{name}.tar"
         expected = candidate if name == "candidate" else rollback if name == "rollback" else identity.get("dependencies", {}).get(name, {})
