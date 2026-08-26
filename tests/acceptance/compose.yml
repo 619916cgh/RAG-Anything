@@ -56,6 +56,7 @@ services:
       ENABLE_AUDIO_TRANSCRIPTION: "false"
       DOCUMENT_WORKER_MAX_THREADS: "1"
       SERVER_WORKERS: "1"
+      ENABLE_METRICS: "true"
     volumes:
       - uploads:/app/uploads
       - rag_storage:/app/rag_storage
