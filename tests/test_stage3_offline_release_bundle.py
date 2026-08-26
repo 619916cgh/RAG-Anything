@@ -83,3 +83,23 @@ def test_compose_rehearsal_uses_one_ephemeral_postgres_password(monkeypatch, tmp
     # Compose launch existed rather than leaking temporary secret material.
     assert any(command[-1] == "up" or command[-2:] == ["up", "-d"] for command in captured)
     assert not Path(env_file).exists()
+
+
+def test_compose_rehearsal_generates_policy_valid_bootstrap_password(monkeypatch, tmp_path):
+    source = tmp_path / "source" / "static" / "tests" / "acceptance"
+    source.mkdir(parents=True)
+    for name in ("compose.yml", "nginx.conf", "pgvector-init.sql", "mock_video_provider.py"):
+        (source / name).write_text("fixture", encoding="utf-8")
+    captured = []
+    monkeypatch.setattr(bundle, "run", lambda command, **_kwargs: (captured.append(command) or type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()))
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    bundle._compose_health_rehearsal(tmp_path, {"reference": "image"}, "candidate", "stage3-test-policy")
+    env_file = Path(next(command[command.index("--env-file") + 1] for command in captured if "--env-file" in command))
+    assert not env_file.exists()
+    # The source declares the four class bootstrap pattern and never persists it.
+    assert 'f"A{uuid.uuid4().hex}!9"' in Path(bundle.__file__).read_text(encoding="utf-8")

@@ -35,3 +35,18 @@ The system SHALL write schema-versioned evidence containing only candidate and a
 #### Scenario: Rehearsal terminates
 - **WHEN** the rehearsal succeeds or fails after owning disposable resources
 - **THEN** the coordinator SHALL clean up only the run-owned resources and SHALL make cleanup failure non-releasable
+
+### Requirement: Offline release qualification boundary
+The release workflow SHALL only mark an offline bundle `offline-release-qualified`
+after its immutable archives pass a read-only provenance verifier and two
+independent archive-only candidate-to-rollback Compose health rehearsals pass.
+The verifier SHALL distinguish OCI index descriptor digests from config blob
+digests, reject unsafe archive members and unlisted files, and emit only stable
+codes, checksums, and sanitized status.
+
+#### Scenario: Offline rehearsal fixture is invalid
+- **WHEN** a run-owned bootstrap fixture cannot start Candidate App or either
+  clean-room health rehearsal fails
+- **THEN** the release record SHALL be `not-qualified`, clean up only its
+  manifest-owned resources, and SHALL NOT use locally pre-existing images as
+  substitute evidence

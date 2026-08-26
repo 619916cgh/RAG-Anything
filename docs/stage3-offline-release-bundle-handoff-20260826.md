@@ -39,3 +39,31 @@ Authorization、端点、用户数据、原始 provider 响应或原始日志。
 同一 candidate/rollback 镜像归档已在本地 isolated run 中完成 import、candidate Compose health、rollback Compose health 和 manifest-owned cleanup；foreign Docker resources 保持不变。当前包的两份 app archive checksum 与该成功演练使用的归档一致。一次后续 D: 包健康复验的 Compose 启动失败已在同一会话清理，未留下 run-owned 容器、网络、卷或临时 secret；它不推翻前述已通过的等值 archive 演练，也不构成生产风险。
 
 没有访问云端、已到期服务器、生产配置、生产数据库或生产数据；没有执行生产部署、生产迁移、生产备份/恢复或生产数据操作。外部真实 provider、真实生产浏览器 UAT、Prometheus/Alertmanager 新环境演练仍是新服务器上线前的独立门禁。
+
+## 2026-08-26 离线资格复核
+
+只读验证入口为：
+
+```powershell
+.venv\Scripts\python.exe scripts\verify_stage3_offline_bundle.py --bundle D:\stage3-offline-release-bundle-20260826 --git-root C:\Users\98014\知元
+```
+
+它已核验 73 个文件、`SHA256SUMS` 自身、Git SHA/祖先关系、OCI index
+descriptor/config label/platform、迁移和部署脚本映射、secret 名称和 archive
+路径安全。当前基线 `SHA256SUMS` SHA256 仍为
+`b7576624c7ed2cb1eddcc151b4681501ee726dc48929ea75f5e8b99309150d41`。
+
+新服务器只读 preflight 入口为
+`python scripts/stage3_offline_preflight.py --bundle .`；DNS、TLS、provider
+和 backup custody 只能报告为 `pending-external`。发布状态机的唯一 dry-run
+入口为 `python scripts/stage3_offline_release_dry_run.py --fixture <fixture.json>`；
+它不含 SSH、Docker、部署脚本、迁移或数据库调用，并固定 app-first、nginx-second，
+健康/部署失败仅执行一次 rollback，rollback 失败 hard-stop。
+
+**当前资格：not-qualified。** D: 包内旧 rehearsal 脚本使用仅含十六进制的
+bootstrap password，Candidate App 在隔离 Compose 启动时被密码策略拒绝；迁移、
+PostgreSQL、Redis 和 mock provider 已正常，但 App/Nginx health 未通过。工作区
+修复已用 focused tests 覆盖，但没有修改这个已校验包或重新生成其镜像 archive，
+故尚未取得两轮完整 candidate -> rollback clean-room evidence，也未执行新的
+disaster recovery。不得标记 `offline-release-qualified`、`production-deployed`
+或 `production-accepted`。

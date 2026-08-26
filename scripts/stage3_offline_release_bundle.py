@@ -343,7 +343,10 @@ def _compose_health_rehearsal(bundle: Path, identity: dict[str, Any], name: str,
         "POSTGRES_DATABASE": database_name,
         "DATABASE_URL": f"postgresql://offline:{postgres_password}@postgres:5432/{database_name}",
         "JWT_SECRET": uuid.uuid4().hex, "JWT_REFRESH_SECRET": uuid.uuid4().hex,
-        "DEFAULT_ADMIN_USERNAME": "offline_admin", "DEFAULT_ADMIN_PASSWORD": uuid.uuid4().hex,
+        # The application validates bootstrap passwords at startup.  A raw
+        # UUID is hexadecimal-only, so the disposable fixture must include
+        # upper/lower/digit/symbol classes without recording its value.
+        "DEFAULT_ADMIN_USERNAME": "offline_admin", "DEFAULT_ADMIN_PASSWORD": f"A{uuid.uuid4().hex}!9",
     }
     env_file.write_text("\n".join(f"{key}={value}" for key, value in env.items()) + "\n", encoding="utf-8")
     # Compose references these files through ACCEPTANCE_RUN_DIR.
@@ -374,7 +377,9 @@ def _compose_health_rehearsal(bundle: Path, identity: dict[str, Any], name: str,
                             statuses.append(response.status)
                     except Exception:
                         statuses.append(0)
-                if statuses[0:2] == [200, 200]:
+                # A reverse proxy that answers live/ready while the aggregate
+                # health endpoint fails is not a usable offline release.
+                if statuses == [200, 200, 200]:
                     return
             except Exception:
                 time.sleep(1)
@@ -419,7 +424,7 @@ def rehearse(bundle: Path) -> dict[str, Any]:
                 if probe.returncode or "offline-health-ok" not in probe.stdout:
                     raise BundleError(f"offline {name} health failed")
             results.append({"image": name, "health": "passed", "revision": identity["revision"], "digest": identity["digest"]})
-        return {"status": "passed", "run_id": run_id, "project": project, "candidate": results[0], "rollback": results[1], "cleanup": "manifest-owned-only"}
+        return {"status": "passed", "run_id": run_id, "project": project, "candidate": results[0], "rollback": results[1], "transition": "candidate-to-rollback", "cleanup": "manifest-owned-only"}
     finally:
         # Images are intentionally retained: they are the run's imported release
         # artifacts. No prune or foreign-resource deletion is permitted here.
