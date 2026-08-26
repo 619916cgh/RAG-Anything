@@ -50,3 +50,15 @@ codes, checksums, and sanitized status.
 - **THEN** the release record SHALL be `not-qualified`, clean up only its
   manifest-owned resources, and SHALL NOT use locally pre-existing images as
   substitute evidence
+
+### Requirement: Offline v2 provenance and supply-chain qualification
+An offline v2 package SHALL preserve byte-identical image archives from its
+immutable source package, separately bind Product Candidate, Rollback, and
+Package tooling revisions, and retain only sanitized inventory and recovery
+evidence. Qualification SHALL require a scanner and a verifiably current local
+vulnerability database; scanner/database absence SHALL be recorded as
+`scanner_database_unavailable` and SHALL remain not-qualified.
+
+#### Scenario: Local CVE database is unavailable
+- **WHEN** the offline scanner has no verifiably current local vulnerability database
+- **THEN** the record SHALL retain the scanner and cache status, SHALL NOT claim a current scan, and SHALL remain `not-qualified`

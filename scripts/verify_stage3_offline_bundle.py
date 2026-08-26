@@ -23,6 +23,12 @@ GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 VARNAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 DEFAULT_SUMS_SHA256 = "b7576624c7ed2cb1eddcc151b4681501ee726dc48929ea75f5e8b99309150d41"
 REQUIRED_ARCHIVES = {"candidate", "rollback", "postgres", "redis", "nginx"}
+TOOLING_FILES = {
+    "scripts/stage3_offline_release_bundle.py",
+    "scripts/verify_stage3_offline_bundle.py",
+    "scripts/stage3_offline_preflight.py",
+    "scripts/stage3_offline_release_dry_run.py",
+}
 
 
 class VerifyError(RuntimeError):
@@ -174,6 +180,47 @@ def _verify_migrations(bundle: Path, migration: dict[str, Any]) -> None:
             raise VerifyError("E_MIGRATION_CHECKSUM")
 
 
+def _verify_source(bundle: Path, identity: dict[str, Any]) -> None:
+    source = identity.get("source", {})
+    candidate = identity.get("candidate", {})
+    if not isinstance(source, dict) or source.get("revision") != candidate.get("revision"):
+        raise VerifyError("E_SOURCE")
+    relative = source.get("path")
+    if not isinstance(relative, str):
+        raise VerifyError("E_SOURCE")
+    target = bundle / "source" / relative
+    if target.is_symlink() or not target.is_file() or checksum(target) != source.get("sha256"):
+        raise VerifyError("E_SOURCE")
+    try:
+        with tarfile.open(target, "r") as archive:
+            if not archive.getmembers() or any(not _safe_member(member) for member in archive.getmembers()):
+                raise VerifyError("E_SOURCE")
+    except (tarfile.TarError, OSError) as exc:
+        raise VerifyError("E_SOURCE") from exc
+
+
+def _verify_tooling(bundle: Path, identity: dict[str, Any]) -> None:
+    tooling = identity.get("package_tooling", {})
+    files = tooling.get("files") if isinstance(tooling, dict) else None
+    if not GIT_SHA.fullmatch(str(tooling.get("revision", ""))) or not isinstance(files, dict) or set(files) != TOOLING_FILES:
+        raise VerifyError("E_TOOLING")
+    for relative in TOOLING_FILES:
+        target = bundle / "source" / "static" / relative
+        if not SHA.fullmatch(str(files.get(relative, ""))) or target.is_symlink() or not target.is_file() or checksum(target) != files[relative]:
+            raise VerifyError("E_TOOLING")
+
+
+def _verify_archive_provenance(bundle: Path, identity: dict[str, Any]) -> None:
+    provenance = identity.get("archive_provenance", {})
+    archives = provenance.get("archives") if isinstance(provenance, dict) else None
+    if not SHA.fullmatch(str(provenance.get("source_sha256sums", ""))) or not isinstance(archives, dict) or set(archives) != REQUIRED_ARCHIVES:
+        raise VerifyError("E_ARCHIVE_PROVENANCE")
+    for name in REQUIRED_ARCHIVES:
+        archive = bundle / "images" / f"{name}.tar"
+        if not SHA.fullmatch(str(archives.get(name, ""))) or not archive.is_file() or checksum(archive) != archives[name]:
+            raise VerifyError("E_ARCHIVE_PROVENANCE")
+
+
 def _verify_git(git_root: Path | None, candidate: str, rollback: str) -> None:
     if git_root is None:
         return
@@ -200,13 +247,19 @@ def verify(bundle: Path, *, expected_sums_sha256: str = DEFAULT_SUMS_SHA256, git
     except (OSError, json.JSONDecodeError) as exc:
         raise VerifyError("E_MANIFEST") from exc
     candidate, rollback = identity.get("candidate", {}), identity.get("rollback", {})
-    if not identity.get("non_production") or not all(isinstance(x, dict) for x in (candidate, rollback)):
+    legacy_bundle = checksum(sums) == DEFAULT_SUMS_SHA256 and identity.get("schema_version") == 2
+    if (identity.get("schema_version") not in ({2, 3} if legacy_bundle else {3})
+            or not identity.get("non_production") or not all(isinstance(x, dict) for x in (candidate, rollback))):
         raise VerifyError("E_IDENTITY")
     if not GIT_SHA.fullmatch(str(candidate.get("revision", ""))) or not GIT_SHA.fullmatch(str(rollback.get("revision", ""))):
         raise VerifyError("E_GIT_SHA")
     if identity.get("ancestry", {}).get("rollback_is_candidate_ancestor") is not True:
         raise VerifyError("E_GIT_ANCESTRY")
     _verify_git(git_root, candidate["revision"], rollback["revision"])
+    if not legacy_bundle:
+        _verify_source(bundle, identity)
+        _verify_tooling(bundle, identity)
+        _verify_archive_provenance(bundle, identity)
     for name in REQUIRED_ARCHIVES:
         archive = bundle / "images" / f"{name}.tar"
         expected = candidate if name == "candidate" else rollback if name == "rollback" else identity.get("dependencies", {}).get(name, {})

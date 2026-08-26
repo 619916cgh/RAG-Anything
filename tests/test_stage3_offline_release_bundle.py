@@ -22,11 +22,31 @@ def test_local_docker_gate_rejects_remote_context(monkeypatch):
 
 
 def test_verify_bundle_checksums_and_rejects_tamper(tmp_path):
+    (tmp_path / "images").mkdir()
     (tmp_path / "manifests").mkdir()
+    static = tmp_path / "source" / "static"
+    static.mkdir(parents=True)
     (tmp_path / "x.txt").write_text("ok", encoding="utf-8")
-    manifest = {"non_production": True, "candidate": {"platform": "linux/amd64"}, "rollback": {"platform": "linux/amd64"}}
+    for name in bundle.ARCHIVE_NAMES:
+        (tmp_path / "images" / f"{name}.tar").write_bytes(name.encode("ascii"))
+    tooling_files = {}
+    for relative in bundle.TOOLING_FILES:
+        target = static / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("tooling", encoding="utf-8")
+        tooling_files[relative] = bundle.sha256(target)
+    manifest = {
+        "schema_version": 3, "non_production": True,
+        "candidate": {"platform": "linux/amd64"}, "rollback": {"platform": "linux/amd64"},
+        "dependencies": {}, "package_tooling": {"revision": "a" * 40, "files": tooling_files},
+        "archive_provenance": {"archives": {name: bundle.sha256(tmp_path / "images" / f"{name}.tar") for name in bundle.ARCHIVE_NAMES}},
+    }
     (tmp_path / "manifests" / "oci-identity.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (tmp_path / "SHA256SUMS").write_text(f"{bundle.sha256(tmp_path / 'x.txt')}  x.txt\n{bundle.sha256(tmp_path / 'manifests' / 'oci-identity.json')}  manifests/oci-identity.json\n", encoding="utf-8")
+    sums = "\n".join(
+        f"{bundle.sha256(path)}  {path.relative_to(tmp_path).as_posix()}"
+        for path in sorted(tmp_path.rglob("*")) if path.is_file() and path.name != "SHA256SUMS"
+    ) + "\n"
+    (tmp_path / "SHA256SUMS").write_text(sums, encoding="utf-8")
     assert bundle.verify_bundle(tmp_path)["status"] == "ok"
     (tmp_path / "x.txt").write_text("tampered", encoding="utf-8")
     with pytest.raises(bundle.BundleError, match="checksum"):
@@ -37,13 +57,11 @@ def test_rehearse_imports_both_images_and_keeps_foreign_resources(monkeypatch, t
     (tmp_path / "images").mkdir()
     for name in ("candidate", "rollback", "postgres", "redis", "nginx"):
         (tmp_path / "images" / f"{name}.tar").write_bytes(b"tar")
-    (tmp_path / "manifests").mkdir()
-    identity = {"non_production": True, "candidate": {"platform": "linux/amd64", "revision": "a" * 40, "digest": "sha256:" + "1" * 64}, "rollback": {"platform": "linux/amd64", "revision": "b" * 40, "digest": "sha256:" + "2" * 64}}
-    (tmp_path / "manifests" / "oci-identity.json").write_text(json.dumps(identity), encoding="utf-8")
-    files = []
-    for p in tmp_path.rglob("*"):
-        if p.is_file() and p.name != "SHA256SUMS": files.append(f"{bundle.sha256(p)}  {p.relative_to(tmp_path).as_posix()}")
-    (tmp_path / "SHA256SUMS").write_text("\n".join(files) + "\n", encoding="utf-8")
+    identity = {
+        "candidate": {"reference": "candidate:test", "revision": "a" * 40, "digest": "sha256:" + "1" * 64},
+        "rollback": {"reference": "rollback:test", "revision": "b" * 40, "digest": "sha256:" + "2" * 64},
+        "dependencies": {name: {"reference": f"{name}:test", "digest": "sha256:" + digit * 64} for name, digit in (("postgres", "3"), ("redis", "4"), ("nginx", "5"))},
+    }
     calls = []
     def fake_run(cmd, **_kwargs):
         calls.append(cmd)
@@ -51,10 +69,41 @@ def test_rehearse_imports_both_images_and_keeps_foreign_resources(monkeypatch, t
         return type("R", (), {"returncode": 0, "stdout": stdout, "stderr": ""})()
     monkeypatch.setattr(bundle, "run", fake_run)
     monkeypatch.setattr(bundle, "validate_local_docker", lambda: None)
+    monkeypatch.setattr(bundle, "verify_bundle", lambda _bundle: identity)
+    monkeypatch.setattr(bundle, "_docker_inventory", lambda: {"images": {"foreign-image"}, "containers": {"foreign-container"}, "networks": {"foreign-network"}, "volumes": {"foreign-volume"}})
+    checked = []
+    monkeypatch.setattr(bundle, "_ensure_no_tag_conflict", lambda item: checked.append(item["reference"]))
+    monkeypatch.setattr(bundle, "_verify_imported_identity", lambda _item: None)
     result = bundle.rehearse(tmp_path)
     assert result["status"] == "passed"
-    assert [command[1] for command in calls if command[:2] != ["docker", "context"] and command[0] == "docker"] == ["load", "load", "load", "load", "run", "load", "run"]
+    assert [command[1] for command in calls if command[0] == "docker"] == ["load", "load", "load", "load", "load", "run", "run"]
+    assert checked == ["candidate:test", "rollback:test", "postgres:test", "redis:test", "nginx:test"]
     assert all("stage3.offline.run-id" in " ".join(command) for command in calls if command[0] == "docker" and command[1] == "run")
+
+
+def test_copy_archives_is_byte_exact_and_create_never_docker_saves(tmp_path):
+    source = tmp_path / "source"
+    (source / "images").mkdir(parents=True)
+    for name in bundle.ARCHIVE_NAMES:
+        (source / "images" / f"{name}.tar").write_bytes((name * 3).encode("ascii"))
+    sums = "\n".join(
+        f"{bundle.sha256(path)}  {path.relative_to(source).as_posix()}"
+        for path in sorted((source / "images").iterdir())
+    ) + "\n"
+    (source / "SHA256SUMS").write_text(sums, encoding="utf-8")
+    destination = tmp_path / "destination"
+    (destination / "images").mkdir(parents=True)
+    copied = bundle._copy_archives(source, destination, source_sums_sha256=bundle.sha256(source / "SHA256SUMS"))
+    assert copied["candidate"] == bundle.sha256(source / "images" / "candidate.tar")
+    assert (destination / "images" / "rollback.tar").read_bytes() == (source / "images" / "rollback.tar").read_bytes()
+    create_source = Path(bundle.__file__).read_text(encoding="utf-8").split("def create_bundle", 1)[1].split("def verify_bundle", 1)[0]
+    assert '"docker", "save"' not in create_source
+
+
+def test_foreign_tag_conflict_is_rejected_before_archive_load(monkeypatch):
+    monkeypatch.setattr(bundle, "run", lambda *_args, **_kwargs: type("R", (), {"returncode": 0, "stdout": json.dumps([{"Id": "sha256:" + "f" * 64}])})())
+    with pytest.raises(bundle.BundleError, match="foreign image tag conflict"):
+        bundle._ensure_no_tag_conflict({"reference": "foreign:tag", "digest": "sha256:" + "1" * 64})
 
 
 def test_runbook_has_names_only():
@@ -101,5 +150,9 @@ def test_compose_rehearsal_generates_policy_valid_bootstrap_password(monkeypatch
     bundle._compose_health_rehearsal(tmp_path, {"reference": "image"}, "candidate", "stage3-test-policy")
     env_file = Path(next(command[command.index("--env-file") + 1] for command in captured if "--env-file" in command))
     assert not env_file.exists()
-    # The source declares the four class bootstrap pattern and never persists it.
-    assert 'f"A{uuid.uuid4().hex}!9"' in Path(bundle.__file__).read_text(encoding="utf-8")
+    password = bundle._bootstrap_password()
+    assert len(password) >= 20
+    assert any(character.islower() for character in password)
+    assert any(character.isupper() for character in password)
+    assert any(character.isdigit() for character in password)
+    assert any(not character.isalnum() for character in password)

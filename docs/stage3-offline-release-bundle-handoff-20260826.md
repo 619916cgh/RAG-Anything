@@ -67,3 +67,28 @@ PostgreSQL、Redis 和 mock provider 已正常，但 App/Nginx health 未通过�
 故尚未取得两轮完整 candidate -> rollback clean-room evidence，也未执行新的
 disaster recovery。不得标记 `offline-release-qualified`、`production-deployed`
 或 `production-accepted`。
+
+## v2 重签与资格复核
+
+`D:\stage3-offline-release-bundle-20260826-v2` 以原包根摘要
+`b7576624c7ed2cb1eddcc151b4681501ee726dc48929ea75f5e8b99309150d41`
+为 provenance 输入，逐字节复制五个 archive；v2 的 76 文件根摘要为
+`e853de298fd8b487d3eea793943fc6f8dcc87e7a5333d8ea61f65cc1e69ff1ae`。
+manifest 分别绑定 Product Candidate `9798feddb37a9e8ade6ffdda9306df7ff33d8361`、
+Rollback `36c2ddaa01b5a2025d6d44980e174d1c2023be10` 与 Package tooling
+`695d94b96a55b02ca88e008963c3d7e83bf81024`。v2 verifier 通过，五个 archive
+checksum 与原包一致；bootstrap password 每个 clean-room run 都使用仅对子进程注入的
+策略合规 CSPRNG 值。
+
+两个独立 archive-only clean-room 已通过：
+`stage3-offline-422ee06b90f8` 和 `stage3-offline-783595c94836` 都完成 archive
+verify/import、candidate health、rollback health 与 cleanup。两轮前后 foreign Docker
+container/network/volume inventory count/hash 相同。Disposable PostgreSQL/Redis DR
+`stage3-v2-dr-3b6b83a5e078` 完成 synthetic RBAC/minimal-KB backup、destroy、restore，
+并恢复 40 条 migration history、5 个 canonical roles、1 个 synthetic user、1 个 KB。
+
+Docker Scout `v1.23.1` 的本地 archive SBOM 生成已启动；其 cache 显示没有本地 CVE
+database 或 cached SBOM。因此 vulnerability snapshot 必须记录
+`scanner_database_unavailable`，不得表述为最新扫描。在提供可验证的离线 CVE database
+及扫描时间前，**v2 仍为 not-qualified**，不得标记 `offline-release-qualified`。
+本轮未访问云端、未生产部署、未生产迁移、未操作生产数据。

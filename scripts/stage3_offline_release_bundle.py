@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import tarfile
@@ -25,6 +26,7 @@ from typing import Any, Iterable
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 SENSITIVE = re.compile(r"(?:password|secret|token|api[_-]?key|authorization|dsn|database[_-]?url|credential)", re.I)
 SECRET_VALUE = re.compile(r"(?:postgres(?:ql)?://|redis://|https?://[^\s]+:[^\s@]+@|-----BEGIN [^-]+ PRIVATE KEY-----|(?<![A-Za-z0-9_])(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{12,})", re.I)
@@ -35,12 +37,18 @@ STATIC_FILES = (
     "scripts/run_isolated_acceptance.py", "tests/acceptance/compose.yml",
     "tests/acceptance/nginx.conf", "tests/acceptance/pgvector-init.sql",
     "tests/acceptance/mock_video_provider.py",
-    "scripts/stage3_offline_release_bundle.py",
     "docs/postgresql-migration-release-runbook.md",
     "docs/ops/release-operations-runbook.md",
     "docs/isolated-release-acceptance.md",
     "deploy/prometheus/release-scrape-inventory.yml",
     "deploy/prometheus/release-operations-alerts.yml",
+)
+ARCHIVE_NAMES = ("candidate", "rollback", "postgres", "redis", "nginx")
+TOOLING_FILES = (
+    "scripts/stage3_offline_release_bundle.py",
+    "scripts/verify_stage3_offline_bundle.py",
+    "scripts/stage3_offline_preflight.py",
+    "scripts/stage3_offline_release_dry_run.py",
 )
 
 
@@ -125,18 +133,82 @@ def inspect_dependency(reference: str) -> dict[str, Any]:
     return {"reference": reference, "digest": digest, "platform": platform, "repo_digests": repo_digests}
 
 
-def _copy_static(candidate_root: Path, destination: Path) -> list[dict[str, str]]:
+def _git_file(root: Path, revision: str, relative: str) -> bytes:
+    if not FULL_SHA.fullmatch(revision or "") or not (root / ".git").exists():
+        raise BundleError("package tooling revision or root is invalid")
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{relative}"], cwd=root,
+        capture_output=True, timeout=60, check=False,
+    )
+    if result.returncode:
+        raise BundleError(f"package tooling file is missing: {relative}")
+    return result.stdout
+
+
+def _copy_static(candidate_root: Path, destination: Path, *, tooling_root: Path, tooling_revision: str) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     relatives = list(STATIC_FILES)
+    relatives.extend(TOOLING_FILES)
     relatives.extend(f"migrations/{path.name}" for path in sorted((candidate_root / "migrations").glob("*.sql")))
     for relative in relatives:
-        source = Path(__file__).resolve() if relative == "scripts/stage3_offline_release_bundle.py" else candidate_root / relative
-        if not source.is_file():
-            raise BundleError(f"required static release file is missing: {relative}")
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        if relative in TOOLING_FILES:
+            # Package tooling is copied from the explicitly recorded commit,
+            # never from the concurrent, potentially dirty coordinator tree.
+            target.write_bytes(_git_file(tooling_root, tooling_revision, relative))
+        else:
+            source = candidate_root / relative
+            if not source.is_file():
+                raise BundleError(f"required static release file is missing: {relative}")
+            shutil.copy2(source, target)
         records.append({"path": relative, "sha256": sha256(target)})
+    return records
+
+
+def _checked_files(bundle: Path, sums: Path) -> set[str]:
+    if not sums.is_file():
+        raise BundleError("archive source SHA256SUMS is missing")
+    listed: set[str] = set()
+    for line in sums.read_text(encoding="utf-8").splitlines():
+        try:
+            digest, relative = line.split("  ", 1)
+        except ValueError as exc:
+            raise BundleError("archive source checksum format is invalid") from exc
+        relative_path = Path(relative)
+        if (not re.fullmatch(r"[0-9a-f]{64}", digest) or relative_path.is_absolute()
+                or ".." in relative_path.parts or relative in listed):
+            raise BundleError("archive source checksum path is invalid")
+        target = bundle / relative_path
+        if target.is_symlink() or not target.is_file() or sha256(target) != digest:
+            raise BundleError("archive source checksum mismatch")
+        listed.add(relative)
+    for entry in bundle.rglob("*"):
+        if entry.is_symlink():
+            raise BundleError("archive source contains a symlink")
+    actual = {entry.relative_to(bundle).as_posix() for entry in bundle.rglob("*") if entry.is_file() and entry != sums}
+    if listed != actual:
+        raise BundleError("archive source allowlist mismatch")
+    return listed
+
+
+def _copy_archives(source_bundle: Path, destination: Path, *, source_sums_sha256: str) -> dict[str, str]:
+    source_bundle = source_bundle.resolve()
+    source_sums = source_bundle / "SHA256SUMS"
+    if not source_bundle.is_dir() or not SHA256.fullmatch(source_sums_sha256 or "") or sha256(source_sums) != source_sums_sha256:
+        raise BundleError("archive source identity mismatch")
+    _checked_files(source_bundle, source_sums)
+    records: dict[str, str] = {}
+    for name in ARCHIVE_NAMES:
+        source = source_bundle / "images" / f"{name}.tar"
+        target = destination / "images" / f"{name}.tar"
+        if source.is_symlink() or not source.is_file():
+            raise BundleError(f"archive source is missing: {name}")
+        shutil.copyfile(source, target)
+        source_digest = sha256(source)
+        if sha256(target) != source_digest:
+            raise BundleError(f"archive copy checksum mismatch: {name}")
+        records[name] = source_digest
     return records
 
 
@@ -214,15 +286,28 @@ Do not record secrets, DSNs, Authorization headers, user data, provider response
 """
 
 
-def create_bundle(*, candidate_root: Path, rollback_root: Path, candidate_revision: str, rollback_revision: str, candidate_image: str, candidate_digest: str, rollback_image: str, rollback_digest: str, evidence: Path, output: Path) -> Path:
-    validate_local_docker()
+def create_bundle(*, candidate_root: Path, rollback_root: Path, candidate_revision: str, rollback_revision: str, candidate_image: str, candidate_digest: str, rollback_image: str, rollback_digest: str, evidence: Path, output: Path, archive_source: Path, archive_source_sums_sha256: str, tooling_root: Path, tooling_revision: str) -> Path:
     validate_checkout(candidate_root, candidate_revision)
     validate_checkout(rollback_root, rollback_revision)
     if run(["git", "merge-base", "--is-ancestor", rollback_revision, candidate_revision], cwd=candidate_root).returncode:
         raise BundleError("rollback is not a candidate ancestor")
-    candidate = inspect_image(candidate_image, candidate_revision, candidate_digest)
-    rollback = inspect_image(rollback_image, rollback_revision, rollback_digest)
-    if candidate["digest"] == rollback["digest"] or candidate["revision"] == rollback["revision"]:
+    if not FULL_SHA.fullmatch(tooling_revision or ""):
+        raise BundleError("package tooling revision must be a full SHA")
+    archive_source = archive_source.resolve()
+    try:
+        original_identity = json.loads((archive_source / "manifests" / "oci-identity.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BundleError("archive source identity manifest is invalid") from exc
+    candidate = original_identity.get("candidate", {})
+    rollback = original_identity.get("rollback", {})
+    dependencies = original_identity.get("dependencies", {})
+    if not all(isinstance(item, dict) for item in (candidate, rollback, dependencies)):
+        raise BundleError("archive source identity manifest is invalid")
+    if (candidate.get("reference") != candidate_image or candidate.get("revision") != candidate_revision
+            or candidate.get("digest") != candidate_digest or rollback.get("reference") != rollback_image
+            or rollback.get("revision") != rollback_revision or rollback.get("digest") != rollback_digest):
+        raise BundleError("archive source candidate or rollback identity mismatch")
+    if candidate_digest == rollback_digest or candidate_revision == rollback_revision:
         raise BundleError("candidate and rollback identities must differ")
     evidence = evidence.resolve()
     if not evidence.is_file() or evidence.stat().st_size > 2 * 1024 * 1024:
@@ -243,15 +328,10 @@ def create_bundle(*, candidate_root: Path, rollback_root: Path, candidate_revisi
         (output / "manifests").mkdir()
         (output / "evidence").mkdir()
         (output / "requirements").mkdir()
-        subprocess.run(["docker", "save", "--output", str(output / "images" / "candidate.tar"), candidate_image], capture_output=True, text=True, timeout=600, check=True)
-        subprocess.run(["docker", "save", "--output", str(output / "images" / "rollback.tar"), rollback_image], capture_output=True, text=True, timeout=600, check=True)
-        dependencies = {}
-        for name, reference in (("postgres", "pgvector/pgvector:pg16"), ("redis", "redis:7-alpine"), ("nginx", "nginx:alpine")):
-            dependencies[name] = inspect_dependency(reference)
-            subprocess.run(["docker", "save", "--output", str(output / "images" / f"{name}.tar"), reference], capture_output=True, text=True, timeout=600, check=True)
+        archive_checksums = _copy_archives(archive_source, output, source_sums_sha256=archive_source_sums_sha256)
         source = _source_archive(candidate_root, candidate_revision, output / "source" / "candidate.tar")
         shutil.copy2(evidence, output / "evidence" / "stage3-evidence.json")
-        static = _copy_static(candidate_root, output / "source" / "static")
+        static = _copy_static(candidate_root, output / "source" / "static", tooling_root=tooling_root.resolve(), tooling_revision=tooling_revision)
         _write_text(output / "requirements" / "secret-references.txt", "DATABASE_URL\nJWT_SECRET\nJWT_REFRESH_SECRET\nDEFAULT_ADMIN_PASSWORD\nLLM_BINDING_API_KEY\nEMBEDDING_API_KEY\nPGPASSFILE\nSSH_KEY_REFERENCE\n")
         _write_text(output / "requirements" / "host-prerequisites.txt", "CPU: minimum 4 vCPU\nMemory: minimum 8 GiB\nDisk: minimum 40 GiB free plus image/archive headroom\nDocker Engine: current supported release with linux/amd64\nDocker Compose: v2\nNetwork: loopback disposable rehearsal; approved outbound access only after operator authorization\nPorts: application/proxy ports selected by the new-server operator\n")
         _write_text(output / "runbook.md", _runbook(candidate_revision, rollback_revision))
@@ -260,10 +340,13 @@ def create_bundle(*, candidate_root: Path, rollback_root: Path, candidate_revisi
         handoff = candidate_root / "docs" / "stage3-rehearsal-handoff-20260826.md"
         if not handoff.is_file():
             raise BundleError("independent rollback handoff evidence is missing")
-        identity = {"schema_version": 2, "candidate": candidate, "rollback": rollback, "dependencies": dependencies, "source": source,
+        tooling_files = {item["path"]: item["sha256"] for item in static if item["path"] in TOOLING_FILES}
+        identity = {"schema_version": 3, "candidate": candidate, "rollback": rollback, "package_tooling": {"revision": tooling_revision, "files": tooling_files}, "dependencies": dependencies, "source": source,
                     "ancestry": {"rollback_is_candidate_ancestor": True, "proof": "git-merge-base-is-ancestor"},
                     "independent_rollback_evidence": {"artifact": "stage3-rehearsal-handoff-20260826.md", "sha256": sha256(handoff)},
-                    "formal_evidence_sha256": sha256(output / "evidence" / "stage3-evidence.json"), "non_production": True}
+                    "formal_evidence_sha256": sha256(output / "evidence" / "stage3-evidence.json"),
+                    "archive_provenance": {"source_sha256sums": archive_source_sums_sha256, "archives": archive_checksums},
+                    "non_production": True}
         (output / "manifests" / "oci-identity.json").write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         scripts = {item["path"]: item["sha256"] for item in static if item["path"] in {"deploy.ps1", "deploy/fast-release/remote-release.sh"}}
         (output / "manifests" / "deploy-script-checksums.json").write_text(json.dumps(scripts, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -285,6 +368,8 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
     sums = bundle / "SHA256SUMS"
     if not sums.is_file():
         raise BundleError("SHA256SUMS is missing")
+    if any(path.is_symlink() for path in bundle.rglob("*")):
+        raise BundleError("bundle contains a symlink")
     checked = 0
     listed: set[str] = set()
     for line in sums.read_text(encoding="utf-8").splitlines():
@@ -303,8 +388,23 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
     if listed != actual:
         raise BundleError("checksum manifest does not cover the complete bundle")
     manifest = json.loads((bundle / "manifests" / "oci-identity.json").read_text(encoding="utf-8"))
-    if not manifest.get("non_production") or manifest.get("candidate", {}).get("platform") != "linux/amd64" or manifest.get("rollback", {}).get("platform") != "linux/amd64":
+    tooling = manifest.get("package_tooling", {})
+    provenance = manifest.get("archive_provenance", {})
+    if (manifest.get("schema_version") != 3 or not manifest.get("non_production")
+            or manifest.get("candidate", {}).get("platform") != "linux/amd64"
+            or manifest.get("rollback", {}).get("platform") != "linux/amd64"
+            or not FULL_SHA.fullmatch(str(tooling.get("revision", "")))
+            or not isinstance(tooling.get("files"), dict)
+            or not isinstance(provenance.get("archives"), dict)):
         raise BundleError("invalid OCI identity manifest")
+    for name in ARCHIVE_NAMES:
+        archive = bundle / "images" / f"{name}.tar"
+        if provenance["archives"].get(name) != sha256(archive):
+            raise BundleError("bundle archive provenance mismatch")
+    for relative in TOOLING_FILES:
+        target = bundle / "source" / "static" / relative
+        if tooling["files"].get(relative) != sha256(target):
+            raise BundleError("bundle package tooling mismatch")
     for path in bundle.rglob("*"):
         # Source and Compose templates necessarily contain literal protocol
         # strings.  The release security boundary is bundle evidence and the
@@ -313,7 +413,7 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
             text = path.read_bytes()[:2 * 1024 * 1024]
             if SECRET_VALUE.search(text.decode("utf-8", errors="ignore")):
                 raise BundleError("bundle secret scan failed")
-    return {"status": "ok", "files_checked": checked, "candidate": manifest["candidate"], "rollback": manifest["rollback"]}
+    return {"status": "ok", "files_checked": checked, "candidate": manifest["candidate"], "rollback": manifest["rollback"], "dependencies": manifest["dependencies"]}
 
 
 def _compose_health_rehearsal(bundle: Path, identity: dict[str, Any], name: str, project: str) -> None:
@@ -343,10 +443,7 @@ def _compose_health_rehearsal(bundle: Path, identity: dict[str, Any], name: str,
         "POSTGRES_DATABASE": database_name,
         "DATABASE_URL": f"postgresql://offline:{postgres_password}@postgres:5432/{database_name}",
         "JWT_SECRET": uuid.uuid4().hex, "JWT_REFRESH_SECRET": uuid.uuid4().hex,
-        # The application validates bootstrap passwords at startup.  A raw
-        # UUID is hexadecimal-only, so the disposable fixture must include
-        # upper/lower/digit/symbol classes without recording its value.
-        "DEFAULT_ADMIN_USERNAME": "offline_admin", "DEFAULT_ADMIN_PASSWORD": f"A{uuid.uuid4().hex}!9",
+        "DEFAULT_ADMIN_USERNAME": "offline_admin", "DEFAULT_ADMIN_PASSWORD": _bootstrap_password(),
     }
     env_file.write_text("\n".join(f"{key}={value}" for key, value in env.items()) + "\n", encoding="utf-8")
     # Compose references these files through ACCEPTANCE_RUN_DIR.
@@ -393,6 +490,60 @@ def _compose_health_rehearsal(bundle: Path, identity: dict[str, Any], name: str,
             raise BundleError(f"offline {name} temporary cleanup failed")
 
 
+def _docker_inventory() -> dict[str, set[str]]:
+    commands = {
+        "images": ["docker", "image", "ls", "--all", "--no-trunc", "--format", "{{.ID}}\t{{.Repository}}\t{{.Tag}}"],
+        "containers": ["docker", "ps", "--all", "--no-trunc", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Labels}}"],
+        "networks": ["docker", "network", "ls", "--no-trunc", "--format", "{{.ID}}\t{{.Name}}\t{{.Driver}}"],
+        "volumes": ["docker", "volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Labels}}"],
+    }
+    inventory: dict[str, set[str]] = {}
+    for name, command in commands.items():
+        result = run(command, timeout=60)
+        if result.returncode:
+            raise BundleError("Docker inventory failed")
+        inventory[name] = {line for line in result.stdout.splitlines() if line}
+    return inventory
+
+
+def _inventory_summary(inventory: dict[str, set[str]]) -> dict[str, dict[str, int | str]]:
+    return {
+        name: {"count": len(values), "sha256": hashlib.sha256("\n".join(sorted(values)).encode("utf-8")).hexdigest()}
+        for name, values in inventory.items()
+    }
+
+
+def _bootstrap_password() -> str:
+    # The fixed prefix satisfies the App's four character-class policy; the
+    # suffix remains a fresh CSPRNG value for every disposable Compose run.
+    return "Aa1!" + secrets.token_hex(16)
+
+
+def _ensure_no_tag_conflict(identity: dict[str, Any]) -> None:
+    reference = str(identity.get("reference", ""))
+    digest = str(identity.get("digest", ""))
+    result = run(["docker", "image", "inspect", reference], timeout=60)
+    if result.returncode:
+        return
+    try:
+        loaded = json.loads(result.stdout)[0]
+    except (json.JSONDecodeError, IndexError, TypeError) as exc:
+        raise BundleError("existing image tag inspection is invalid") from exc
+    if loaded.get("Id") != digest:
+        raise BundleError("foreign image tag conflict")
+
+
+def _verify_imported_identity(identity: dict[str, Any]) -> None:
+    reference = str(identity.get("reference", ""))
+    result = run(["docker", "image", "inspect", reference], timeout=60)
+    try:
+        loaded = json.loads(result.stdout)[0]
+    except (json.JSONDecodeError, IndexError, TypeError) as exc:
+        raise BundleError("archive import identity inspection is invalid") from exc
+    if result.returncode or loaded.get("Id") != identity.get("digest"):
+        raise BundleError("archive import identity mismatch")
+
+
 def rehearse(bundle: Path) -> dict[str, Any]:
     verified = verify_bundle(bundle)
     run_id = f"stage3-offline-{uuid.uuid4().hex[:12]}"
@@ -401,20 +552,23 @@ def rehearse(bundle: Path) -> dict[str, Any]:
         "--label", f"raganything.stage3.offline.run-id={run_id}",
         "--label", f"com.docker.compose.project={project}",
     ]
+    identities = {"candidate": verified["candidate"], "rollback": verified["rollback"], **verified["dependencies"]}
+    before = _docker_inventory()
     results: list[dict[str, str]] = []
     try:
-        for dependency in ("postgres", "redis", "nginx"):
-            archive = bundle.resolve() / "images" / f"{dependency}.tar"
-            if not archive.is_file():
-                raise BundleError(f"offline {dependency} image archive is missing")
-            loaded = run(["docker", "load", "--input", str(archive)], timeout=600)
-            if loaded.returncode:
-                raise BundleError(f"offline {dependency} image import failed")
-        for name in ("candidate", "rollback"):
+        for name in ARCHIVE_NAMES:
+            identity = identities.get(name)
+            if not isinstance(identity, dict):
+                raise BundleError(f"offline {name} identity is missing")
+            _ensure_no_tag_conflict(identity)
             archive = bundle.resolve() / "images" / f"{name}.tar"
+            if not archive.is_file():
+                raise BundleError(f"offline {name} image archive is missing")
             loaded = run(["docker", "load", "--input", str(archive)], timeout=600)
             if loaded.returncode:
                 raise BundleError(f"offline {name} image import failed")
+            _verify_imported_identity(identity)
+        for name in ("candidate", "rollback"):
             identity = verified[name]
             compose_file = bundle.resolve() / "source" / "static" / "tests" / "acceptance" / "compose.yml"
             if compose_file.is_file():
@@ -424,7 +578,12 @@ def rehearse(bundle: Path) -> dict[str, Any]:
                 if probe.returncode or "offline-health-ok" not in probe.stdout:
                     raise BundleError(f"offline {name} health failed")
             results.append({"image": name, "health": "passed", "revision": identity["revision"], "digest": identity["digest"]})
-        return {"status": "passed", "run_id": run_id, "project": project, "candidate": results[0], "rollback": results[1], "transition": "candidate-to-rollback", "cleanup": "manifest-owned-only"}
+        after = _docker_inventory()
+        if not all(before[name].issubset(after[name]) for name in before):
+            raise BundleError("foreign Docker inventory changed")
+        if any(before[name] != after[name] for name in ("containers", "networks", "volumes")):
+            raise BundleError("run-owned Docker cleanup is incomplete")
+        return {"status": "passed", "run_id": run_id, "project": project, "candidate": results[0], "rollback": results[1], "transition": "candidate-to-rollback", "cleanup": "manifest-owned-only", "inventory": {"before": _inventory_summary(before), "after": _inventory_summary(after)}}
     finally:
         # Images are intentionally retained: they are the run's imported release
         # artifacts. No prune or foreign-resource deletion is permitted here.
@@ -435,14 +594,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("create")
-    for name in ("candidate-root", "rollback-root", "candidate-revision", "rollback-revision", "candidate-image", "candidate-digest", "rollback-image", "rollback-digest", "evidence", "output"):
-        create.add_argument(f"--{name}", required=True, type=Path if name.endswith(("root", "evidence", "output")) else str)
+    for name in ("candidate-root", "rollback-root", "candidate-revision", "rollback-revision", "candidate-image", "candidate-digest", "rollback-image", "rollback-digest", "evidence", "output", "archive-source", "archive-source-sums-sha256", "tooling-root", "tooling-revision"):
+        create.add_argument(f"--{name}", required=True, type=Path if name.endswith(("root", "evidence", "output", "source")) else str)
     verify = sub.add_parser("verify"); verify.add_argument("--bundle", required=True, type=Path)
     rehearse_cmd = sub.add_parser("rehearse"); rehearse_cmd.add_argument("--bundle", required=True, type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == "create":
-            result = {"bundle": str(create_bundle(candidate_root=args.candidate_root, rollback_root=args.rollback_root, candidate_revision=args.candidate_revision, rollback_revision=args.rollback_revision, candidate_image=args.candidate_image, candidate_digest=args.candidate_digest, rollback_image=args.rollback_image, rollback_digest=args.rollback_digest, evidence=args.evidence, output=args.output))}
+            result = {"bundle": str(create_bundle(candidate_root=args.candidate_root, rollback_root=args.rollback_root, candidate_revision=args.candidate_revision, rollback_revision=args.rollback_revision, candidate_image=args.candidate_image, candidate_digest=args.candidate_digest, rollback_image=args.rollback_image, rollback_digest=args.rollback_digest, evidence=args.evidence, output=args.output, archive_source=args.archive_source, archive_source_sums_sha256=args.archive_source_sums_sha256, tooling_root=args.tooling_root, tooling_revision=args.tooling_revision))}
         elif args.command == "verify": result = verify_bundle(args.bundle)
         else: result = rehearse(args.bundle)
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
