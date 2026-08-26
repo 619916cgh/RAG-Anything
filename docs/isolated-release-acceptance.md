@@ -35,3 +35,28 @@ The `migration-failure` command must prove that an intentional failure prevents 
 `isolated-preproduction-pass` establishes only the completed isolated stages. External model providers, video E2E, browser UAT, and production approval remain deferred unless independently evidenced. A failed, skipped, missing, or unsafe stage always writes `not-releasable` evidence.
 
 Production migration still requires the verified backup, `status` and `plan` preflight, manual approval, and the rollback rules in `docs/postgresql-migration-release-runbook.md`.
+
+## Stage 3 Readiness Rehearsal
+
+`scripts/stage3_production_readiness.py` coordinates a stricter disposable
+rehearsal around this fixed driver. It accepts only a clean detached candidate,
+local `desktop-linux` Docker, a full candidate SHA, two distinct locally
+inspected image identities, an isolated `stage3_` database identifier, a
+verified disposable backup bundle, an empty temporary restore root, and a
+temporary working directory. It records hashes and aggregate stage outcomes in
+`stage3-evidence.json`; it never records DSNs, credentials, paths, image refs,
+or source content.
+
+The coordinator has no arbitrary stage-command argument and never invokes
+`deploy.ps1` or the remote release script. Its fixed stages are candidate
+inventory, backup verify/isolated restore validation, this Compose acceptance
+driver, disposable rollback identity rehearsal, and owned cleanup. Dependency,
+fixture, launcher, Compose, browser, and network failures can consume at most
+two repair retries and ten minutes total by default. Target identity,
+backup/restore, secret/data-integrity, image identity, and rollback failures
+are hard stops. Any failed, skipped, environment-blocked, or cleanup stage is
+`not-releasable`.
+
+Stage 3 does not authorize production deployment, production migration,
+production backup/restore, or production data changes. Real provider and
+browser acceptance remain deferred unless separately executed and evidenced.
