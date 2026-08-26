@@ -64,12 +64,14 @@ class ImageIdentity:
     revision: str
     digest: str
     fingerprint: str
+    platform: str = "linux/amd64"
+    import_smoke: str = "passed"
 
 
 @dataclass
 class RepairBudget:
-    attempts_per_stage: int = 2
-    timeout_seconds: int = 600
+    attempts_per_stage: int = 3
+    timeout_seconds: int = 900
     started: float = field(default_factory=time.monotonic)
     repairs: list[dict[str, object]] = field(default_factory=list)
 
@@ -166,13 +168,22 @@ def validate_local_docker() -> None:
 def inspect_image(image: str, expected_revision: str, expected_digest: str) -> ImageIdentity:
     if not image or not DIGEST.fullmatch(expected_digest or ""):
         raise Stage3Error("image_identity", "an expected local image digest is required")
-    result = _docker(["docker", "image", "inspect", image, "--format", "{{.Id}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}"])
+    result = _docker(["docker", "image", "inspect", image, "--format", "{{.Id}}|{{.Os}}|{{.Architecture}}|{{json .RepoDigests}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}"])
     if result.returncode:
         raise Stage3Error("image_identity", "candidate image could not be inspected")
-    digest, separator, revision = result.stdout.strip().partition("|")
-    if not separator or digest != expected_digest or revision != expected_revision:
+    parts = result.stdout.strip().split("|", 4)
+    if len(parts) != 5:
         raise Stage3Error("image_identity", "candidate image identity does not match the candidate")
-    return ImageIdentity(revision=revision, digest=digest, fingerprint=_hash(f"{revision}:{digest}"))
+    digest, os_name, architecture, repo_digests, revision = parts
+    platform = f"{os_name}/{architecture}"
+    if digest != expected_digest or revision != expected_revision or platform != "linux/amd64":
+        raise Stage3Error("image_identity", "candidate image identity does not match the candidate")
+    if expected_digest not in repo_digests:
+        raise Stage3Error("image_identity", "image manifest digest is not fixed")
+    smoke = _docker(["docker", "run", "--platform", "linux/amd64", "--rm", image, "python", "-c", "import fastapi, asyncpg; print('stage3-import-ok')"])
+    if smoke.returncode or "stage3-import-ok" not in smoke.stdout:
+        raise Stage3Error("image_identity", "image Python import smoke failed")
+    return ImageIdentity(revision=revision, digest=digest, fingerprint=_hash(f"{revision}:{digest}"), platform=platform, import_smoke="passed")
 
 
 def _failure_class(exc: Exception) -> str:
@@ -295,9 +306,12 @@ def _fixed_acceptance_runner(
     driver = candidate_root / "scripts" / "run_isolated_acceptance.py"
     if not driver.is_file():
         raise Stage3Error("launcher", "candidate acceptance driver is missing")
-    run_dir = working_dir / "fixed-acceptance"
+    attempt_number = 0
 
     def run() -> dict[str, object]:
+        nonlocal attempt_number
+        attempt_number += 1
+        run_dir = working_dir / f"fixed-acceptance-{attempt_number}"
         env = dict(os.environ)
         for name in ("DATABASE_URL", "POSTGRES_PASSWORD", "DEFAULT_ADMIN_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET"):
             env.pop(name, None)
@@ -309,14 +323,19 @@ def _fixed_acceptance_runner(
             timeout=1_200, check=False,
         )
         if result.returncode:
-            raise RuntimeError("compose fixed acceptance failed")
+            phase_file = run_dir / "video-stage-phase.txt"
+            phase = phase_file.read_text(encoding="ascii").strip() if phase_file.is_file() else "unknown"
+            raise Stage3Error("compose", f"compose fixed acceptance failed phase={phase}")
         try:
             response = json.loads(result.stdout.strip().splitlines()[-1])
         except (IndexError, json.JSONDecodeError) as exc:
             raise RuntimeError("launcher emitted invalid acceptance result") from exc
         if response.get("release_recommendation") != "isolated-preproduction-pass":
-            raise RuntimeError("compose fixed acceptance was not releasable")
-        return {"recommendation": "isolated-preproduction-pass"}
+            raise Stage3Error("compose", "compose fixed acceptance was not releasable")
+        stages = response.get("stages")
+        if not isinstance(stages, list) or not stages or any(not isinstance(item, dict) for item in stages):
+            raise Stage3Error("compose", "acceptance evidence has no valid stage manifest")
+        return {"recommendation": "isolated-preproduction-pass", "run_id": response.get("run_id"), "stages": stages, "cleanup": next((item for item in stages if item.get("name") == "cleanup"), {})}
 
     return run
 
@@ -358,7 +377,7 @@ def run_rehearsal(
     recovery_runner: Callable[[], dict[str, object]] | None = None,
     rollback_runner: Callable[[ImageIdentity, ImageIdentity], dict[str, object]] | None = None,
 ) -> dict[str, object]:
-    if not 1 <= repair_attempts <= 2 or not 1 <= repair_timeout_seconds <= 600:
+    if not 1 <= repair_attempts <= 3 or not 1 <= repair_timeout_seconds <= 900:
         raise Stage3Error("target_identity", "repair budget can only be tightened from its safe defaults")
     target = _safe_target(target_id)
     workdir = _temp_descendant(working_dir)
@@ -382,6 +401,8 @@ def run_rehearsal(
         "non_production": True,
         "candidate_revision": revision,
         "candidate_image_fingerprint": candidate.fingerprint,
+        "candidate_image": {"revision": candidate.revision, "digest": candidate.digest, "platform": candidate.platform, "import_smoke": candidate.import_smoke},
+        "rollback_image": {"revision": rollback.revision, "digest": rollback.digest, "platform": rollback.platform, "import_smoke": rollback.import_smoke},
         "target_fingerprint": _hash(f"{target}:{isolated_db}"),
         "stages": stages,
         "repair_summary": budget.repairs,
@@ -397,12 +418,20 @@ def run_rehearsal(
             return payload
         if acceptance_runner is None:
             raise Stage3Error("environment_blocked", "fixed acceptance runner was not supplied")
-        stages.append(_record_stage("acceptance", acceptance_runner, budget)[0])
-        if stages[-1]["outcome"] != "passed":
+        acceptance_stage, acceptance_ok = _record_stage("acceptance", acceptance_runner, budget)
+        stages.append(acceptance_stage)
+        if isinstance(acceptance_stage.get("detail"), dict) and isinstance(acceptance_stage["detail"].get("stages"), list):
+            payload["acceptance_stages"] = acceptance_stage["detail"]["stages"]
+        if not acceptance_ok:
             return payload
         if rollback_runner is None:
             raise Stage3Error("rollback", "a fixed disposable rollback acceptance runner is required")
-        stages.append(_record_stage("rollback", lambda: rollback_runner(candidate, rollback), budget)[0])
+        rollback_stage, rollback_ok = _record_stage("rollback", lambda: rollback_runner(candidate, rollback), budget)
+        stages.append(rollback_stage)
+        if isinstance(rollback_stage.get("detail"), dict):
+            payload["rollback_detail"] = rollback_stage["detail"]
+        if not rollback_ok:
+            return payload
         return payload
     finally:
         cleanup_outcome = "passed"
@@ -443,8 +472,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--recovery-pguser", required=True)
     parser.add_argument("--recovery-pgpassfile", type=Path, required=True)
     parser.add_argument("--video-fixture", type=Path, required=True)
-    parser.add_argument("--repair-attempts", type=int, default=2)
-    parser.add_argument("--repair-timeout-seconds", type=int, default=600)
+    parser.add_argument("--repair-attempts", type=int, default=3)
+    parser.add_argument("--repair-timeout-seconds", type=int, default=900)
     args = parser.parse_args(argv)
     if not args.non_production:
         return 2

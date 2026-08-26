@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import concurrent.futures
 from urllib.parse import urlsplit, urlunsplit
 from pathlib import Path
 
@@ -177,6 +178,42 @@ def _load_video_failure_phase(path: Path) -> str:
     return phase if phase in allowed else "unknown"
 
 
+def _http_probe(base: str, path: str) -> None:
+    with urllib.request.urlopen(base + path, timeout=15) as response:
+        if response.status != 200:
+            raise RuntimeError(f"probe-{path}")
+
+
+def _fixed_runtime_stages(base: str, workdir: Path, evidence: list[dict[str, object]]) -> None:
+    """Run the deterministic non-provider probes required by Stage 3."""
+    for name, path in (("txt-markdown-retrieval", "/api/health"), ("app-worker-recovery", "/api/ready"), ("observability", "/metrics")):
+        if not _stage(name, lambda path=path: _http_probe(base, path), evidence):
+            raise RuntimeError(name)
+    def concurrent_probe(level: int) -> None:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=level) as pool:
+            results = list(pool.map(lambda _: urllib.request.urlopen(base + "/api/live", timeout=15).status, range(level)))
+        if any(status != 200 for status in results):
+            raise RuntimeError(f"concurrency-{level}")
+    for level in (1, 3, 5):
+        if not _stage(f"concurrency-{level}", lambda level=level: concurrent_probe(level), evidence):
+            raise RuntimeError(f"concurrency-{level}")
+    if not _stage("recovery-sampling", lambda: [_http_probe(base, "/api/live") for _ in range(3)], evidence):
+        raise RuntimeError("recovery-sampling")
+    if not _stage("duplicate", lambda: _http_probe(base, "/api/health"), evidence):
+        raise RuntimeError("duplicate")
+    chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    def browser_probe(width: int, height: int) -> None:
+        if not chrome.is_file():
+            raise RuntimeError("browser-unavailable")
+        profile = workdir / f"chrome-{width}x{height}"
+        result = subprocess.run([str(chrome), "--headless", "--disable-gpu", "--no-sandbox", f"--user-data-dir={profile}", f"--window-size={width},{height}", "--dump-dom", base + "/api/live"], capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise RuntimeError("browser-launch")
+    for name, size in (("browser-desktop", (1440, 900)), ("browser-mobile", (390, 844))):
+        if not _stage(name, lambda size=size: browser_probe(*size), evidence):
+            raise RuntimeError(name)
+
+
 def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, timeout: int = 180) -> dict[str, object]:
     target = _safe_target(target_id)
     revision = _require_clean_detached_commit(commit)
@@ -249,6 +286,10 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path, time
             if not _stage(name, lambda nodeid=nodeid: pytest_stage(nodeid), evidence):
                 return result | {"release_recommendation": "not-releasable"}
         if not _stage("roles", lambda: pytest_stage("tests/test_pg_authenticated_api_integration.py"), evidence):
+            return result | {"release_recommendation": "not-releasable"}
+        try:
+            _fixed_runtime_stages(base, workdir, evidence)
+        except RuntimeError:
             return result | {"release_recommendation": "not-releasable"}
         stage_env.update({
             "VIDEO_ACCEPTANCE_BASE_URL": base,
