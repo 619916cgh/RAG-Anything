@@ -60,6 +60,20 @@ def test_retry_budget_records_two_repairs_then_success():
     assert [repair["action"] for repair in budget.repairs] == ["retry-compose", "retry-compose"]
 
 
+def test_network_retry_budget_is_capped_at_two_repairs():
+    budget = stage3.RepairBudget(attempts_per_stage=3, timeout_seconds=600)
+    calls = []
+
+    def flaky_network():
+        calls.append(True)
+        raise RuntimeError("network unavailable")
+
+    result, passed = stage3._record_stage("acceptance", flaky_network, budget)
+    assert passed is False
+    assert len(result["attempts"]) == 3
+    assert len(budget.repairs) == 2
+
+
 def test_hard_stop_never_retries_or_runs_later_stage():
     budget = stage3.RepairBudget()
 

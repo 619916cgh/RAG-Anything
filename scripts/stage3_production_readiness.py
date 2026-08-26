@@ -76,12 +76,11 @@ class RepairBudget:
     repairs: list[dict[str, object]] = field(default_factory=list)
 
     def can_retry(self, failure_class: str, attempts: int) -> bool:
+        retry_limit = 2 if failure_class in {"network", "daemon"} else self.attempts_per_stage
         return (
             failure_class in RETRYABLE_CLASSES
-            # ``attempts`` includes the failed initial execution.  The user
-            # budget describes extra repair attempts, so two permits three
-            # bounded executions in total.
-            and attempts <= self.attempts_per_stage
+            # ``attempts`` includes the failed initial execution.
+            and attempts <= retry_limit
             and time.monotonic() - self.started < self.timeout_seconds
         )
 
