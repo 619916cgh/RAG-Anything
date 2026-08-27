@@ -7,9 +7,9 @@
 | 项目 | 当前值 |
 |---|---|
 | 最后核验日期 | 2026-08-27（Asia/Shanghai） |
-| 核验分支 | `feature/custom-enhancements` |
-| 基准提交 | `52e0482714de` |
-| 工作区状态 | 有未提交改动；未提交实现不得视为已发布 |
+| 核验分支 | `codex/paginate-large-kb-document-summaries` |
+| 基准提交 | Stage 3 离线资格 `f751e54f2e57`；治理 checkpoint `05efa8c5d8c7` |
+| 工作区状态 | 2026-08-27 协调者收口时干净；新并行任务以实时 `git status` 为准 |
 | 维护上限 | 不超过 350 行、30 KB；近期任务不超过 15 条 |
 
 事实优先级：当前实现与验证结果 > `openspec/specs/` > active change > 归档资料 > 旧文档。
