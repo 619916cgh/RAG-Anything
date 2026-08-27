@@ -1137,12 +1137,24 @@ async def test_list_upload_tasks_merges_runtime_status(monkeypatch):
             "created_at": "2026-07-08T09:00:00",
             "updated_at": "2026-07-08T09:05:00",
         },
+        {
+            "task_id": "task-failed",
+            "filename": "gamma.pdf",
+            "file_size": 4096,
+            "status": "failed",
+            "error_message": "",
+            "created_at": "2026-07-08T08:00:00",
+            "updated_at": "2026-07-08T08:05:00",
+        },
     ]
 
     async def fake_pg_list_uploads(**_kwargs):
         return uploads, len(uploads)
 
-    async def fake_get_all_tasks():
+    async def fake_get_all_tasks(**kwargs):
+        assert kwargs == {
+            "kb_name": "demo-kb", "limit": 200, "include_terminal": True,
+        }
         return [
             {
                 "id": "task-processing",
@@ -1158,6 +1170,13 @@ async def test_list_upload_tasks_merges_runtime_status(monkeypatch):
                 "status": "processing",
                 "progress": 88,
             },
+            {
+                "id": "task-failed",
+                "kb": "demo-kb",
+                "status": "failed",
+                "failure_stage": "finalize",
+                "error_message": "private worker detail",
+            },
         ]
 
     monkeypatch.setattr("raganything.routers.knowledge.pg_list_uploads", fake_pg_list_uploads)
@@ -1168,7 +1187,7 @@ async def test_list_upload_tasks_merges_runtime_status(monkeypatch):
         current_user={"id": 1, "is_admin": False},
     )
 
-    assert result["total"] == 2
+    assert result["total"] == 3
     assert result["tasks"][0]["task_id"] == "task-processing"
     assert result["tasks"][0]["status"] == "processing"
     assert result["tasks"][0]["progress"] == 42
@@ -1182,6 +1201,9 @@ async def test_list_upload_tasks_merges_runtime_status(monkeypatch):
     assert result["tasks"][1]["outcome"] == "degraded"
     assert result["tasks"][1]["warning_message"] == "graph pending"
     assert result["tasks"][1]["can_delete"] is False
+    assert result["tasks"][2]["task_id"] == "task-failed"
+    assert result["tasks"][2]["status"] == "failed"
+    assert result["tasks"][2]["failure_stage"] == "finalize"
 
 
 @pytest.mark.asyncio
@@ -1995,12 +2017,15 @@ async def test_failed_upload_persists_document_before_terminal_task(monkeypatch)
     monkeypatch.setattr(ws_service, "add_event", fake_event)
 
     await kb_service._finalize_failed_upload(
-        "task-1", "demo-kb", "broken.pdf", 7, "parser failed", None
+        "task-1", "demo-kb", "broken.pdf", 7, "parser failed", None,
+        failure_stage="finalize",
     )
 
     assert [call[0] for call in calls] == ["document", "task", "event"]
     assert calls[1][2]["status"] == "failed"
     assert calls[1][2]["error"] == "parser failed"
+    assert calls[1][2]["failure_stage"] == "finalize"
+    assert calls[2][2]["failure_stage"] == "finalize"
 
 
 @pytest.mark.asyncio

@@ -44,14 +44,31 @@ async def insert_text_content(
     """
     logger.info("Starting text content insertion into LightRAG...")
 
-    await lightrag.ainsert(
-        input=input,
-        file_paths=file_paths,
-        split_by_character=split_by_character,
-        split_by_character_only=split_by_character_only,
-        ids=ids,
-        track_id=track_id,
-    )
+    insert_kwargs = {
+        "input": input,
+        "file_paths": file_paths,
+        "split_by_character": split_by_character,
+        "split_by_character_only": split_by_character_only,
+        "ids": ids,
+    }
+    # LightRAG added ``track_id`` after the first supported release. Keep
+    # upload provenance on newer versions while remaining compatible with the
+    # older candidate image used by isolated acceptance.
+    if track_id is not None:
+        try:
+            signature = inspect.signature(lightrag.ainsert)
+            parameters = signature.parameters
+            accepts_kwargs = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters.values()
+            )
+        except (TypeError, ValueError):
+            accepts_kwargs = True
+            parameters = {}
+        if accepts_kwargs or "track_id" in parameters:
+            insert_kwargs["track_id"] = track_id
+
+    await lightrag.ainsert(**insert_kwargs)
 
     logger.info("Text content insertion complete")
 

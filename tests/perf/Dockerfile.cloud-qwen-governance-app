@@ -1,0 +1,8 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# This layer is only for the disposable Profile B Qwen runner. It overrides
+# route-specific limits because all synthetic users share the Nginx loopback
+# address; production images never receive this label or modification.
+LABEL raganything.perf.capacity-rate-limit=router-10000-v1
+RUN python -c 'from pathlib import Path; paths=(Path("/app/raganything/routers/auth.py"),Path("/app/raganything/routers/knowledge.py")); limits=("5/minute","10/minute","20/minute","30/minute"); [p.write_text(__import__("functools").reduce(lambda text, limit: text.replace(limit, "10000/minute"), limits, p.read_text())) for p in paths]'

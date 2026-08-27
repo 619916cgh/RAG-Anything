@@ -80,6 +80,145 @@ def test_cloud_sse_trace_discards_unknown_event_name_and_classifies_eof():
     assert run_cloud_perf_workload._protocol_class(["token", "error"], "error") == "accepted_count_invalid"
 
 
+def test_cloud_sse_trace_records_content_free_phase_timings():
+    class StreamResponse(FakeResponse):
+        status_code = 200
+
+    class StreamSession:
+        def post(self, *_args, **_kwargs):
+            return StreamResponse([
+                'data: {"type":"accepted"}', "",
+                'data: {"type":"agent_info","thread_id":"private-thread"}', "",
+                'data: {"type":"retrieval","context_present":true,"text_source_count":1}', "",
+                'data: {"type":"token","content":"private-answer"}', "",
+                'data: {"type":"done"}', "",
+            ])
+
+    result, _unused = run_cloud_perf_workload._stream_query(
+        StreamSession(), "http://127.0.0.1:1", {"agent_id": "private-agent"}, "private-token", 1,
+        thread_id=None, retrieval_only=False,
+    )
+
+    assert result["outcome"] == "success"
+    assert set(result["sse_phase_ms"]) == {
+        "accepted_to_agent_info_ms",
+        "agent_info_to_retrieval_ms",
+        "retrieval_to_first_chunk_ms",
+        "first_chunk_to_done_ms",
+        "accepted_to_first_chunk_ms",
+        "accepted_to_done_ms",
+    }
+    assert all(value >= 0 for value in result["sse_phase_ms"].values())
+    assert "private" not in json.dumps(result)
+
+
+def test_profile_b_summary_aggregates_sse_phase_timings_without_payloads():
+    row = {
+        "outcome": "success", "terminal_kind": "done",
+        "event_sequence": ["accepted", "agent_info", "retrieval", "token", "done"],
+        "event_sequence_truncated": False, "protocol_class": "",
+        "ttfb_ms": 10, "ttft_ms": 100, "total_ms": 200, "retry_count": 0,
+        "sse_phase_ms": {
+            "accepted_to_agent_info_ms": 5,
+            "agent_info_to_retrieval_ms": 25,
+            "retrieval_to_first_chunk_ms": 50,
+            "first_chunk_to_done_ms": 100,
+            "accepted_to_first_chunk_ms": 80,
+            "accepted_to_done_ms": 180,
+        },
+    }
+    summary = run_cloud_perf_workload._profile_b_summary([row], stopped=False)
+    assert summary["sse_phase_ms"]["retrieval_to_first_chunk_ms"] == {"p50": 50, "p95": 50, "p99": 50}
+    assert "private" not in json.dumps(summary)
+
+
+def test_profile_b_resource_summary_keeps_only_metric_presence_counts():
+    summary = run_profile_b_ladder._resource_summary([
+        {"kind": "metrics", "result": {"available": True, "query_phase_histogram": True, "provider_governance_metrics": True, "snapshot": ["sensitive=ignored"]}},
+        {"kind": "metrics", "result": {"available": True, "query_phase_histogram": False, "provider_governance_metrics": False}},
+    ])
+    assert summary["metrics_available_samples"] == 2
+    assert summary["query_phase_histogram_samples"] == 1
+    assert summary["provider_governance_metric_samples"] == 1
+    assert "sensitive" not in json.dumps(summary)
+
+
+def test_profile_b_result_allowlists_sse_phase_names():
+    result = run_profile_b_ladder._profile_b_result(
+        {"profile_b": {
+            "sse_phase_ms": {
+                "accepted_to_agent_info_ms": {"p95": 1},
+                "unexpected_secret_phase": {"p95": 999},
+            },
+        }},
+        [],
+    )
+    assert set(result["sse_phase_ms"]) == {"accepted_to_agent_info_ms"}
+
+
+def test_retrieval_gate_summary_keeps_only_fixed_counts(tmp_path):
+    path = tmp_path / "retrieval-gate.json"
+    path.write_text(json.dumps([
+        {"vu": 1, "upload": {"classification": "retrieval_ready", "private": "x"}, "retrieval_query": {"outcome": "success", "retrieval_source_count": 1, "content": "private"}},
+        {"vu": 2, "upload": {"classification": "terminal_failed", "terminal_failure_stage": "indexing", "terminal_failure_family": "embedding"}, "retrieval_query": {"outcome": "skipped"}},
+    ]), encoding="utf-8")
+    summary = run_profile_b_ladder._retrieval_gate_summary(path)
+    assert summary == {
+        "available": True, "virtual_users": 2, "uploads_retrieval_ready": 1,
+        "upload_outcomes": {
+            "retrieval_ready": 1, "completed_without_retrieval": 0,
+            "terminal_not_completed": 1, "upload_http_4xx": 0,
+            "upload_http_5xx": 0, "other": 0,
+        },
+        "terminal_failure_stages": {
+            "initializing": 0, "model_preflight": 0, "parsing": 0,
+            "embedding": 0, "vlm_ocr": 0, "ocr": 0, "indexing": 1,
+            "entity_extraction": 0, "graph_index": 0, "finalize": 0,
+            "quota": 0, "retrieval_readiness": 0, "tagging": 0,
+            "timeout": 0, "video_processing": 0, "worker": 0, "other": 0,
+        },
+        "terminal_failure_families": {"embedding": 1, "provider": 0, "timeout": 0, "auth": 0, "database": 0, "retrieval": 0, "other": 0},
+        "retrieval_queries_attempted": 1, "retrieval_queries_success": 1,
+        "retrieval_queries_with_source": 1,
+    }
+    assert "private" not in json.dumps(summary)
+
+
+def test_upload_failure_mapper_never_returns_untrusted_task_text():
+    assert run_cloud_perf_workload._safe_task_failure({
+        "failure_stage": "indexing", "error_message": "secret endpoint embedding failed",
+    }) == ("indexing", "embedding")
+    assert run_cloud_perf_workload._safe_task_failure({
+        "failure_stage": "private-stage", "error": "private content",
+    }) == ("other", "other")
+    assert run_cloud_perf_workload._safe_task_failure({
+        "failure_stage": "model_preflight",
+        "error": "Embedding preflight failed: provider_call_leases unavailable",
+    }) == ("model_preflight", "provider")
+    assert run_cloud_perf_workload._safe_task_failure({
+        "failure_stage": "finalize",
+        "failure_code": "lightrag_initialization_failed",
+        "error": "private storage detail",
+    }) == ("finalize", "other")
+
+
+def test_profile_b_sse_phase_field_names_do_not_trigger_report_redaction_guard():
+    # run_isolated_cloud_perf.sh rejects result JSON containing sensitive field
+    # names such as token/thread/payload; phase names must stay aggregate-only.
+    result = {
+        "sse_phase_ms": {
+            "accepted_to_agent_info_ms": {"p95": 1},
+            "agent_info_to_retrieval_ms": {"p95": 2},
+            "retrieval_to_first_chunk_ms": {"p95": 3},
+            "first_chunk_to_done_ms": {"p95": 4},
+            "accepted_to_first_chunk_ms": {"p95": 5},
+            "accepted_to_done_ms": {"p95": 6},
+        }
+    }
+    encoded = json.dumps(result, sort_keys=True).lower()
+    assert not any(forbidden in encoded for forbidden in ("query", "answer", "token", "thread", "credential", "password", "payload"))
+
+
 def test_cloud_sse_trace_tracks_long_stream_protocol_without_retaining_it():
     class StreamResponse(FakeResponse):
         status_code = 200
@@ -148,11 +287,34 @@ def test_bootstrap_workload_names_are_distinct_and_bounded():
     assert second.startswith("12345678001")
 
 
+def test_bootstrap_429_and_ladder_classification_are_sanitized():
+    error = bootstrap_perf_run.BootstrapHTTPError(429, "users")
+    assert str(error) == "bootstrap HTTP 429 at users"
+    classified = run_profile_b_ladder._failure_classification(
+        run_profile_b_ladder.RunnerStageError(
+            "bootstrap", subprocess.CalledProcessError(42, ["bootstrap"])
+        )
+    )
+    assert classified == {"failure_step": "bootstrap", "failure_class": "application_rate_limit"}
+
+
 def test_collector_rejects_non_loopback_metrics_without_network_access():
     assert collect_perf_resources._metrics("https://example.invalid/metrics") == {
         "available": False,
         "error_class": "unsafe_metrics_url",
     }
+
+
+def test_collector_allowlists_provider_governance_metric_families():
+    content = (collect_perf_resources.Path(__file__).parents[2] / "scripts" / "collect_perf_resources.py").read_text(encoding="utf-8")
+    for family in (
+        "rag_provider_active_calls",
+        "rag_provider_queue_wait_seconds",
+        "rag_provider_call_duration_seconds",
+        "rag_provider_first_token_seconds",
+        "rag_provider_circuit_state",
+    ):
+        assert family in content
 
 
 def test_collector_marks_missing_service_and_invalid_stats_unavailable():

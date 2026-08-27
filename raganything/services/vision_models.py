@@ -20,7 +20,151 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from raganything.services.provider_governance import (
+    PostgresLeaseRepository,
+    PrometheusMetrics,
+    ProviderGovernor,
+    ProviderPolicy,
+    ProviderPriority,
+    ProviderUnavailableError,
+)
+from raganything.services.provider_governance_repo import PostgreSQLCircuitRepository
+
 logger = logging.getLogger("rag_server.vision_models")
+
+# The governor is deliberately process-light: PostgreSQL remains the only
+# admission authority.  It is instantiated lazily to avoid touching database
+# state while public catalog endpoints are merely listing profiles.
+_PROVIDER_GOVERNOR: ProviderGovernor | None = None
+
+
+def _is_qwen_profile(entry: "_CatalogEntry") -> bool:
+    provider = entry.profile.provider.lower()
+    model = entry.profile.model.lower()
+    base_url = (entry.base_url or "").lower()
+    return provider in {"qwen", "dashscope"} or "qwen" in model or "dashscope" in base_url
+
+
+def _is_qwen_transport(model: str, base_url: str | None) -> bool:
+    # Legacy fallbacks do not carry a catalog profile.  A DashScope-compatible
+    # URL alone can serve test or non-Qwen models, so it must not turn those
+    # calls into a Qwen-governed database operation.  Profile-backed builders
+    # use _is_qwen_profile(), which still considers their private transport.
+    del base_url
+    return "qwen" in model.lower()
+
+
+def _governor() -> ProviderGovernor:
+    global _PROVIDER_GOVERNOR
+    if _PROVIDER_GOVERNOR is None:
+        metrics = PrometheusMetrics() if os.getenv("ENABLE_METRICS", "").lower() in {"1", "true"} else None
+        _PROVIDER_GOVERNOR = ProviderGovernor(
+            PostgresLeaseRepository(), circuit=PostgreSQLCircuitRepository(), metrics=metrics
+        )
+    return _PROVIDER_GOVERNOR
+
+
+def _qwen_policy(entry: "_CatalogEntry", capability: str) -> ProviderPolicy:
+    """Resolve server-private policy without exposing it through catalog DTOs."""
+    def integer(name: str, default: int) -> int:
+        raw = os.getenv(name, "").strip()
+        return int(raw) if raw else default
+
+    def decimal(name: str, default: float) -> float:
+        raw = os.getenv(name, "").strip()
+        return float(raw) if raw else default
+
+    verified = os.getenv("PROVIDER_GOVERNANCE_QWEN_QUOTA_VERIFIED", "").strip().lower()
+    quota_verified = verified in {"1", "true", "yes"}
+    rpm_raw = os.getenv("PROVIDER_GOVERNANCE_QWEN_REQUESTS_PER_MINUTE", "").strip()
+    tpm_raw = os.getenv("PROVIDER_GOVERNANCE_QWEN_TOKENS_PER_MINUTE", "").strip()
+    if quota_verified and (not rpm_raw or not tpm_raw):
+        raise ValueError("verified Qwen quota requires RPM and TPM")
+    if (rpm_raw or tpm_raw) and not quota_verified:
+        # An unverified console value is deliberately not an enforcement input.
+        # Keep it out of both the runtime policy and public API projections.
+        rpm_raw = tpm_raw = ""
+
+    return ProviderPolicy(
+        provider="qwen",
+        model=entry.profile.model,
+        capability=capability,
+        # Catalog fingerprint freezes private, non-secret model transport
+        # configuration into the governance identity without serializing it.
+        policy_version=entry.fingerprint,
+        concurrency_limit=integer("PROVIDER_GOVERNANCE_QWEN_CONCURRENCY_LIMIT", 40),
+        requests_per_minute=int(rpm_raw) if rpm_raw else None,
+        tokens_per_minute=int(tpm_raw) if tpm_raw else None,
+        quota_verified=quota_verified,
+        queue_timeout_seconds=decimal("PROVIDER_GOVERNANCE_QWEN_QUEUE_TIMEOUT_SECONDS", 10.0),
+        queue_capacity=integer("PROVIDER_GOVERNANCE_QWEN_QUEUE_CAPACITY", 100),
+        max_attempts=integer("PROVIDER_GOVERNANCE_QWEN_MAX_ATTEMPTS", 2),
+        retry_base_seconds=decimal("PROVIDER_GOVERNANCE_QWEN_RETRY_BASE_SECONDS", 0.5),
+        retry_max_seconds=decimal("PROVIDER_GOVERNANCE_QWEN_RETRY_MAX_SECONDS", 8.0),
+    )
+
+
+def effective_qwen_fanout(profile_id: str, requested: int) -> int:
+    """Clamp a query-local fan-out without turning it into a global limit."""
+    entry = require_available(profile_id, "llm")
+    if not _is_qwen_profile(entry):
+        return max(1, requested)
+    return _qwen_policy(entry, "llm").effective_fanout(requested)
+
+
+async def govern_openai_compatible_call(
+    model: str,
+    base_url: str | None,
+    call,
+    *,
+    capability: str = "llm",
+    priority: ProviderPriority = ProviderPriority.QUERY,
+    stream: bool = False,
+    allow_unprofiled: bool = False,
+):
+    """Govern legacy/server-only OpenAI-compatible Qwen fallbacks.
+
+    Direct callers are intentionally required to route through this helper;
+    it carries no endpoint, credential, prompt, or user data into governance.
+    """
+    profile_kind = capability if capability in {"llm", "vlm", "embedding"} else "llm"
+    matching = [
+        entry
+        for entry in load_catalog().values()
+        if entry.profile.kind == profile_kind
+        and entry.profile.model == model
+        and _is_qwen_profile(entry)
+        and (not base_url or entry.base_url == base_url)
+    ]
+    if matching:
+        entry = matching[0]
+        if not entry.profile.available:
+            raise ProviderUnavailableError("provider profile unavailable")
+        policy = _qwen_policy(entry, capability)
+    elif not _is_qwen_transport(model, base_url):
+        # A catalog match is authoritative for models such as
+        # text-embedding-v4 whose name does not itself contain "qwen".
+        return await call()
+    elif allow_unprofiled and capability == "rerank":
+        # DashScope rerank is a native API rather than an OpenAI-compatible
+        # catalog profile. Its adapter owns this explicit private exception.
+        policy = ProviderPolicy(
+            provider="qwen",
+            model=model,
+            capability=capability,
+            policy_version=hashlib.sha256((base_url or "").encode("utf-8")).hexdigest()[:16],
+            concurrency_limit=int(os.getenv("PROVIDER_GOVERNANCE_QWEN_CONCURRENCY_LIMIT", "40")),
+            queue_timeout_seconds=float(os.getenv("PROVIDER_GOVERNANCE_QWEN_QUEUE_TIMEOUT_SECONDS", "10")),
+            queue_capacity=int(os.getenv("PROVIDER_GOVERNANCE_QWEN_QUEUE_CAPACITY", "100")),
+            max_attempts=int(os.getenv("PROVIDER_GOVERNANCE_QWEN_MAX_ATTEMPTS", "2")),
+            retry_base_seconds=float(os.getenv("PROVIDER_GOVERNANCE_QWEN_RETRY_BASE_SECONDS", "0.5")),
+            retry_max_seconds=float(os.getenv("PROVIDER_GOVERNANCE_QWEN_RETRY_MAX_SECONDS", "8")),
+        )
+    else:
+        raise ProviderUnavailableError("provider profile unavailable")
+    if stream:
+        return _governor().governed_stream(policy, call, priority=priority)
+    return await _governor().governed_call(policy, call, priority=priority)
 
 VisionKind = Literal["vlm", "embedding"]
 ModelKind = Literal["llm", "vlm", "embedding"]
@@ -208,6 +352,7 @@ def register_provider(name: str, kind: ModelKind, factory: Any) -> None:
 # be inferred merely from an arbitrary provider string in JSON.
 register_provider("openai_compatible", "vlm", _OpenAICompatibleProvider)
 register_provider("openai_compatible", "llm", _OpenAICompatibleProvider)
+register_provider("openai_compatible", "embedding", _OpenAICompatibleProvider)
 register_provider("doubao_multimodal_embedding", "embedding", _DoubaoEmbeddingProvider)
 
 
@@ -465,7 +610,13 @@ def require_available(profile_id: str, kind: ModelKind) -> _CatalogEntry:
     return entry
 
 
-def build_vlm_callable(profile_id: str, *, completion_func=None, allow_unavailable: bool = False):
+def build_vlm_callable(
+    profile_id: str,
+    *,
+    completion_func=None,
+    allow_unavailable: bool = False,
+    provider_priority: ProviderPriority = ProviderPriority.QUERY,
+):
     """Build the existing OpenAI-compatible VLM callable for a profile.
 
     Credentials are resolved only inside the server process and captured by
@@ -499,6 +650,7 @@ def build_vlm_callable(profile_id: str, *, completion_func=None, allow_unavailab
         else:
             selected_completion = completion_func
 
+        priority = ProviderPriority(kwargs.pop("provider_priority", provider_priority))
         kwargs.setdefault("timeout", timeout)
         if messages is not None:
             messages = [{"role": "system", "content": cache_namespace}, *messages]
@@ -516,26 +668,25 @@ def build_vlm_callable(profile_id: str, *, completion_func=None, allow_unavailab
                     ],
                 },
             ]
-        if messages is not None:
+        async def outbound():
+            if messages is not None:
+                return await selected_completion(
+                    model, "", system_prompt=None, history_messages=[],
+                    messages=messages, api_key=api_key, base_url=base_url, **kwargs,
+                )
             return await selected_completion(
-                model,
-                "",
-                system_prompt=None,
-                history_messages=[],
-                messages=messages,
-                api_key=api_key,
-                base_url=base_url,
-                **kwargs,
+                model, prompt,
+                system_prompt="\n".join(filter(None, [cache_namespace, system_prompt])),
+                history_messages=history_messages or [], api_key=api_key,
+                base_url=base_url, **kwargs,
             )
-        return await selected_completion(
-            model,
-            prompt,
-            system_prompt="\n".join(filter(None, [cache_namespace, system_prompt])),
-            history_messages=history_messages or [],
-            api_key=api_key,
-            base_url=base_url,
-            **kwargs,
-        )
+
+        if not _is_qwen_profile(entry):
+            return await outbound()
+        policy = _qwen_policy(entry, "vlm")
+        if kwargs.get("stream"):
+            return _governor().governed_stream(policy, outbound, priority=priority)
+        return await _governor().governed_call(policy, outbound, priority=priority)
 
     vision_func.vision_profile_id = profile_id
     vision_func.vision_profile_fingerprint = entry.fingerprint
@@ -549,6 +700,7 @@ def build_llm_callable(
     completion_func=None,
     cache_scope: str | None = None,
     timeout: float | None = None,
+    provider_priority: ProviderPriority = ProviderPriority.QUERY,
 ):
     """Build a secret-bearing server-only text callable for a catalog profile."""
     entry = require_available(profile_id, "llm")
@@ -566,16 +718,23 @@ def build_llm_callable(
             from lightrag.llm.openai import openai_complete_if_cache as selected_completion
         else:
             selected_completion = completion_func
+        priority = ProviderPriority(kwargs.pop("provider_priority", provider_priority))
         kwargs.setdefault("timeout", effective_timeout)
-        return await selected_completion(
-            model,
-            prompt,
-            system_prompt="\n".join(filter(None, [cache_namespace, system_prompt])),
-            history_messages=history_messages or [],
-            api_key=api_key,
-            base_url=base_url,
-            **kwargs,
-        )
+
+        async def outbound():
+            return await selected_completion(
+                model, prompt,
+                system_prompt="\n".join(filter(None, [cache_namespace, system_prompt])),
+                history_messages=history_messages or [], api_key=api_key,
+                base_url=base_url, **kwargs,
+            )
+
+        if not _is_qwen_profile(entry):
+            return await outbound()
+        policy = _qwen_policy(entry, "llm")
+        if kwargs.get("stream"):
+            return _governor().governed_stream(policy, outbound, priority=priority)
+        return await _governor().governed_call(policy, outbound, priority=priority)
 
     llm_func.model_profile_id = profile_id
     llm_func.model_profile_fingerprint = entry.fingerprint
@@ -1652,6 +1811,7 @@ __all__ = [
     "VisionModelProfile", "ModelProfile", "VisionLanguageProvider", "VisionEmbeddingProvider",
     "load_catalog", "reset_catalog_cache", "list_profiles", "list_model_profiles", "get_entry",
     "require_available", "register_provider", "get_platform_defaults", "build_llm_callable",
+    "effective_qwen_fanout", "govern_openai_compatible_call",
     "build_contextual_llm_callable", "activate_llm_selection", "reset_llm_snapshot",
     "build_vlm_callable", "build_contextual_vlm_callable",
     "activate_vlm_snapshot", "activate_vlm_selection", "activate_user_vlm_snapshot",

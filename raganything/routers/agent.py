@@ -77,6 +77,12 @@ from raganything.services.odl_media_delivery import catalog_media_payload
 from raganything.services.query_timing import QueryTiming
 from raganything.services.query_execution import QueryExecutionScope, await_before_deadline
 from raganything.services.video_segments import merge_video_segment_citations
+from raganything.services import vision_models
+from raganything.services.provider_governance import (
+    ProviderBusyError,
+    ProviderPriority,
+    ProviderUnavailableError,
+)
 
 
 _SENSITIVE_MEDIA_REFERENCE_PATTERNS = (
@@ -553,15 +559,20 @@ async def _call_summary_llm(
             prompt += retry_hints[hint_idx]
 
         try:
-            response = await openai_complete_if_cache(
+            response = await vision_models.govern_openai_compatible_call(
                 model,
-                prompt,
-                system_prompt="你是一个精确的对话摘要助手。只输出摘要文本，不加前缀或标记。",
-                api_key=API_KEY,
-                base_url=BASE_URL,
-                max_tokens=500,
-                temperature=0.3,
-                stream=False,
+                BASE_URL,
+                lambda: openai_complete_if_cache(
+                    model,
+                    prompt,
+                    system_prompt="你是一个精确的对话摘要助手。只输出摘要文本，不加前缀或标记。",
+                    api_key=API_KEY,
+                    base_url=BASE_URL,
+                    max_tokens=500,
+                    temperature=0.3,
+                    stream=False,
+                ),
+                priority=ProviderPriority.BACKGROUND,
             )
         except Exception as e:
             lightrag_logger.warning(
@@ -788,17 +799,22 @@ def _build_agent_llm(runtime_config: dict, selected_llm=None):
                 stream=stream,
                 **call_kwargs,
             )
-        return await openai_complete_if_cache(
+        return await vision_models.govern_openai_compatible_call(
             runtime_config["llm_model"],
-            prompt,
-            system_prompt=runtime_config["system_prompt"] if system_prompt is None else system_prompt,
-            history_messages=history_messages or [],
-            api_key=API_KEY,
-            base_url=BASE_URL,
-            max_tokens=max_tokens,
-            temperature=runtime_config["temperature"],
+            BASE_URL,
+            lambda: openai_complete_if_cache(
+                runtime_config["llm_model"],
+                prompt,
+                system_prompt=runtime_config["system_prompt"] if system_prompt is None else system_prompt,
+                history_messages=history_messages or [],
+                api_key=API_KEY,
+                base_url=BASE_URL,
+                max_tokens=max_tokens,
+                temperature=runtime_config["temperature"],
+                stream=stream,
+                **call_kwargs,
+            ),
             stream=stream,
-            **call_kwargs,
         )
 
     return _agent_llm
@@ -1222,7 +1238,6 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         timing.total(outcome="error")
         raise
 
-    from raganything.services import vision_models
     try:
         from raganything.services import user_settings
         resolved_settings = await user_settings.resolve_user_settings_for_task(
@@ -1285,8 +1300,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         platform_settings = await get_platform_settings()
         limits = ((platform_settings.get("settings") or {}).get("limits") or {})
         interactive_wait = float(limits.get("interactive_wait_seconds", 0))
+        # Provider capacity is call-scoped and queued by ProviderGovernor.
+        # Keeping it out of this user-query lease preserves retrieval and
+        # per-user fairness while allowing over-cap queries to wait there.
         outer_caps = [
-            int(limits[name]) for name in ("provider_concurrency", "worker_concurrency")
+            int(limits[name]) for name in ("worker_concurrency",)
             if isinstance(limits.get(name), (int, float)) and limits[name] > 0
         ]
         outer_limit = min(outer_caps) if outer_caps else None
@@ -1466,7 +1484,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         try:
             yield f"data: {json.dumps({'type': 'accepted'}, ensure_ascii=False)}\n\n"
             timing.start("query_core_acquire")
-            acquire_task = asyncio.create_task(
+            # This is an essential request task, not fire-and-forget work;
+            # ensure_future keeps it schedulable even when tests or callers
+            # replace create_task for background-task isolation.
+            acquire_task = asyncio.ensure_future(
                 acquire_query_kb(
                     actual_kb,
                     corpus_revision=query_scope.get("corpus_revision"),
@@ -2365,7 +2386,13 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
         except Exception as exc:
             timing_outcome = "error"
-            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+            if isinstance(exc, ProviderBusyError):
+                payload = {"type": "error", "code": "provider_busy", "content": "provider is busy"}
+            elif isinstance(exc, ProviderUnavailableError):
+                payload = {"type": "error", "code": "provider_unavailable", "content": "provider unavailable"}
+            else:
+                payload = {"type": "error", "content": str(exc)}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         finally:
             _cancel_and_observe_task(ctx_task)
             if acquire_task is not None and not acquire_task.done():

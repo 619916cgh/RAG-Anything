@@ -226,12 +226,25 @@ def _metrics(url: str) -> dict:
         text = body.decode("utf-8", errors="replace")
         selected = [
             line for line in text.splitlines()
-            if line.startswith(("rag_agent_query_phase_duration_seconds", "http_requests_total", "http_request_duration_seconds"))
+            if line.startswith((
+                "rag_agent_query_phase_duration_seconds",
+                "rag_provider_active_calls",
+                "rag_provider_queue_wait_seconds",
+                "rag_provider_rejections_total",
+                "rag_provider_call_outcomes_total",
+                "rag_provider_retries_total",
+                "rag_provider_call_duration_seconds",
+                "rag_provider_first_token_seconds",
+                "rag_provider_circuit_state",
+                "http_requests_total",
+                "http_request_duration_seconds",
+            ))
         ]
         return {
             "available": True,
             "bytes": len(body),
             "query_phase_histogram": "rag_agent_query_phase_duration_seconds" in text,
+            "provider_governance_metrics": any(line.startswith("rag_provider_") for line in selected),
             "snapshot": selected[:400],
         }
     except Exception as exc:

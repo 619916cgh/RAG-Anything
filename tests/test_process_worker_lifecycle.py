@@ -7,6 +7,29 @@ import sys
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_worker_lightrag_init_failure_stops_before_preflight():
+    from process_worker import _ensure_lightrag_ready
+
+    class FailedRag:
+        async def _ensure_lightrag_initialized(self):
+            return {"success": False, "error": "private storage detail"}
+
+    with pytest.raises(RuntimeError, match="^lightrag_initialization_failed$"):
+        await _ensure_lightrag_ready(FailedRag())
+
+
+@pytest.mark.asyncio
+async def test_worker_lightrag_init_success_is_returned():
+    from process_worker import _ensure_lightrag_ready
+
+    class ReadyRag:
+        async def _ensure_lightrag_initialized(self):
+            return {"success": True}
+
+    assert await _ensure_lightrag_ready(ReadyRag()) == {"success": True}
+
+
 def test_worker_status_selector_ignores_foreign_duplicate_placeholder():
     from process_worker import _worker_status_matches_task
 

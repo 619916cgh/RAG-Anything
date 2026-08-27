@@ -19,8 +19,10 @@ TERMINAL_UPLOAD_STATES = {"completed", "failed", "deleted", "cancelled", "termin
 _SAFE_EVENT_TYPES = frozenset({"accepted", "agent_info", "retrieval", "thinking", "token", "warning", "done", "error"})
 _SAFE_ERROR_CODES = frozenset({"query_core_acquire", "pre_agent_info_setup", "unknown"})
 _MAX_EVENT_SEQUENCE = 64
-PROFILE_B_TTFT_P95_MAX_MS = 2100
-PROFILE_B_TOTAL_P95_MAX_MS = 2700
+# Mock Profile B keeps its historical diagnostic gate. Real Qwen acceptance uses
+# the user-approved SLO and is selected only by the explicit runner profile.
+PROFILE_B_TTFT_P95_MAX_MS = 5000 if os.environ.get("PERF_PROVIDER_PROFILE") == "qwen" else 2100
+PROFILE_B_TOTAL_P95_MAX_MS = 15000 if os.environ.get("PERF_PROVIDER_PROFILE") == "qwen" else 2700
 
 
 def _inside_temp(path: Path) -> Path:
@@ -193,6 +195,38 @@ def _profile_b_summary(rows: list[dict[str, Any]], *, stopped: bool) -> dict[str
         }
         for field in ("ttfb_ms", "ttft_ms", "total_ms")
     }
+    phase_names = (
+        "accepted_to_agent_info_ms",
+        "agent_info_to_retrieval_ms",
+        "retrieval_to_first_chunk_ms",
+        "first_chunk_to_done_ms",
+        "accepted_to_first_chunk_ms",
+        "accepted_to_done_ms",
+    )
+    def phase_value(row: dict[str, Any], field: str) -> float | None:
+        values = row.get("sse_phase_ms")
+        if not isinstance(values, dict) or values.get(field) is None:
+            return None
+        try:
+            return float(values[field])
+        except (TypeError, ValueError):
+            return None
+
+    phase_timings = {
+        field: {
+            f"p{int(percentile * 100)}": _percentile(
+                [
+                    value
+                    for row in successes
+                    for value in (phase_value(row, field),)
+                    if value is not None
+                ],
+                percentile,
+            )
+            for percentile in (0.5, 0.95, 0.99)
+        }
+        for field in phase_names
+    }
     ttft_p95 = timings["ttft_ms"]["p95"]
     total_p95 = timings["total_ms"]["p95"]
     passed = bool(rows) and len(successes) == len(rows) and not stopped and retries == 0 and protocol_failures == 0
@@ -206,6 +240,7 @@ def _profile_b_summary(rows: list[dict[str, Any]], *, stopped: bool) -> dict[str
         "protocol_failures": protocol_failures,
         "protocol_failure_classes": dict(sorted(protocol_classes.items())),
         "timing_ms": timings,
+        "sse_phase_ms": phase_timings,
         "latency_gates_ms": {"ttft_p95_max": PROFILE_B_TTFT_P95_MAX_MS, "total_p95_max": PROFILE_B_TOTAL_P95_MAX_MS},
         "ttft_p95_ms": ttft_p95, "total_p95_ms": total_p95, "passed": passed,
     }
@@ -246,8 +281,10 @@ def _stream_query(
         "protocol_class": "", "error_code": "", "retrieval_context_present": False, "retrieval_source_count": 0,
         "thread_reused": bool(thread_id), "thread_relation": "reused" if thread_id else "new",
         "started_at": started_at, "finished_at": None,
+        "sse_phase_ms": {},
     }
     next_thread = thread_id
+    event_marks: dict[str, float] = {}
     try:
         request_payload: dict[str, Any] = {
             "query": "What does the isolated performance fixture contain?",
@@ -271,6 +308,7 @@ def _stream_query(
         done = False
         error_seen = False
         for kind, payload in _events(response):
+            event_now = time.perf_counter()
             safe_kind = _safe_event_type(kind)
             result["event_count"] += 1
             _record_protocol_event(result["protocol_trace"], safe_kind)
@@ -280,11 +318,18 @@ def _stream_query(
                 result["event_sequence_truncated"] = True
             if kind == "agent_info" and payload.get("thread_id"):
                 next_thread = str(payload["thread_id"])
+            if kind == "accepted":
+                event_marks.setdefault("accepted", event_now)
+            elif kind == "agent_info":
+                event_marks.setdefault("agent_info", event_now)
             elif kind == "retrieval":
+                event_marks.setdefault("retrieval", event_now)
                 result["retrieval_context_present"] = bool(payload.get("context_present"))
                 result["retrieval_source_count"] = int(payload.get("text_source_count") or 0)
             elif kind == "token" and str(payload.get("content") or "").strip():
                 result["token_count"] += 1
+                # Count the first non-empty streamed chunk without retaining its content.
+                event_marks.setdefault("first_chunk", event_now)
                 if result["ttft_ms"] is None:
                     result["ttft_ms"] = round((time.perf_counter() - started) * 1000, 3)
             elif kind == "error":
@@ -297,6 +342,7 @@ def _stream_query(
                 break
             elif kind == "done":
                 done = True
+                event_marks.setdefault("done", event_now)
                 result["terminal_kind"] = "done"
                 if payload.get("fallback"):
                     result["error_class"] = "retrieval_fallback"
@@ -327,6 +373,20 @@ def _stream_query(
         result["error_class"] = type(exc).__name__.lower()
         result["terminal_kind"] = "transport_error"
     finally:
+        marks = locals().get("event_marks", {})
+        phase_pairs = (
+            ("accepted_to_agent_info_ms", "accepted", "agent_info"),
+            ("agent_info_to_retrieval_ms", "agent_info", "retrieval"),
+            ("retrieval_to_first_chunk_ms", "retrieval", "first_chunk"),
+            ("first_chunk_to_done_ms", "first_chunk", "done"),
+            ("accepted_to_first_chunk_ms", "accepted", "first_chunk"),
+            ("accepted_to_done_ms", "accepted", "done"),
+        )
+        result["sse_phase_ms"] = {
+            name: round((marks[end] - marks[start]) * 1000, 3)
+            for name, start, end in phase_pairs
+            if start in marks and end in marks and marks[end] >= marks[start]
+        }
         result["total_ms"] = round((time.perf_counter() - started) * 1000, 3)
         result["finished_at"] = round(time.time(), 3)
         if thread_id and next_thread != thread_id:
@@ -334,17 +394,53 @@ def _stream_query(
     return result, next_thread
 
 
-def _task_status(base_url: str, record: dict[str, Any], token: str, task_id: str, timeout: float) -> str | None:
+def _safe_task_failure(task: dict[str, Any]) -> tuple[str, str]:
+    """Map untrusted task diagnostics to fixed, content-free acceptance labels."""
+    raw_stage = str(task.get("failure_stage") or "").strip().lower()
+    stage = raw_stage if raw_stage in {
+        "initializing", "model_preflight", "parsing", "embedding", "vlm_ocr",
+        "ocr", "indexing", "entity_extraction", "graph_index", "finalize",
+        "quota", "retrieval_readiness", "tagging", "timeout", "video_processing",
+        "worker",
+    } else "other"
+    detail = " ".join(
+        str(task.get(key) or "")
+        for key in ("failure_code", "error_message", "error", "outcome")
+    ).lower()
+    # Provider/governor failures often include the word "embedding" because
+    # they originate in the embedding preflight. Attribute those to the
+    # provider boundary first so readiness failures remain actionable.
+    if any(marker in detail for marker in ("provider", "dashscope", "provider_call_leases", "provider_waiters")):
+        family = "provider"
+    elif any(marker in detail for marker in ("embedding", "vector", "embed")):
+        family = "embedding"
+    elif "timeout" in detail or "超时" in detail:
+        family = "timeout"
+    elif any(marker in detail for marker in ("auth", "credential", "api key", "unauthorized", "forbidden")):
+        family = "auth"
+    elif any(marker in detail for marker in ("postgres", "database", "connection", "db ")):
+        family = "database"
+    elif "retrieval" in detail:
+        family = "retrieval"
+    else:
+        family = "other"
+    return stage, family
+
+
+def _task_status(base_url: str, record: dict[str, Any], token: str, task_id: str, timeout: float) -> tuple[str | None, str, str]:
     response = requests.get(
         f"{base_url}/api/upload/tasks", params={"kb": record["kb"]},
         headers={"Authorization": f"Bearer {token}"}, timeout=timeout,
     )
     if response.status_code != 200:
-        return None
+        return None, "other", "other"
     for item in response.json().get("tasks", []):
+        if not isinstance(item, dict):
+            continue
         if str(item.get("task_id") or "") == task_id:
-            return str(item.get("status") or "").lower()
-    return None
+            stage, family = _safe_task_failure(item)
+            return str(item.get("status") or "").lower(), stage, family
+    return None, "other", "other"
 
 
 def _fixture_bytes(kind: str, run_id: str, vu: int, sequence: int | str) -> tuple[str, bytes, str]:
@@ -364,7 +460,10 @@ def _upload_unique_fixture(base_url: str, record: dict[str, Any], token: str, ru
     filename, content, media_type = _fixture_bytes(kind, run_id, int(record["vu"]), sequence)
     headers = {"Authorization": f"Bearer {token}"}
     started = time.perf_counter()
-    result: dict[str, Any] = {"http_status": 0, "terminal_status": "", "classification": "unknown", "duplicate_http_status": 0}
+    result: dict[str, Any] = {
+        "http_status": 0, "terminal_status": "", "terminal_failure_stage": "other",
+        "terminal_failure_family": "other", "classification": "unknown", "duplicate_http_status": 0,
+    }
     response = requests.post(
         f"{base_url}/api/upload", params={"kb": record["kb"], "enable_image": "false", "enable_table": "false", "enable_equation": "false"},
         files={"file": (filename, content, media_type)}, headers=headers, timeout=timeout,
@@ -381,8 +480,10 @@ def _upload_unique_fixture(base_url: str, record: dict[str, Any], token: str, ru
     deadline = time.monotonic() + timeout
     status: str | None = None
     while time.monotonic() < deadline:
-        status = _task_status(base_url, record, token, task_id, timeout)
+        status, failure_stage, failure_family = _task_status(base_url, record, token, task_id, timeout)
         if status in TERMINAL_UPLOAD_STATES:
+            result["terminal_failure_stage"] = failure_stage
+            result["terminal_failure_family"] = failure_family
             break
         time.sleep(2)
     result["terminal_status"] = status or "not_observed"

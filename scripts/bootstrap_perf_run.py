@@ -15,6 +15,14 @@ from urllib.parse import quote
 import requests
 
 
+class BootstrapHTTPError(RuntimeError):
+    """Sanitized bootstrap failure passed to the ladder through an exit code."""
+
+    def __init__(self, status_code: int, endpoint: str) -> None:
+        super().__init__(f"bootstrap HTTP {status_code} at {endpoint}")
+        self.status_code = status_code
+
+
 def _inside_temp(path: Path) -> Path:
     root = path.resolve()
     temp = Path(os.getenv("TEMP", "/tmp")).resolve()
@@ -25,17 +33,25 @@ def _inside_temp(path: Path) -> Path:
 
 def _read_env(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
-    for line in path.read_text(encoding="ascii").splitlines():
-        key, separator, value = line.partition("=")
-        if separator and key:
-            values[key] = value
+    if path.is_file():
+        for line in path.read_text(encoding="ascii").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key:
+                values[key] = value
+    # Real-provider acceptance passes generated credentials through the
+    # process environment only when there is no compose.env to read. Existing
+    # mock-run callers must continue to receive exactly that file's values.
+    if not values:
+        for key in ("DEFAULT_ADMIN_USERNAME", "DEFAULT_ADMIN_PASSWORD", "PERF_RUN_ID"):
+            if os.getenv(key):
+                values[key] = os.environ[key]
     return values
 
 
 def _request(session: requests.Session, method: str, url: str, *, timeout: float, **kwargs) -> dict:
     response = session.request(method, url, timeout=timeout, **kwargs)
     if response.status_code >= 400:
-        raise RuntimeError(f"bootstrap HTTP {response.status_code} at {url.rsplit('/', 1)[-1]}")
+        raise BootstrapHTTPError(response.status_code, url.rsplit('/', 1)[-1])
     try:
         return response.json()
     except ValueError as exc:
@@ -89,6 +105,7 @@ def main() -> int:
         raise RuntimeError("teacher role is unavailable in the isolated database")
 
     records: list[dict[str, str]] = []
+    provider_model = os.getenv("PERF_LLM_MODEL", "perf-mock").strip() or "perf-mock"
     for index in range(args.users):
         suffix = _workload_name(run_id, index)
         username = f"perf_{suffix}"[:48]
@@ -129,7 +146,7 @@ def main() -> int:
             json={
                 "name": "Performance run agent",
                 "kb_name": kb,
-                "llm_model": "perf-mock",
+                "llm_model": provider_model,
                 "agent_mode": "none",
                 "query_mode": "hybrid",
                 "enable_rerank": False,
@@ -160,4 +177,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except BootstrapHTTPError as error:
+        # Exit codes classify only the HTTP class; no response body or request
+        # values are printed into the sanitized runner evidence.
+        raise SystemExit(42 if error.status_code == 429 else 43) from error

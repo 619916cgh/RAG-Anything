@@ -293,10 +293,18 @@ async def _get_ar_agent_components(kb: str = "default"):
             async def generate(self, prompt: str) -> str:
                 if not shared.API_KEY or not shared.BASE_URL:
                     raise RuntimeError("LLM 服务未配置")
-                result = await openai_complete_if_cache(
-                    shared.LLM_MODEL, prompt,
-                    system_prompt="你是智能制造教学专家。",
-                    api_key=shared.API_KEY, base_url=shared.BASE_URL,
+                from raganything.services.provider_governance import ProviderPriority
+                from raganything.services.vision_models import govern_openai_compatible_call
+
+                result = await govern_openai_compatible_call(
+                    shared.LLM_MODEL,
+                    shared.BASE_URL,
+                    lambda: openai_complete_if_cache(
+                        shared.LLM_MODEL, prompt,
+                        system_prompt="你是智能制造教学专家。",
+                        api_key=shared.API_KEY, base_url=shared.BASE_URL,
+                    ),
+                    priority=ProviderPriority.BACKGROUND,
                 )
                 if result is None:
                     raise RuntimeError("LLM 返回为空")
@@ -321,10 +329,20 @@ async def _get_ar_qa_engine(kb: str = "default") -> "QAEngine":
         async def _llm_func(prompt, system_prompt=None, history_messages=None, **kw):
             if "max_tokens" not in kw:
                 kw["max_tokens"] = int(os.getenv("MAX_TOKENS", "8192"))
-            return await openai_complete_if_cache(
-                shared.LLM_MODEL, prompt, system_prompt=system_prompt,
-                history_messages=history_messages or [],
-                api_key=shared.API_KEY, base_url=shared.BASE_URL, **kw,
+            from raganything.services.provider_governance import ProviderPriority
+            from raganything.services.vision_models import govern_openai_compatible_call
+
+            stream = bool(kw.get("stream"))
+            return await govern_openai_compatible_call(
+                shared.LLM_MODEL,
+                shared.BASE_URL,
+                lambda: openai_complete_if_cache(
+                    shared.LLM_MODEL, prompt, system_prompt=system_prompt,
+                    history_messages=history_messages or [],
+                    api_key=shared.API_KEY, base_url=shared.BASE_URL, **kw,
+                ),
+                priority=ProviderPriority.BACKGROUND,
+                stream=stream,
             )
 
         async def _media_url_resolver(image_path: str) -> dict | None:

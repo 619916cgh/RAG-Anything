@@ -36,6 +36,16 @@ from raganything.utils import (
 
 logger = logging.getLogger(__name__)
 
+
+class _RerankProviderError(RuntimeError):
+    """Sanitized provider error that preserves only retry-relevant metadata."""
+
+    def __init__(self, status_code: int, retry_after: str | None = None) -> None:
+        super().__init__(f"rerank provider returned HTTP {status_code}")
+        self.status_code = status_code
+        self.headers = {"Retry-After": retry_after} if retry_after else {}
+
+
 async def rerank_chunks(
     query: str,
     chunks: list[str],
@@ -67,7 +77,9 @@ async def rerank_chunks(
         "parameters": {"top_n": min(top_n, len(chunks)), "return_documents": False},
     }
 
-    try:
+    async def outbound() -> list[tuple[int, str]]:
+        # A new client session per governor attempt ensures a failed attempt
+        # cannot carry an invalid connection into a newly admitted lease.
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 base_url,
@@ -79,8 +91,9 @@ async def rerank_chunks(
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
-                    text = await resp.text()
-                    raise RuntimeError(f"Rerank API error {resp.status}: {text[:200]}")
+                    raise _RerankProviderError(
+                        resp.status, resp.headers.get("Retry-After")
+                    )
 
                 data = await resp.json()
                 results = data.get("output", {}).get("results", [])
@@ -100,8 +113,26 @@ async def rerank_chunks(
                         ranked.append((i, c))
 
                 return ranked[:top_n]
+
+    try:
+        # The DashScope rerank endpoint is a Qwen-capable outbound call even
+        # though it is not an OpenAI chat completion.  Reuse the profile-keyed
+        # governor so it shares the same global quota as query LLM/VLM calls.
+        from raganything.services.provider_governance import ProviderPriority
+        from raganything.services.vision_models import govern_openai_compatible_call
+
+        return await govern_openai_compatible_call(
+            model,
+            base_url,
+            outbound,
+            capability="rerank",
+            priority=ProviderPriority.QUERY,
+            allow_unprofiled=True,
+        )
     except Exception as e:
-        logging.getLogger("raganything").warning(f"Rerank failed, using original order: {e}")
+        logging.getLogger("raganything").warning(
+            "Rerank failed, using original order: error_type=%s", type(e).__name__
+        )
         return [(i, c) for i, c in enumerate(chunks)][:top_n]
 
 

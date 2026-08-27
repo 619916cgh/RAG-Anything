@@ -14,6 +14,7 @@ import math
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 _RESET_MARKER = Path(__file__).resolve().parent / ".system-reset-in-progress"
 if _RESET_MARKER.exists():
@@ -623,6 +624,14 @@ def _probe_video_indexing_gate(file_path: str, ingestion: dict) -> None:
         raise RetryableVideoProcessingError(exc.failure_code) from exc
 
 
+async def _ensure_lightrag_ready(rag: Any) -> dict[str, Any]:
+    """Fail closed when LightRAG returns an unsuccessful init result."""
+    initialized = await rag._ensure_lightrag_initialized()
+    if not isinstance(initialized, dict) or initialized.get("success") is not True:
+        raise RuntimeError("lightrag_initialization_failed")
+    return initialized
+
+
 async def process_file(
     file_path: str, kb_name: str, *, task_id: str | None = None
 ) -> int:
@@ -812,7 +821,7 @@ async def process_file(
             vision_embedding_profile=vision_embedding_profile,
         )
         rag.disable_atexit_cleanup()
-        await rag._ensure_lightrag_initialized()
+        await _ensure_lightrag_ready(rag)
         current_stage = "model_preflight"
         print(f"[PROGRESS] phase=model-preflight status=start file={filename}", flush=True)
         await _preflight_embedding_service(rag)
@@ -827,6 +836,9 @@ async def process_file(
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 text_content = f.read()
             if text_content.strip():
+                # Plain text needs no parser after the file read. From this
+                # point failures belong to the indexed insertion pipeline.
+                current_stage = "indexing"
                 await rag.insert_content_list(
                     [{"type": "text", "text": text_content, "page_idx": 0}],
                     file_path=filename,

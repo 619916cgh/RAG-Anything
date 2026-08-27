@@ -1,0 +1,18 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# Refresh only the two application modules whose governed embedding path is
+# part of this disposable candidate. The base image already contains the
+# provider-governance modules and dependencies; production images are never
+# rebuilt from this profile Dockerfile.
+COPY raganything/services/kb_service.py /app/raganything/services/kb_service.py
+COPY raganything/services/state_service.py /app/raganything/services/state_service.py
+COPY raganything/services/vision_models.py /app/raganything/services/vision_models.py
+COPY raganything/routers/knowledge.py /app/raganything/routers/knowledge.py
+COPY raganything/routers/shared.py /app/raganything/routers/shared.py
+COPY raganything/utils/_insert.py /app/raganything/utils/_insert.py
+COPY raganything/processor/doc_processor.py /app/raganything/processor/doc_processor.py
+COPY process_worker.py /app/process_worker.py
+
+# The base candidate already contains the runner's profile control route.
+# Do not inject a duplicate route; preflight requires exactly one route.

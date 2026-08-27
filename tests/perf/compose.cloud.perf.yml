@@ -90,14 +90,18 @@ services:
       DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:?generated value required}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?generated value required}
       REDIS_URI: redis://redis:6379
-      LLM_BINDING_HOST: http://mock-provider:18000/v1
-      LLM_BINDING_API_KEY: perf-only
-      LLM_MODEL: perf-mock
-      EMBEDDING_MODEL: perf-mock
-      EMBEDDING_DIM: "1536"
-      VISION_EMBEDDING_HOST: http://mock-provider:18000/v1
-      VISION_EMBEDDING_API_KEY: perf-only
-      VISION_EMBEDDING_MODEL: perf-mock
+      LLM_BINDING_HOST: ${PERF_LLM_BINDING_HOST:-http://mock-provider:18000/v1}
+      LLM_BINDING_API_KEY: ${PERF_LLM_BINDING_API_KEY:-perf-only}
+      LLM_MODEL: ${PERF_LLM_MODEL:-perf-mock}
+      MODEL_PROFILE_CATALOG_FILE: /tmp/perf-model-profiles.json
+      PROVIDER_GOVERNANCE_QWEN_QUOTA_VERIFIED: ${PERF_PROVIDER_GOVERNANCE_QWEN_QUOTA_VERIFIED:-}
+      PROVIDER_GOVERNANCE_QWEN_REQUESTS_PER_MINUTE: ${PERF_PROVIDER_GOVERNANCE_QWEN_REQUESTS_PER_MINUTE:-}
+      PROVIDER_GOVERNANCE_QWEN_TOKENS_PER_MINUTE: ${PERF_PROVIDER_GOVERNANCE_QWEN_TOKENS_PER_MINUTE:-}
+      EMBEDDING_MODEL: ${PERF_EMBEDDING_MODEL:-perf-mock}
+      EMBEDDING_DIM: ${PERF_EMBEDDING_DIM:-1536}
+      VISION_EMBEDDING_HOST: ${PERF_VISION_EMBEDDING_HOST:-http://mock-provider:18000/v1}
+      VISION_EMBEDDING_API_KEY: ${PERF_VISION_EMBEDDING_API_KEY:-perf-only}
+      VISION_EMBEDDING_MODEL: ${PERF_VISION_EMBEDDING_MODEL:-perf-mock}
       VISION_EMBEDDING_DIM: "1536"
       ENABLE_METRICS: "true"
       MARKER_SERVICE_URL: http://marker:8765
@@ -109,7 +113,7 @@ services:
       ENABLE_TABLE_PROCESSING: "false"
       ENABLE_EQUATION_PROCESSING: "false"
       PERF_CPU_PROFILE_KEY: ${PERF_CPU_PROFILE_KEY:-}
-    volumes: ["uploads:/app/uploads", "rag_storage:/app/rag_storage", "output:/app/output"]
+    volumes: ["uploads:/app/uploads", "rag_storage:/app/rag_storage", "output:/app/output", "${PERF_RUN_DIR:?run directory required}/model-profiles.json:/tmp/perf-model-profiles.json:ro"]
     depends_on: {migrate: {condition: service_completed_successfully}, redis: {condition: service_started}, mock-provider: {condition: service_started}, marker: {condition: service_healthy}}
     cpus: ${PERF_APP_CPUS:-2.0}
     mem_limit: ${PERF_APP_MEM_LIMIT:-3g}

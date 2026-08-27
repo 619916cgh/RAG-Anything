@@ -697,12 +697,13 @@ def resolve_settings(
             effective[section][field] = cap
             sources[section][field] = "platform_limit"
 
-    # Provider and worker ceilings are outer limits.  A user can save a
-    # larger personal preference, but its effective concurrency must never
-    # exceed either shared capacity.
+    # The user lease remains a fairness/worker control. Provider concurrency
+    # is enforced per outbound model call by the durable provider governor,
+    # where overload can use its bounded priority queue instead of rejecting
+    # an entire query before retrieval.
     if effective["runtime"]["personal_concurrency"]:
         outer_caps = [
-            int(limits[field]) for field in ("provider_concurrency", "worker_concurrency")
+            int(limits[field]) for field in ("worker_concurrency",)
             if isinstance(limits.get(field), (int, float)) and limits[field] > 0
         ]
         if outer_caps:
@@ -1163,7 +1164,7 @@ async def run_ingestion_with_quota(
     limits = ((platform.get("settings") or {}).get("limits") or {})
     outer_caps = [
         int(limits[name])
-        for name in ("provider_concurrency", "worker_concurrency")
+        for name in ("worker_concurrency",)
         if isinstance(limits.get(name), (int, float)) and limits[name] > 0
     ]
     outer_limit = min(outer_caps) if outer_caps else None

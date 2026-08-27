@@ -29,7 +29,6 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import partial
 from pathlib import Path
 from raganything.services.runtime_settings import bootstrap_runtime_settings
 
@@ -3545,21 +3544,39 @@ async def create_rag(
     _api_key = os.getenv("LLM_BINDING_API_KEY")
     _base_url = os.getenv("LLM_BINDING_HOST")
 
-    def llm_func(prompt, system_prompt=None, history_messages=[], **kw):
+    async def llm_func(prompt, system_prompt=None, history_messages=[], **kw):
         if "max_tokens" not in kw:
             kw["max_tokens"] = int(os.getenv("MAX_TOKENS", "4096"))
         kw.setdefault("timeout", int(os.getenv("LLM_TIMEOUT", "180")))
-        return openai_complete_if_cache(
-            _llm_model, prompt, system_prompt=system_prompt,
-            history_messages=history_messages, api_key=_api_key, base_url=_base_url, **kw,
+        from raganything.services.provider_governance import ProviderPriority
+        from raganything.services.vision_models import govern_openai_compatible_call
+
+        return await govern_openai_compatible_call(
+            _llm_model,
+            _base_url,
+            lambda: openai_complete_if_cache(
+                _llm_model, prompt, system_prompt=system_prompt,
+                history_messages=history_messages, api_key=_api_key, base_url=_base_url, **kw,
+            ),
+            capability="llm",
+            priority=ProviderPriority.UPLOAD,
         )
 
-    def vision_func(prompt, system_prompt=None, history_messages=[],
-                    image_data=None, image_mime_type=None, messages=None, **kw):
+    async def vision_func(prompt, system_prompt=None, history_messages=[],
+                          image_data=None, image_mime_type=None, messages=None, **kw):
+        from raganything.services.provider_governance import ProviderPriority
+        from raganything.services.vision_models import govern_openai_compatible_call
+
         if messages is not None:
-            return openai_complete_if_cache(
-                _vision_model, "", system_prompt=None, history_messages=[],
-                messages=messages, api_key=_api_key, base_url=_base_url, **kw,
+            return await govern_openai_compatible_call(
+                _vision_model,
+                _base_url,
+                lambda: openai_complete_if_cache(
+                    _vision_model, "", system_prompt=None, history_messages=[],
+                    messages=messages, api_key=_api_key, base_url=_base_url, **kw,
+                ),
+                capability="vlm",
+                priority=ProviderPriority.UPLOAD,
             )
         elif image_data is not None:
             mime_type = (
@@ -3567,16 +3584,22 @@ async def create_rag(
                 if image_mime_type in _VLM_IMAGE_MIME_TYPES
                 else "image/jpeg"
             )
-            return openai_complete_if_cache(
-                _vision_model, "", system_prompt=None, history_messages=[],
-                messages=[
-                    {"role": "system", "content": system_prompt} if system_prompt else None,
-                    {"role": "user", "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_data}"}},
-                    ]},
-                ],
-                api_key=_api_key, base_url=_base_url, **kw,
+            return await govern_openai_compatible_call(
+                _vision_model,
+                _base_url,
+                lambda: openai_complete_if_cache(
+                    _vision_model, "", system_prompt=None, history_messages=[],
+                    messages=[
+                        {"role": "system", "content": system_prompt} if system_prompt else None,
+                        {"role": "user", "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_data}"}},
+                        ]},
+                    ],
+                    api_key=_api_key, base_url=_base_url, **kw,
+                ),
+                capability="vlm",
+                priority=ProviderPriority.UPLOAD,
             )
         else:
             return llm_func(prompt, system_prompt, history_messages, **kw)
@@ -3585,19 +3608,41 @@ async def create_rag(
     # but DashScope text-embedding-v3 returns 1024-dim vectors. We override the
     # embedding_dim attribute on the partial function so LightRAG allocates
     # vector storage at the correct (API-native) dimension.
-    _raw_embed_func = partial(
-        openai_embed.func, model=_emb_model, api_key=_api_key, base_url=_base_url
-    )
+    async def _raw_embed_func(texts, **kwargs):
+        from raganything.services.provider_governance import ProviderPriority
+        from raganything.services.vision_models import govern_openai_compatible_call
+
+        return await govern_openai_compatible_call(
+            _emb_model,
+            _base_url,
+            lambda: openai_embed.func(
+                texts, model=_emb_model, api_key=_api_key, base_url=_base_url, **kwargs
+            ),
+            capability="embedding",
+            priority=ProviderPriority.UPLOAD,
+        )
     _raw_embed_func.embedding_dim = _emb_dim
 
     async def _preflight_embed_func(texts, *, timeout: int):
-        raw_call = getattr(openai_embed.func, "__wrapped__", openai_embed.func)
-        return await raw_call(
-            texts,
-            model=_emb_model,
-            api_key=_api_key,
-            base_url=_base_url,
-            client_configs={"timeout": timeout, "max_retries": 0},
+        from raganything.services.provider_governance import ProviderPriority
+        from raganything.services.vision_models import govern_openai_compatible_call
+
+        # Use the same LightRAG entry point that succeeds for normal embedding
+        # calls. Unwrapping the decorated function bypasses provider/client
+        # setup in some LightRAG releases and causes false preflight failures.
+        raw_call = openai_embed.func
+        return await govern_openai_compatible_call(
+            _emb_model,
+            _base_url,
+            lambda: raw_call(
+                texts,
+                model=_emb_model,
+                api_key=_api_key,
+                base_url=_base_url,
+                client_configs={"timeout": timeout, "max_retries": 0},
+            ),
+            capability="embedding",
+            priority=ProviderPriority.UPLOAD,
         )
 
     # Wrap with local persistent cache to avoid redundant API calls.
@@ -3702,9 +3747,11 @@ async def create_rag(
         from raganything.services.vision_models import (
             build_llm_callable,
             build_vlm_callable,
+            effective_qwen_fanout,
             get_entry,
             require_available,
         )
+        from raganything.services.provider_governance import ProviderPriority
 
         llm_profile_id = task_models.get("llm_profile_id")
         vlm_profile_id = task_models.get("vlm_profile_id")
@@ -3733,12 +3780,17 @@ async def create_rag(
             llm_profile_id,
             cache_scope=cache_scope,
             timeout=task_runtime.get("llm_timeout") if isinstance(task_runtime, dict) else None,
+            provider_priority=ProviderPriority.UPLOAD,
+        )
+        lightrag_kwargs["llm_model_max_async"] = effective_qwen_fanout(
+            llm_profile_id, int(lightrag_kwargs["llm_model_max_async"])
         )
         # Text-only queries do not invoke the vision function and therefore do
         # not construct a VLM adapter. Image-query and ingestion boundaries
         # retain strict VLM availability and adapter checks.
         vision_func = (
-            build_vlm_callable(vlm_profile_id) if require_vlm else llm_func
+            build_vlm_callable(vlm_profile_id, provider_priority=ProviderPriority.UPLOAD)
+            if require_vlm else llm_func
         )
     else:
         # Cached query cores are user-neutral.  Resolve the actual model from
@@ -4654,6 +4706,7 @@ async def _finalize_failed_upload(
     claim_generation: int | None = None,
     *,
     verified_degraded: tuple[str, dict[str, Any]] | None = None,
+    failure_stage: str = "",
 ) -> None:
     """Persist document failure before making its task terminal.
 
@@ -4776,10 +4829,10 @@ async def _finalize_failed_upload(
     if claim_owner is not None and upload_row is None:
         kb_logger.info("Ignoring stale upload failure: task=%s", task_id)
         return
-    await fail_task(task_id, error_message)
+    await fail_task(task_id, error_message, failure_stage=failure_stage)
     await add_event(
         "upload_error", file=filename, task_id=task_id,
-        error=error_message, user_id=user_id,
+        error=error_message, failure_stage=failure_stage, user_id=user_id,
     )
     if file_hash is not None:
         _unregister_processing_file(kb_name, file_hash)
@@ -6264,6 +6317,7 @@ async def _process_uploaded_file(
             actual_strategy,
             claim_owner,
             claim_generation,
+            failure_stage=e.stage if isinstance(e, WorkerProcessError) else "",
         )
     finally:
         if worker_slot_acquired and worker_slot is not None:

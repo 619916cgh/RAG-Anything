@@ -349,8 +349,9 @@ async def get_task_status(task_id: str) -> dict[str, Any] | None:
 
 async def get_all_tasks(
     *, kb_name: str | None = None, limit: int | None = None,
+    include_terminal: bool = False,
 ) -> list[dict[str, Any]]:
-    """Get all active processing tasks — PG-first, local cache fallback.
+    """Get processing tasks — PG-first, local cache fallback.
 
     Returns:
         List of task status dicts, newest first
@@ -361,14 +362,13 @@ async def get_all_tasks(
         from raganything.services.pg_state_repo import get_pg_pool
         pool = get_pg_pool()
         async with pool.acquire() as conn:
-            query = (
-                "SELECT * FROM processing_tasks "
-                "WHERE status NOT IN ('completed','failed')"
-            )
+            query = "SELECT * FROM processing_tasks"
+            if not include_terminal:
+                query += " WHERE status NOT IN ('completed','failed')"
             params: list[Any] = []
             if kb_name is not None:
                 params.append(kb_name)
-                query += f" AND kb_name=${len(params)}"
+                query += f" {'WHERE' if include_terminal else 'AND'} kb_name=${len(params)}"
             query += " ORDER BY updated_at DESC"
             if limit is not None:
                 params.append(limit)
@@ -395,7 +395,8 @@ async def get_all_tasks(
     # Fallback: local cache
     local_tasks = (
         task for task in processing_tasks.values()
-        if kb_name is None or task.get("kb", task.get("kb_name", "")) == kb_name
+        if (include_terminal or task.get("status") not in {"completed", "failed"})
+        and (kb_name is None or task.get("kb", task.get("kb_name", "")) == kb_name)
     )
     return sorted(
         local_tasks,

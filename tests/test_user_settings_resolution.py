@@ -77,7 +77,7 @@ def test_user_override_is_constrained_without_losing_stored_value():
     assert resolved.fingerprint
 
 
-def test_provider_and_worker_caps_constrain_personal_concurrency():
+def test_worker_cap_constrains_personal_concurrency_without_preempting_provider_queue():
     resolved, sources, constraints = resolve_settings(
         stored={"runtime": {"personal_concurrency": 12}},
         platform={"limits": {"provider_concurrency": 8, "worker_concurrency": 3}},
@@ -89,6 +89,18 @@ def test_provider_and_worker_caps_constrain_personal_concurrency():
     assert constraints["runtime"]["personal_concurrency"] == {
         "requested": 12, "maximum": 3,
     }
+
+
+def test_provider_cap_alone_does_not_constrain_user_query_fairness():
+    resolved, sources, constraints = resolve_settings(
+        stored={"runtime": {"personal_concurrency": 12}},
+        platform={"limits": {"provider_concurrency": 8}},
+        revision=1,
+    )
+
+    assert resolved.runtime.personal_concurrency == 12
+    assert sources["runtime"]["personal_concurrency"] == "user_setting"
+    assert "personal_concurrency" not in constraints.get("runtime", {})
 
 
 def test_named_retrieval_preset_resolves_to_its_executable_fields():

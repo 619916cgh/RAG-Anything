@@ -1173,8 +1173,12 @@ async def list_upload_tasks(
     )
     active_tasks = {
         (task.get("id") or task.get("task_id")): task
-        for task in await get_all_tasks()
-        if task.get("kb", task.get("kb_name", "")) == kb
+        # Terminal task metadata is kept separately from uploaded_files. Keep
+        # the bounded upload list diagnostically complete without exposing
+        # raw Worker output through this endpoint.
+        for task in await get_all_tasks(
+            kb_name=kb, limit=200, include_terminal=True,
+        )
     }
     from raganything.services.upload_retry import get_retry_metadata
     retry_by_task = await get_retry_metadata(

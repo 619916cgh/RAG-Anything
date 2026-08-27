@@ -86,7 +86,7 @@ def test_cloud_compose_is_fixed_image_full_stack_with_owned_storage():
     assert 'ports: ["127.0.0.1:${PERF_HTTP_PORT:?generated port required}:80"]' in content
     assert "/app/server.py" not in content
     assert "/app/raganything/runtime_metrics.py" not in content
-    assert "VISION_EMBEDDING_HOST: http://mock-provider:18000/v1" in content
+    assert "VISION_EMBEDDING_HOST: ${PERF_VISION_EMBEDDING_HOST:-http://mock-provider:18000/v1}" in content
     assert "http://localhost:18000/openapi.json" in content
     assert "PERF_POSTGRES_IMAGE" in content
     assert "PERF_REDIS_IMAGE" in content

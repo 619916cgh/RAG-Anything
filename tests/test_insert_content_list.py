@@ -53,6 +53,44 @@ except ModuleNotFoundError as exc:
     from raganything.processor import ProcessorMixin  # noqa: E402
 
 
+def test_insert_text_content_omits_track_id_for_legacy_lightrag(monkeypatch):
+    from raganything.utils._insert import insert_text_content
+
+    received = {}
+
+    class LegacyLightRAG:
+        async def ainsert(self, input, file_paths=None, split_by_character=None,
+                          split_by_character_only=False, ids=None):
+            received.update(locals())
+
+    asyncio.run(insert_text_content(
+        LegacyLightRAG(), "legacy text", file_paths="sample.txt",
+        ids="doc-legacy", track_id="task-legacy",
+    ))
+
+    assert received["input"] == "legacy text"
+    assert received["ids"] == "doc-legacy"
+    assert "track_id" not in received
+
+
+def test_insert_text_content_preserves_track_id_for_supported_lightrag(monkeypatch):
+    from raganything.utils._insert import insert_text_content
+
+    received = {}
+
+    class CurrentLightRAG:
+        async def ainsert(self, input, file_paths=None, split_by_character=None,
+                          split_by_character_only=False, ids=None, track_id=None):
+            received.update(locals())
+
+    asyncio.run(insert_text_content(
+        CurrentLightRAG(), "current text", file_paths="sample.txt",
+        ids="doc-current", track_id="task-current",
+    ))
+
+    assert received["track_id"] == "task-current"
+
+
 class FakeDocStatus:
     def __init__(self, events):
         self.records = {}

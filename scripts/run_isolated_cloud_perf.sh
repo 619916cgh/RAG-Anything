@@ -4,6 +4,7 @@ set -euo pipefail
 
 phase=${1:-}
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd "$repo_root"
 compose_file="$repo_root/tests/perf/compose.cloud.perf.yml"
 temp_root=$(realpath "${TMPDIR:-/tmp}")
 run_dir=${PERF_RUN_DIR:-}
@@ -24,6 +25,7 @@ profile_b_predecessor=${PERF_PROFILE_B_PREDECESSOR:-}
 profile_b_execution_mode=${PERF_PROFILE_B_EXECUTION_MODE:-ordered-ladder}
 profile_b_max_async=4
 progress_file=${PERF_RUNNER_PROGRESS_FILE:-}
+provider_profile=${PERF_PROVIDER_PROFILE:-mock}
 profile_b_8c32g_direct=false
 if [[ "$resource_profile" == profile-b && "$profile_b_execution_mode" == direct-50-diagnostic ]]; then
     profile_b_8c32g_direct=true
@@ -154,7 +156,8 @@ allowed = (
     "resource_profile", "profile_b_stage", "app_cpu_quota",
     "app_memory_quota_bytes", "runner_sha256", "compose_sha256",
     "fixture_text_sha256", "profile_b_config_sha256", "profile_b_result", "cleanup_verified",
-    "profile_b_execution_mode", "profile_b_predecessor_evidence",
+    "profile_b_execution_mode", "profile_b_predecessor_evidence", "provider_profile",
+    "qwen_quota_record_sha256",
 )
 payload = {key: manifest[key] for key in allowed if key in manifest}
 with open(destination, "w", encoding="utf-8") as handle:
@@ -173,9 +176,14 @@ import json
 import sys
 
 path, expected, expected_config = sys.argv[1:]
-previous = {5: 1, 10: 5, 20: 10, 30: 20, 40: 30, 50: 40}[int(expected)]
 with open(path, encoding="utf-8") as handle:
     payload = json.load(handle)
+provider_profile = payload.get("provider_profile", "mock")
+previous_stages = {"mock": {5: 1, 10: 5, 20: 10, 30: 20, 40: 30, 50: 40}, "qwen": {20: 10, 30: 20, 40: 30, 50: 40}}
+try:
+    previous = previous_stages[provider_profile][int(expected)]
+except KeyError as error:
+    raise SystemExit("predecessor stage is invalid for provider profile") from error
 result = payload.get("profile_b_result") or {}
 if payload.get("resource_profile") != "profile-b" or payload.get("profile_b_stage") != previous:
     raise SystemExit("predecessor profile/stage mismatch")
@@ -301,6 +309,10 @@ case "$phase" in
         fi
         [[ "$profile_b_stage" == 1 || "$profile_b_stage" == 5 || "$profile_b_stage" == 10 || "$profile_b_stage" == 20 || "$profile_b_stage" == 30 || "$profile_b_stage" == 40 || "$profile_b_stage" == 50 ]] || die "PERF_PROFILE_B_STAGE must be 1, 5, 10, 20, 30, 40, or 50"
         assert_no_active_profile_b_stack
+        if [[ "$provider_profile" == qwen ]]; then
+            capacity_label=$(docker image inspect "$app_image" --format '{{ index .Config.Labels "raganything.perf.capacity-rate-limit" }}')
+            [[ "$capacity_label" == router-10000-v1 ]] || die "Qwen Profile B requires a capacity-rate-limit candidate image"
+        fi
     fi
     preflight_key=$(secret)
     if ! docker run --rm --network none --read-only \
@@ -323,6 +335,45 @@ case "$phase" in
     [[ -f "$compose_file" ]] || die "missing Compose profile"
     [[ -n "$app_image" ]] || die "PERF_APP_IMAGE is required"
     [[ "$rate_limit_mode" == enforced || "$rate_limit_mode" == capacity ]] || die "PERF_RATE_LIMIT_MODE must be enforced or capacity"
+    [[ "$provider_profile" == mock || "$provider_profile" == qwen ]] || die "PERF_PROVIDER_PROFILE must be mock or qwen"
+    qwen_endpoint='http://mock-provider:18000/v1'
+    qwen_api_key='perf-only'
+    qwen_model='perf-mock'
+    profile_b_first_stage=1
+    if [[ "$provider_profile" == qwen ]]; then
+        [[ "$profile_b_stage" == 10 || "$profile_b_stage" == 20 || "$profile_b_stage" == 30 || "$profile_b_stage" == 40 || "$profile_b_stage" == 50 ]] || die "Qwen provider profile requires stage 10, 20, 30, 40, or 50"
+        [[ -n "${PERF_QWEN_API_KEY:-}" ]] || die "PERF_QWEN_API_KEY is required for Qwen profile"
+        [[ -n "${PERF_QWEN_ENDPOINT:-}" && -n "${PERF_QWEN_MODEL:-}" && -n "${PERF_QWEN_EMBEDDING_MODEL:-}" && -n "${PERF_QWEN_QUOTA_RECORD:-}" ]] || die "Qwen endpoint, chat model, embedding model, and quota record are required"
+        if ! python3 - <<'PY'
+import os
+from scripts.run_profile_b_ladder import _validate_qwen_environment
+try:
+    _validate_qwen_environment(dict(os.environ))
+except ValueError as error:
+    raise SystemExit(str(error))
+PY
+        then
+            die "Qwen provider profile validation failed"
+        fi
+        qwen_endpoint="${PERF_QWEN_ENDPOINT%/}"
+        qwen_api_key="$PERF_QWEN_API_KEY"
+        qwen_model="$PERF_QWEN_MODEL"
+        # Compose reads these process values directly. Keep provider endpoint,
+        # key, and quota record out of compose.env and all sanitized evidence.
+        export PERF_LLM_BINDING_HOST="$qwen_endpoint"
+        export PERF_LLM_BINDING_API_KEY="$qwen_api_key"
+        export PERF_LLM_MODEL="$qwen_model"
+        export PERF_EMBEDDING_MODEL="$PERF_QWEN_EMBEDDING_MODEL"
+        # DashScope text-embedding-v4 returns 1024-dimensional vectors.
+        export PERF_EMBEDDING_DIM="1024"
+        export PERF_VISION_EMBEDDING_HOST="$qwen_endpoint"
+        export PERF_VISION_EMBEDDING_API_KEY="$qwen_api_key"
+        export PERF_VISION_EMBEDDING_MODEL="$PERF_QWEN_EMBEDDING_MODEL"
+        export PERF_PROVIDER_GOVERNANCE_QWEN_QUOTA_VERIFIED="${PERF_QWEN_QUOTA_VERIFIED:-}"
+        export PERF_PROVIDER_GOVERNANCE_QWEN_REQUESTS_PER_MINUTE="$PERF_QWEN_RPM"
+        export PERF_PROVIDER_GOVERNANCE_QWEN_TOKENS_PER_MINUTE="$PERF_QWEN_TPM"
+        profile_b_first_stage=10
+    fi
     [[ "$cpu_profiling" == 0 || "$cpu_profiling" == 1 ]] || die "PERF_ENABLE_CPU_PROFILE must be 0 or 1"
     [[ "$sse_phase_attribution" == 0 || "$sse_phase_attribution" == 1 ]] || die "PERF_SSE_PHASE_ATTRIBUTION must be 0 or 1"
     [[ "$resource_profile" == profile-a || "$resource_profile" == profile-b ]] || die "PERF_RESOURCE_PROFILE must be profile-a or profile-b"
@@ -378,12 +429,16 @@ case "$phase" in
     runner_sha256=$(sha256sum "$repo_root/scripts/run_isolated_cloud_perf.sh" | awk '{print $1}')
     compose_sha256=$(sha256sum "$compose_file" | awk '{print $1}')
     fixture_text_sha256=$(sha256sum "$repo_root/tests/perf/fixtures/sample.txt" | awk '{print $1}')
-    profile_b_config_sha256=$(python3 - "$resource_profile" "$app_cpus" "$app_mem_limit" "$app_max_async" "$app_image" "$compose_sha256" <<'PY'
+    qwen_quota_record_sha256=''
+    if [[ "$provider_profile" == qwen ]]; then
+        qwen_quota_record_sha256=$(sha256sum "$PERF_QWEN_QUOTA_RECORD" | awk '{print $1}')
+    fi
+    profile_b_config_sha256=$(python3 - "$resource_profile" "$app_cpus" "$app_mem_limit" "$app_max_async" "$app_image" "$compose_sha256" "$provider_profile" "${PERF_QWEN_MODEL:-}" "$qwen_quota_record_sha256" <<'PY'
 import hashlib
 import json
 import sys
 
-resource_profile, app_cpus, app_mem_limit, app_max_async, app_image, compose_sha256 = sys.argv[1:]
+resource_profile, app_cpus, app_mem_limit, app_max_async, app_image, compose_sha256, provider_profile, provider_model, quota_sha256 = sys.argv[1:]
 if resource_profile != "profile-b":
     print("")
 else:
@@ -393,6 +448,9 @@ else:
         "app_max_async": app_max_async,
         "app_memory_limit": app_mem_limit,
         "compose_sha256": compose_sha256,
+        "provider_profile": provider_profile,
+        "provider_model": provider_model,
+        "qwen_quota_record_sha256": quota_sha256,
         "mock_token_count": 16,
         "mock_token_interval_ms": 20,
         "mock_ttft_ms": 100,
@@ -407,7 +465,7 @@ PY
             [[ "$profile_b_stage" == 50 && -z "$profile_b_predecessor" ]] || die "direct Profile B diagnostic requires stage 50 without predecessor"
             [[ "${PERF_PROFILE_B_DIRECT_AUTHORIZATION:-}" == profile-b-direct-50-8cpu-24g ]] || die "direct Profile B diagnostic requires explicit authorization"
             profile_b_predecessor_evidence=absent_by_authorized_direct_diagnostic
-        elif [[ "$profile_b_stage" != 1 ]]; then
+        elif [[ "$profile_b_stage" != "$profile_b_first_stage" ]]; then
             [[ -n "$profile_b_predecessor" && -f "$profile_b_predecessor" ]] || die "Profile B later stages require predecessor evidence"
             validate_profile_b_predecessor "$profile_b_stage" "$profile_b_predecessor"
             profile_b_predecessor_evidence=verified_ordered_predecessor
@@ -425,6 +483,66 @@ PY
     mkdir -p "$run_dir"
     mkdir -m 700 "$run_dir/profile"
     cp "$repo_root/tests/perf/mock_provider.py" "$run_dir/mock_provider.py"
+    python3 - "$run_dir/model-profiles.json" "$provider_profile" "${qwen_model:-perf-mock}" "${PERF_QWEN_EMBEDDING_MODEL:-perf-mock}" <<'PY'
+import json
+import sys
+
+path, provider_profile, chat_model, embedding_model = sys.argv[1:]
+if provider_profile == "qwen":
+    chat_model = "qwen-plus"
+    display = "Qwen Plus"
+else:
+    chat_model = "perf-mock"
+    display = "Performance mock"
+profiles = [
+    {
+        "id": "legacy-llm",
+        "kind": "llm",
+        "display_name": display,
+        "provider": "openai_compatible",
+        "model": chat_model,
+        "capabilities": ["text_generation", "chat"],
+        "private": {
+            "base_url": "${LLM_BINDING_HOST}",
+            "api_key_env": "LLM_BINDING_API_KEY",
+            "timeout": 180,
+            "concurrency": 4,
+        },
+    },
+    {
+        "id": "legacy-vlm",
+        "kind": "vlm",
+        "display_name": display + " vision",
+        "provider": "openai_compatible",
+        "model": chat_model,
+        "capabilities": ["ocr", "image_description", "question_answering"],
+        "private": {
+            "base_url": "${LLM_BINDING_HOST}",
+            "api_key_env": "LLM_BINDING_API_KEY",
+            "timeout": 180,
+            "concurrency": 4,
+        },
+    },
+]
+if provider_profile == "qwen":
+    profiles.append({
+        "id": "legacy-embedding",
+        "kind": "embedding",
+        "display_name": "Qwen embedding",
+        "provider": "openai_compatible",
+        "model": embedding_model,
+        "capabilities": ["text_embedding"],
+        "embedding_dim": 1024,
+        "private": {
+            "base_url": "${LLM_BINDING_HOST}",
+            "api_key_env": "LLM_BINDING_API_KEY",
+            "timeout": 180,
+            "concurrency": 4,
+        },
+    })
+json.dump({"profiles": profiles}, open(path, "w", encoding="utf-8"), sort_keys=True)
+PY
+    chmod 0644 "$run_dir/model-profiles.json"
     printf '%s\n' 'CREATE EXTENSION IF NOT EXISTS vector;' >"$run_dir/pgvector-init.sql"
     chmod 0644 "$run_dir/pgvector-init.sql"
     local_port=$(unused_loopback_port)
@@ -455,6 +573,10 @@ PERF_MOCK_TTFT_MS=100
 PERF_MOCK_TOKEN_INTERVAL_MS=20
 PERF_MOCK_TOKEN_COUNT=16
 PERF_APP_MAX_ASYNC=$app_max_async
+PERF_PROVIDER_PROFILE=$provider_profile
+PERF_PROVIDER_GOVERNANCE_QWEN_QUOTA_VERIFIED=${PERF_PROVIDER_GOVERNANCE_QWEN_QUOTA_VERIFIED:-}
+PERF_PROVIDER_GOVERNANCE_QWEN_REQUESTS_PER_MINUTE=${PERF_PROVIDER_GOVERNANCE_QWEN_REQUESTS_PER_MINUTE:-}
+PERF_PROVIDER_GOVERNANCE_QWEN_TOKENS_PER_MINUTE=${PERF_PROVIDER_GOVERNANCE_QWEN_TOKENS_PER_MINUTE:-}
 PERF_RATE_LIMIT_MODE=$rate_limit_mode
 PERF_ISOLATED_RATE_LIMIT=$isolated_rate_limit
 PERF_CPU_PROFILING=$cpu_profiling
@@ -472,10 +594,10 @@ PERF_APP_MEM_LIMIT=$app_mem_limit
 EOF
     db_password=$(awk -F= '$1 == "POSTGRES_PASSWORD" { print $2 }' "$run_dir/compose.env")
     printf 'DATABASE_URL=postgresql://perf:%s@postgres:5432/perf_%s\n' "$db_password" "${run_id:0:12}" >>"$run_dir/compose.env"
-    python3 - "$run_dir/manifest.json" "$run_id" "$project" "$app_image_source" "$app_image" "$image_digest" "$marker_image" "$nginx_image" "$postgres_image" "$redis_image" "$local_port" "$rate_limit_mode" "$cpu_profiling" "$diagnostic_mode" "$diagnostic_stage" "$cpu_stop_percent" "$cpu_emergency_percent" "$(free_memory_gib)" "$(free_disk_gib)" "$resource_profile" "$profile_b_stage" "$profile_b_execution_mode" "${profile_b_predecessor_evidence:-}" "$app_cpus" "$app_memory_quota_bytes" "$app_max_async" "$profile_b_config_sha256" "$runner_sha256" "$compose_sha256" "$fixture_text_sha256" <<'PY'
+    python3 - "$run_dir/manifest.json" "$run_id" "$project" "$app_image_source" "$app_image" "$image_digest" "$marker_image" "$nginx_image" "$postgres_image" "$redis_image" "$local_port" "$rate_limit_mode" "$cpu_profiling" "$diagnostic_mode" "$diagnostic_stage" "$cpu_stop_percent" "$cpu_emergency_percent" "$(free_memory_gib)" "$(free_disk_gib)" "$resource_profile" "$profile_b_stage" "$profile_b_execution_mode" "${profile_b_predecessor_evidence:-}" "$app_cpus" "$app_memory_quota_bytes" "$app_max_async" "$profile_b_config_sha256" "$runner_sha256" "$compose_sha256" "$fixture_text_sha256" "$provider_profile" "$qwen_quota_record_sha256" <<'PY'
 import json
 import sys
-path, run_id, project, image_source, image_id, digest, marker_id, nginx_id, postgres_id, redis_id, port, rate_limit_mode, cpu_profiling, diagnostic_mode, diagnostic_stage, cpu_stop_percent, cpu_emergency_percent, memory, disk, resource_profile, profile_b_stage, profile_b_execution_mode, profile_b_predecessor_evidence, app_cpu_quota, app_memory_quota_bytes, app_max_async, profile_b_config_sha256, runner_sha256, compose_sha256, fixture_text_sha256 = sys.argv[1:]
+path, run_id, project, image_source, image_id, digest, marker_id, nginx_id, postgres_id, redis_id, port, rate_limit_mode, cpu_profiling, diagnostic_mode, diagnostic_stage, cpu_stop_percent, cpu_emergency_percent, memory, disk, resource_profile, profile_b_stage, profile_b_execution_mode, profile_b_predecessor_evidence, app_cpu_quota, app_memory_quota_bytes, app_max_async, profile_b_config_sha256, runner_sha256, compose_sha256, fixture_text_sha256, provider_profile, qwen_quota_record_sha256 = sys.argv[1:]
 payload = {
     "run_id": run_id, "project": project, "app_image_source": image_source,
     "app_image_id": image_id, "app_image_digest": digest,
@@ -501,6 +623,8 @@ payload = {
     "runner_sha256": runner_sha256,
     "compose_sha256": compose_sha256,
     "fixture_text_sha256": fixture_text_sha256,
+    "provider_profile": provider_profile,
+    "qwen_quota_record_sha256": qwen_quota_record_sha256,
 }
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle, sort_keys=True)
@@ -552,10 +676,15 @@ with open(result_path, encoding="utf-8") as handle:
 required = {"classification", "requests", "successes", "ttft_p95_ms", "total_p95_ms", "recovery_passed"}
 if manifest.get("resource_profile") != "profile-b" or not required <= set(result):
     raise SystemExit("invalid Profile B result")
-if result["classification"] not in {"profile_b_stage_passed", "profile_b_hard_stop", "profile_b_invalid_or_preflight_failed", "profile_b_direct_diagnostic_completed", "profile_b_direct_diagnostic_hard_stop"}:
+if result["classification"] not in {"profile_b_stage_passed", "profile_b_hard_stop", "profile_b_readiness_gate_failed", "profile_b_invalid_or_preflight_failed", "profile_b_direct_diagnostic_completed", "profile_b_direct_diagnostic_hard_stop", "profile_b_text_insert_diagnostic"}:
     raise SystemExit("invalid Profile B classification")
+serialized = json.dumps(result, sort_keys=True).lower()
+# This fixed field is only an aggregate metric presence count; it contains no
+# query text or user data and is explicitly allowlisted for the report gate.
+for safe_field in ('"query_phase_histogram_samples"',):
+    serialized = serialized.replace(safe_field, '')
 for forbidden in ("query", "answer", "token", "thread", "credential", "password", "payload"):
-    if forbidden in json.dumps(result, sort_keys=True).lower():
+    if forbidden in serialized:
         raise SystemExit("Profile B result contains a forbidden field")
 manifest["profile_b_result"] = result
 with open(manifest_path, "w", encoding="utf-8") as handle:
