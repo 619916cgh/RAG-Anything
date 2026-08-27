@@ -70,8 +70,8 @@ def _supply_chain_fixture(tmp_path):
     archive_hashes = {name: "a" * 64 for name in verifier.REQUIRED_ARCHIVES}
     identity = {
         "archive_provenance": {"archives": archive_hashes},
-        "candidate": {"digest": "sha256:" + "1" * 64, "platform": "linux/amd64"},
-        "rollback": {"digest": "sha256:" + "2" * 64, "platform": "linux/amd64"},
+        "candidate": {"digest": "sha256:" + "1" * 64, "platform": "linux/amd64", "revision": "1" * 40},
+        "rollback": {"digest": "sha256:" + "2" * 64, "platform": "linux/amd64", "revision": "2" * 40},
     }
     artifacts = {}
     for name, digest in (("candidate", identity["candidate"]["digest"]), ("rollback", identity["rollback"]["digest"])):
@@ -107,6 +107,55 @@ def _supply_chain_fixture(tmp_path):
     return bundle, identity
 
 
+def _qualified_supply_chain_fixture(tmp_path):
+    bundle, identity = _supply_chain_fixture(tmp_path)
+    database = {
+        "checksum": "d" * 64,
+        "schema_version": "v6.1.9",
+        "source_verification": "official_anchore_database_checksum_verified",
+        "status": "current",
+        "updated_at": "2026-08-25T00:19:07Z",
+        "valid": True,
+    }
+    supply_path = bundle / "manifests" / "supply-chain.json"
+    supply = json.loads(supply_path.read_text(encoding="utf-8"))
+    supply["qualification"] = "offline-release-qualified"
+    supply["vulnerability_database"] = database
+    for image_name in ("candidate", "rollback"):
+        for kind in verifier.SUPPLY_CHAIN_FILES:
+            record = supply["artifacts"][image_name][kind]
+            target = bundle / record["path"]
+            data = json.loads(target.read_text(encoding="utf-8"))
+            scanner_name, scanner_version = verifier.SUPPLY_CHAIN_SCANNERS[kind]
+            payload_name = {
+                "sbom": "sbom",
+                "licenses": "license_inventory",
+                "vulnerabilities": "vulnerabilities",
+            }[kind]
+            data.update(
+                {
+                    "completion_status": "complete",
+                    "database": database,
+                    "image_revision": identity[image_name]["revision"],
+                    "raw_output_sha256": "e" * 64,
+                    "scanner": {
+                        "asset_sha256": "f" * 64,
+                        "checksums_sha256": "a" * 64,
+                        "name": scanner_name,
+                        "platform": "windows/amd64",
+                        "source_verification": "official_release_checksum_verified",
+                        "version": scanner_version,
+                    },
+                    "status": "passed",
+                }
+            )
+            data[payload_name] = {}
+            target.write_text(json.dumps(data), encoding="utf-8")
+            record["sha256"] = verifier.checksum(target)
+    supply_path.write_text(json.dumps(supply), encoding="utf-8")
+    return bundle, identity
+
+
 def test_supply_chain_evidence_is_semantically_bound(tmp_path):
     bundle, identity = _supply_chain_fixture(tmp_path)
     verifier._verify_supply_chain(bundle, identity)
@@ -125,4 +174,33 @@ def test_supply_chain_evidence_rejects_absolute_artifact_path(tmp_path):
     supply["artifacts"]["candidate"]["sbom"]["path"] = "C:/outside.json"
     supply_path.write_text(json.dumps(supply), encoding="utf-8")
     with pytest.raises(verifier.VerifyError, match="E_SUPPLY_CHAIN_ARTIFACT"):
+        verifier._verify_supply_chain(bundle, identity)
+
+
+def test_qualified_supply_chain_binds_scanner_versions_and_checksums(tmp_path):
+    bundle, identity = _qualified_supply_chain_fixture(tmp_path)
+    verifier._verify_supply_chain(bundle, identity)
+    target = bundle / "evidence" / "supply-chain" / "candidate-sbom.json"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    data["scanner"]["version"] = "0.0.0"
+    target.write_text(json.dumps(data), encoding="utf-8")
+    supply_path = bundle / "manifests" / "supply-chain.json"
+    supply = json.loads(supply_path.read_text(encoding="utf-8"))
+    supply["artifacts"]["candidate"]["sbom"]["sha256"] = verifier.checksum(target)
+    supply_path.write_text(json.dumps(supply), encoding="utf-8")
+    with pytest.raises(verifier.VerifyError, match="E_SUPPLY_CHAIN_EVIDENCE"):
+        verifier._verify_supply_chain(bundle, identity)
+
+
+def test_qualified_supply_chain_binds_manifest_database(tmp_path):
+    bundle, identity = _qualified_supply_chain_fixture(tmp_path)
+    target = bundle / "evidence" / "supply-chain" / "rollback-vulnerabilities.json"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    data["database"]["checksum"] = "0" * 64
+    target.write_text(json.dumps(data), encoding="utf-8")
+    supply_path = bundle / "manifests" / "supply-chain.json"
+    supply = json.loads(supply_path.read_text(encoding="utf-8"))
+    supply["artifacts"]["rollback"]["vulnerabilities"]["sha256"] = verifier.checksum(target)
+    supply_path.write_text(json.dumps(supply), encoding="utf-8")
+    with pytest.raises(verifier.VerifyError, match="E_SUPPLY_CHAIN_EVIDENCE"):
         verifier._verify_supply_chain(bundle, identity)

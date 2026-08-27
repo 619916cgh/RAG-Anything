@@ -29,7 +29,12 @@ SUPPLY_CHAIN_ARTIFACTS = {"sbom", "licenses", "vulnerabilities"}
 SUPPLY_CHAIN_FILES = {
     "sbom": ("sbom", "spdx-json"),
     "licenses": ("license-inventory", "json"),
-    "vulnerabilities": ("vulnerability-snapshot", "sarif"),
+    "vulnerabilities": ("vulnerability-snapshot", "grype-json"),
+}
+SUPPLY_CHAIN_SCANNERS = {
+    "sbom": ("syft", "1.51.0"),
+    "licenses": ("syft", "1.51.0"),
+    "vulnerabilities": ("grype", "0.117.0"),
 }
 TOOLING_FILES = {
     "scripts/stage3_offline_release_bundle.py",
@@ -51,7 +56,7 @@ def _verify_supply_chain(bundle: Path, identity: dict[str, Any]) -> None:
         supply = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise VerifyError("E_SUPPLY_CHAIN_MANIFEST") from exc
-    if not isinstance(supply, dict) or supply.get("qualification") != "not-qualified":
+    if not isinstance(supply, dict) or supply.get("qualification") not in {"not-qualified", "offline-release-qualified"}:
         raise VerifyError("E_SUPPLY_CHAIN_STATUS")
     if supply.get("v2_root_sha256") != V2_REQUALIFIED_SUMS_SHA256:
         raise VerifyError("E_SUPPLY_CHAIN_PROVENANCE")
@@ -59,6 +64,10 @@ def _verify_supply_chain(bundle: Path, identity: dict[str, Any]) -> None:
     archives = archive_provenance.get("archives") if isinstance(archive_provenance, dict) else None
     if supply.get("archive_checksums") != archives:
         raise VerifyError("E_SUPPLY_CHAIN_ARCHIVE")
+    qualified = supply.get("qualification") == "offline-release-qualified"
+    database = supply.get("vulnerability_database")
+    if qualified and (not isinstance(database, dict) or database.get("status") != "current" or database.get("valid") is not True or not SHA.fullmatch(str(database.get("checksum", ""))) or not database.get("updated_at")):
+        raise VerifyError("E_SUPPLY_CHAIN_DATABASE")
     artifacts = supply.get("artifacts")
     if not isinstance(artifacts, dict) or set(artifacts) != {"candidate", "rollback"}:
         raise VerifyError("E_SUPPLY_CHAIN_ARTIFACT")
@@ -82,6 +91,25 @@ def _verify_supply_chain(bundle: Path, identity: dict[str, Any]) -> None:
                 data = json.loads(target.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise VerifyError("E_SUPPLY_CHAIN_EVIDENCE") from exc
+            if qualified:
+                scanner = data.get("scanner") if isinstance(data, dict) else None
+                expected_scanner, expected_version = SUPPLY_CHAIN_SCANNERS[kind]
+                required_payload = {"sbom": "sbom", "licenses": "license_inventory", "vulnerabilities": "vulnerabilities"}[kind]
+                if (not isinstance(data, dict) or data.get("artifact") != artifact_name or data.get("image_digest") != image.get("digest")
+                        or data.get("image_revision") != image.get("revision") or data.get("platform") != "linux/amd64"
+                        or data.get("archive_sha256") != archive_sha or data.get("output_format") != output_format
+                        or data.get("completion_status") != "complete" or data.get("status") != "passed"
+                        or not isinstance(scanner, dict) or scanner.get("name") != expected_scanner
+                        or scanner.get("version") != expected_version
+                        or scanner.get("platform") != "windows/amd64" or scanner.get("source_verification") != "official_release_checksum_verified"
+                        or not SHA.fullmatch(str(scanner.get("asset_sha256", ""))) or not SHA.fullmatch(str(scanner.get("checksums_sha256", "")))
+                        or not SHA.fullmatch(str(data.get("raw_output_sha256", "")))
+                        or data.get("database") != database or required_payload not in data):
+                    raise VerifyError("E_SUPPLY_CHAIN_EVIDENCE")
+                encoded = json.dumps(data, ensure_ascii=True).lower()
+                if VALUE_SECRET.search(encoded) or any(token in encoded for token in ("http://", "https://", "\\\\", "c:/", "/users/", "authorization")):
+                    raise VerifyError("E_SUPPLY_CHAIN_REDACTION")
+                continue
             if (not isinstance(data, dict) or data.get("artifact") != artifact_name
                     or data.get("image_digest") != image.get("digest")
                     or data.get("platform") != image.get("platform")
