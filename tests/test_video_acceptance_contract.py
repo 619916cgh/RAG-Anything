@@ -7,6 +7,26 @@ import pytest
 from scripts import run_isolated_acceptance as acceptance
 
 
+def test_upload_progress_locator_contract_is_scoped_and_classified_as_harness_owned():
+    source = (Path(__file__).parent / "acceptance" / "video_browser_uat.mjs").read_text(encoding="utf-8")
+    assert "async function waitForUploadProgress(page, filename)" in source
+    assert "#server-upload-tasks" in source
+    assert "taskRows = taskContainer.locator(':scope > div').filter({ has: page.getByText(filename, { exact: true }) })" in source
+    for field in ("upload_progress_locator_match_count", "upload_progress_locator_scope", "upload_progress_locator_resolution"):
+        assert field in source
+    for resolution in ("progress-text-exact", "status-text-exact", "multiple-task-rows", "multiple-progress-or-status", "no-task-row", "no-progress-or-status"):
+        assert resolution in source
+    assert "phaseAFailureClass(error)" in source
+    assert "await page.getByText(/排队中|处理中|入库中|进度 [1-9]\\d?%/).waitFor" not in source
+
+
+def test_upload_batch_status_is_retained_when_upload_progress_harness_fails():
+    source = (Path(__file__).parent / "acceptance" / "video_browser_uat.mjs").read_text(encoding="utf-8")
+    assert "upload_batch_status: 0" in source
+    assert "phaseAEvidence?.observations) phaseAEvidence.observations.upload_batch_status = boundedCount(batchResponse.status())" in source
+    assert "upload_progress_locator_multiple_match" in source
+
+
 def test_video_fixture_requires_absolute_nonempty_mp4(tmp_path):
     source = tmp_path / "lesson.mp4"
     source.write_bytes(b"video")
