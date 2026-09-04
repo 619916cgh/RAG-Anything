@@ -1,0 +1,8 @@
+{
+  "name": "raganything-video-browser-uat",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "playwright-core": "1.57.0"
+  }
+}

@@ -41,6 +41,8 @@ _INITIAL_VERIFICATION_SHA = "e1739d48b77a309552eb1f5f55d8ad27a204beed"
 _INITIAL_VERIFICATION_PATHS = {
     "scripts/run_isolated_acceptance.py",
     "tests/acceptance/compose.yml",
+    "tests/acceptance/browser/package-lock.json",
+    "tests/acceptance/browser/package.json",
     "tests/acceptance/generate_video_fixture.py",
     "tests/acceptance/video_browser_uat.mjs",
     "tests/test_video_acceptance_contract.py",
