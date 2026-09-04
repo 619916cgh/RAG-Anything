@@ -1002,16 +1002,28 @@ def _load_upload_diagnosis_evidence(path: Path) -> dict[str, object]:
     if not path.is_file() or path.stat().st_size > 64 * 1024:
         raise ValueError("upload diagnosis evidence is missing or oversized")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1 or payload.get("upload_diagnosis") is not True:
+    if not isinstance(payload, dict) or payload.get("schema_version") != 2 or payload.get("upload_diagnosis") is not True:
         raise ValueError("upload diagnosis evidence schema is invalid")
     if payload.get("upload_batch_status") != 200 or payload.get("upload_progress") is not True:
         raise ValueError("upload diagnosis did not retain successful batch evidence")
     observations = payload.get("observations")
-    required = {"task_http_status", "task_count", "task_status", "task_status_timeline", "task_reason_class", "worker_consumed", "document_http_status", "document_count", "document_status", "retrieval_http_status", "retrieval_ready", "video_segments_http_status", "video_segment_count"}
+    required = {"task_http_status", "task_count", "task_status", "task_status_timeline", "task_reason_class", "worker_consumed", "task_id_present", "document_id_present", "document_id_candidate_present", "task_document_mapping", "task_document_mapping_match", "task_document_mapping_source", "mapping_failure_reason_class", "document_http_status", "document_count", "document_status", "retrieval_http_status", "retrieval_ready", "video_segments_http_status", "video_segment_count"}
     if not isinstance(observations, dict) or not required.issubset(observations):
         raise ValueError("upload diagnosis observations are incomplete")
     if not isinstance(observations["task_status_timeline"], list) or len(observations["task_status_timeline"]) > 90:
         raise ValueError("upload diagnosis timeline is invalid")
+    if not isinstance(observations["task_id_present"], bool) or not isinstance(observations["document_id_present"], bool) or not isinstance(observations["document_id_candidate_present"], bool):
+        raise ValueError("upload diagnosis identifier presence is invalid")
+    if observations["task_document_mapping"] not in {"matched", "unmatched", "unavailable"}:
+        raise ValueError("upload diagnosis mapping status is invalid")
+    if not isinstance(observations["task_document_mapping_match"], bool):
+        raise ValueError("upload diagnosis mapping match is invalid")
+    if observations["task_document_mapping_match"] != (observations["task_document_mapping"] == "matched"):
+        raise ValueError("upload diagnosis mapping match is inconsistent")
+    if not isinstance(observations["task_document_mapping_source"], str) or not re.fullmatch(r"[a-z0-9_.-]{1,80}", observations["task_document_mapping_source"]):
+        raise ValueError("upload diagnosis mapping source is invalid")
+    if not isinstance(observations["mapping_failure_reason_class"], str) or not re.fullmatch(r"[a-z0-9_.-]{1,80}", observations["mapping_failure_reason_class"]):
+        raise ValueError("upload diagnosis mapping failure class is invalid")
     if _LOCAL_PATH_RE.search(json.dumps(payload, ensure_ascii=True)):
         raise ValueError("upload diagnosis evidence contains a local path")
     return {"complete": True, "upload_diagnosis": True, "upload_batch_status": 200, "upload_progress": True, "upload_terminal": payload.get("upload_terminal") is True, "observations": observations}

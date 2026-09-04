@@ -1097,6 +1097,9 @@ async function createKnowledgeBaseAndUpload(page, fixturePath, prefix, { waitFor
   const batchBody = await batchResponse.json().catch(() => ({}))
   const batchTasks = Array.isArray(batchBody?.tasks) ? batchBody.tasks : []
   const batchTaskId = batchTasks.length === 1 ? String(batchTasks[0]?.task_id || '') : ''
+  const batchTaskDocumentId = batchTasks.length === 1
+    ? String(batchTasks[0]?.document_id || batchTasks[0]?.doc_id || batchTasks[0]?.documentId || '')
+    : ''
   if (!batchTaskId) fail('browser-upload-batch-task')
   if (phaseAMode() && phaseAEvidence?.observations) phaseAEvidence.observations.upload_batch_status = boundedCount(batchResponse.status())
   currentStage = `${prefix}-video-upload-task`
@@ -1111,7 +1114,14 @@ async function createKnowledgeBaseAndUpload(page, fixturePath, prefix, { waitFor
     await page.getByText('已可检索').waitFor({ state: 'visible', timeout: 600_000 })
     uploadTerminal = true
   }
-  return { name, task_id: batchTaskId, upload_progress: true, upload_terminal: uploadTerminal, batch_status: boundedCount(batchResponse.status()) }
+  return {
+    name,
+    task_id: batchTaskId,
+    batch_document_id: batchTaskDocumentId,
+    upload_progress: true,
+    upload_terminal: uploadTerminal,
+    batch_status: boundedCount(batchResponse.status()),
+  }
 }
 
 async function waitForUploadProgress(page, filename) {
@@ -1203,7 +1213,7 @@ async function runUploadDiagnosis(page, account) {
   await login(page, account, prefix)
   await sessionRole(page, 'super_admin')
   const upload = await createKnowledgeBaseAndUpload(page, fixture, prefix, { waitForTerminal: false })
-  const result = await page.evaluate(async ({ kbName, taskId }) => {
+  const result = await page.evaluate(async ({ kbName, taskId, batchDocumentId }) => {
     const saved = JSON.parse(localStorage.getItem('raganything_auth') || 'null')
     const headers = { Authorization: `Bearer ${saved?.token || ''}` }
     const started = Date.now()
@@ -1227,8 +1237,60 @@ async function runUploadDiagnosis(page, account) {
     const healthReply = await fetch(`/api/knowledge/retrieval-health?kb=${encodeURIComponent(kbName)}`, { headers })
     const health = await healthReply.json().catch(() => ({}))
     const task = Array.isArray(tasks) ? tasks.find(item => String(item?.task_id || '') === taskId) : null
-    const doc = Array.isArray(documents) ? documents.find(item => String(item?.upload_task_id || '') === taskId) : null
-    const docId = String(doc?.id || '')
+    const documentList = Array.isArray(documents) ? documents : []
+    const explicitDocumentId = value => {
+      if (!value || typeof value !== 'object') return ''
+      return String(value.document_id || value.doc_id || value.documentId
+        || value.document?.document_id || value.document?.id || '').trim()
+    }
+    const taskDocumentId = explicitDocumentId(task)
+    const batchDocumentIdValue = String(batchDocumentId || '').trim()
+    const documentIds = document => [document?.full_id, document?.document_id, document?.id]
+      .map(value => String(value || '').trim()).filter(Boolean)
+    const isSyntheticTaskRow = document => String(document?.full_id || '').trim() === taskId
+      && String(document?.upload_task_id || '').trim() === taskId
+      && ['queued', 'processing', 'retry_wait'].includes(String(document?.status || ''))
+      && Number(document?.chunks || document?.chunks_count || 0) === 0
+    const taskProvenance = document => [
+      ['document.upload_task_id', document?.upload_task_id],
+      ['document.track_id', document?.track_id],
+      ['document.metadata.task_id', document?.metadata?.task_id],
+    ].map(([source, value]) => ({ source, value: String(value || '').trim() }))
+      .filter(item => item.value)
+    const findByDocumentId = (documentId, source) => {
+      if (!documentId) return { doc: null, source, ambiguous: false }
+      const matches = documentList.filter(document => !isSyntheticTaskRow(document) && documentIds(document).includes(documentId))
+      return { doc: matches.length === 1 ? matches[0] : null, source, ambiguous: matches.length > 1 }
+    }
+    let mapping = { status: 'unavailable', matched: false, source: 'none', failure_reason_class: documentsReply.ok ? 'task_document_provenance_unavailable' : 'document_list_unavailable' }
+    let doc = null
+    let mappingCandidate = findByDocumentId(taskDocumentId, 'task.document_id')
+    if (!documentsReply.ok) {
+      mapping = { status: 'unavailable', matched: false, source: 'none', failure_reason_class: 'document_list_unavailable' }
+    } else if (taskDocumentId) {
+      mapping = mappingCandidate.doc
+        ? { status: 'matched', matched: true, source: mappingCandidate.source, failure_reason_class: 'none' }
+        : { status: 'unmatched', matched: false, source: mappingCandidate.source, failure_reason_class: mappingCandidate.ambiguous ? 'task_document_id_ambiguous' : 'task_document_id_not_found' }
+      doc = mappingCandidate.doc
+    } else if (batchDocumentIdValue) {
+      mappingCandidate = findByDocumentId(batchDocumentIdValue, 'upload_batch.document_id')
+      mapping = mappingCandidate.doc
+        ? { status: 'matched', matched: true, source: mappingCandidate.source, failure_reason_class: 'none' }
+        : { status: 'unmatched', matched: false, source: mappingCandidate.source, failure_reason_class: mappingCandidate.ambiguous ? 'batch_document_id_ambiguous' : 'batch_document_id_not_found' }
+      doc = mappingCandidate.doc
+    } else if (taskId && documentList.length) {
+      const provenanceMatches = documentList.filter(document => !isSyntheticTaskRow(document) && taskProvenance(document).some(item => item.value === taskId))
+      if (provenanceMatches.length === 1) {
+        doc = provenanceMatches[0]
+        const provenance = taskProvenance(doc).find(item => item.value === taskId)
+        mapping = { status: 'matched', matched: true, source: provenance?.source || 'document.provenance', failure_reason_class: 'none' }
+      } else if (provenanceMatches.length > 1) {
+        mapping = { status: 'unmatched', matched: false, source: 'document.provenance', failure_reason_class: 'task_provenance_ambiguous' }
+      } else {
+        mapping = { status: 'unmatched', matched: false, source: 'document.provenance', failure_reason_class: 'task_provenance_not_found' }
+      }
+    }
+    const docId = doc ? String(doc.full_id || doc.document_id || doc.id || '').trim() : ''
     let segments = []
     let segmentsStatus = 0
     if (docId) {
@@ -1249,6 +1311,13 @@ async function runUploadDiagnosis(page, account) {
       task_status_timeline: timeline.slice(-90),
       worker_consumed: timeline.some(item => ['processing', 'retry_wait', 'completed', 'processed', 'failed', 'cancelling'].includes(item.status)) || Number(task?.progress || 0) > 0,
       task_reason_class: timeline.length ? timeline[timeline.length - 1].failure_stage : 'none',
+      task_id_present: Boolean(taskId),
+      document_id_present: Boolean(docId),
+      document_id_candidate_present: Boolean(taskDocumentId || batchDocumentIdValue),
+      task_document_mapping: mapping.status,
+      task_document_mapping_match: mapping.matched,
+      task_document_mapping_source: mapping.source,
+      mapping_failure_reason_class: mapping.failure_reason_class,
       document_http_status: documentsReply.status,
       document_count: Array.isArray(documents) ? Math.min(999, documents.length) : 0,
       document_status: ['pending', 'processing', 'processed', 'failed'].includes(String(doc?.status || '')) ? String(doc.status) : 'not_found',
@@ -1259,8 +1328,8 @@ async function runUploadDiagnosis(page, account) {
       video_segments_http_status: segmentsStatus,
       video_segment_count: Array.isArray(segments) ? Math.min(999, segments.length) : 0,
     }
-  }, { kbName: upload.name, taskId: upload.task_id })
-  writeEvidence({ schema_version: 1, browser: 'playwright', upload_diagnosis: true, runtime_status: 'passed', failure_class: null, kb_created: true, upload_progress: upload.upload_progress, upload_terminal: upload.upload_terminal, upload_batch_status: upload.batch_status, observations: result })
+  }, { kbName: upload.name, taskId: upload.task_id, batchDocumentId: upload.batch_document_id })
+  writeEvidence({ schema_version: 2, browser: 'playwright', upload_diagnosis: true, runtime_status: 'passed', failure_class: null, kb_created: true, upload_progress: upload.upload_progress, upload_terminal: upload.upload_terminal, upload_batch_status: upload.batch_status, observations: result })
 }
 
 async function runPhaseARepresentative(page, account) {

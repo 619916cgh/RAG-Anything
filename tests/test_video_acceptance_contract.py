@@ -36,10 +36,67 @@ def test_upload_diagnosis_is_single_upload_and_redacted_state_contract():
         "task_status_timeline", "task_reason_class", "worker_consumed",
         "document_status", "document_chunks_count", "retrieval_unready_reason_count",
         "video_segments_http_status", "video_segment_count",
+        "task_id_present", "document_id_present", "document_id_candidate_present", "task_document_mapping",
+        "task_document_mapping_match", "task_document_mapping_source",
+        "mapping_failure_reason_class",
     ):
         assert field in source
+    assert "schema_version: 2" in source
+    assert "document?.full_id" in source
+    assert "document.upload_task_id" in source
+    assert "document.track_id" in source
+    assert "document.metadata.task_id" in source
+    assert "task_provenance_not_found" in source
+    assert "task_document_provenance_unavailable" in source
     assert "createAgent(page" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
     assert "threadId" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
+
+
+def test_upload_diagnosis_mapping_does_not_fall_back_to_first_or_filename_match():
+    source = (Path(__file__).parent / "acceptance" / "video_browser_uat.mjs").read_text(encoding="utf-8")
+    diagnosis = source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
+    assert "documentList[0]" not in diagnosis
+    assert ".find(item => String(item?.upload_task_id || '') === taskId)" not in diagnosis
+    assert "filename ===" not in diagnosis
+    assert "file ===" not in diagnosis
+
+
+def test_upload_diagnosis_loader_rejects_inconsistent_mapping(tmp_path):
+    from scripts.run_isolated_acceptance import _load_upload_diagnosis_evidence
+
+    payload = {
+        "schema_version": 2,
+        "upload_diagnosis": True,
+        "upload_batch_status": 200,
+        "upload_progress": True,
+        "upload_terminal": False,
+        "observations": {
+            "task_http_status": 200,
+            "task_count": 1,
+            "task_status": "completed",
+            "task_status_timeline": [],
+            "task_reason_class": "none",
+            "worker_consumed": True,
+            "task_id_present": True,
+            "document_id_present": False,
+            "document_id_candidate_present": False,
+            "task_document_mapping": "matched",
+            "task_document_mapping_match": False,
+            "task_document_mapping_source": "none",
+            "mapping_failure_reason_class": "none",
+            "document_http_status": 200,
+            "document_count": 0,
+            "document_status": "not_found",
+            "retrieval_http_status": 200,
+            "retrieval_ready": False,
+            "video_segments_http_status": 0,
+            "video_segment_count": 0,
+        },
+    }
+    path = tmp_path / "browser-stage-evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="mapping match is inconsistent"):
+        _load_upload_diagnosis_evidence(path)
 
 
 def test_upload_diagnosis_runner_mode_is_isolated_and_non_phase_a():
@@ -51,6 +108,8 @@ def test_upload_diagnosis_runner_mode_is_isolated_and_non_phase_a():
     assert 'VIDEO_BROWSER_UPLOAD_DIAGNOSIS: ${VIDEO_BROWSER_UPLOAD_DIAGNOSIS:-0}' in compose
     assert "_load_upload_diagnosis_evidence" in source
     assert "_write_diagnosis_command_output" in source
+    assert 'payload.get("schema_version") != 2' in source
+    assert '"task_document_mapping"' in source
 
 
 def test_video_fixture_requires_absolute_nonempty_mp4(tmp_path):
