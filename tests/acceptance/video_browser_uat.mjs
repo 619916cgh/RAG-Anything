@@ -11,6 +11,7 @@ const compatibilityFixtures = (process.env.VIDEO_BROWSER_COMPAT_FIXTURES || '').
 const legacyResourcePath = process.env.VIDEO_BROWSER_LEGACY_RESOURCE_PATH || ''
 const citationDiagnosisOnly = process.env.VIDEO_BROWSER_CITATION_DIAGNOSIS_ONLY === '1'
 const citationResourcePath = process.env.VIDEO_BROWSER_CITATION_RESOURCE_PATH || ''
+const uploadDiagnosisMode = process.env.VIDEO_BROWSER_UPLOAD_DIAGNOSIS === '1'
 const viewports = {
   desktop: { width: 1440, height: 900 },
   mobile: { width: 390, height: 844, isMobile: true },
@@ -1065,7 +1066,7 @@ async function logout(page, username) {
   await page.waitForURL(url => new URL(url).pathname === '/login', { timeout: 30_000 })
 }
 
-async function createKnowledgeBaseAndUpload(page, fixturePath, prefix) {
+async function createKnowledgeBaseAndUpload(page, fixturePath, prefix, { waitForTerminal = true } = {}) {
   const name = `videouat${Date.now().toString(36)}`
   const filename = fixturePath.split('/').pop()
   currentStage = `${prefix}-video-upload-list`
@@ -1093,6 +1094,10 @@ async function createKnowledgeBaseAndUpload(page, fixturePath, prefix) {
   await page.getByRole('button', { name: /全部上传 \(1\)/ }).click()
   const batchResponse = await uploadResponse
   if (!batchResponse.ok()) fail('browser-upload-batch')
+  const batchBody = await batchResponse.json().catch(() => ({}))
+  const batchTasks = Array.isArray(batchBody?.tasks) ? batchBody.tasks : []
+  const batchTaskId = batchTasks.length === 1 ? String(batchTasks[0]?.task_id || '') : ''
+  if (!batchTaskId) fail('browser-upload-batch-task')
   if (phaseAMode() && phaseAEvidence?.observations) phaseAEvidence.observations.upload_batch_status = boundedCount(batchResponse.status())
   currentStage = `${prefix}-video-upload-task`
   await page.getByText(/^上传任务 \(\d+\)$/).waitFor({ state: 'visible', timeout: 30_000 })
@@ -1100,9 +1105,13 @@ async function createKnowledgeBaseAndUpload(page, fixturePath, prefix) {
   await page.getByText(filename, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 })
   currentStage = `${prefix}-video-upload-progress`
   await waitForUploadProgress(page, filename)
-  currentStage = `${prefix}-video-upload-terminal`
-  await page.getByText('已可检索').waitFor({ state: 'visible', timeout: 600_000 })
-  return { name, upload_progress: true, upload_terminal: true, batch_status: boundedCount(batchResponse.status()) }
+  let uploadTerminal = false
+  if (waitForTerminal) {
+    currentStage = `${prefix}-video-upload-terminal`
+    await page.getByText('已可检索').waitFor({ state: 'visible', timeout: 600_000 })
+    uploadTerminal = true
+  }
+  return { name, task_id: batchTaskId, upload_progress: true, upload_terminal: uploadTerminal, batch_status: boundedCount(batchResponse.status()) }
 }
 
 async function waitForUploadProgress(page, filename) {
@@ -1187,6 +1196,71 @@ async function phaseAResourceObservations(page, agentId, threadId, kb) {
       video_segment_count: segmentCount,
     }
   }, { id: agentId, thread: threadId, kbName: kb })
+}
+
+async function runUploadDiagnosis(page, account) {
+  const prefix = 'browser-upload-diagnosis'
+  await login(page, account, prefix)
+  await sessionRole(page, 'super_admin')
+  const upload = await createKnowledgeBaseAndUpload(page, fixture, prefix, { waitForTerminal: false })
+  const result = await page.evaluate(async ({ kbName, taskId }) => {
+    const saved = JSON.parse(localStorage.getItem('raganything_auth') || 'null')
+    const headers = { Authorization: `Bearer ${saved?.token || ''}` }
+    const started = Date.now()
+    const timeline = []
+    let taskReply
+    let tasks = []
+    const terminal = new Set(['completed', 'processed', 'failed', 'cancelling'])
+    do {
+      taskReply = await fetch(`/api/upload/tasks?kb=${encodeURIComponent(kbName)}`, { headers })
+      tasks = (await taskReply.json().catch(() => ({})))?.tasks
+      const task = Array.isArray(tasks) ? tasks.find(item => String(item?.task_id || '') === taskId) : null
+      const status = ['queued', 'processing', 'retry_wait', 'completed', 'processed', 'failed', 'cancelling'].includes(String(task?.status || '')) ? String(task.status) : 'unknown'
+      const phase = ['queued', 'processing', 'multimodal', 'finalize', 'retrieval_readiness'].includes(String(task?.phase || '')) ? String(task.phase) : 'unknown'
+      const failureStage = ['multimodal', 'worker_timeout', 'finalize', 'retrieval_readiness', 'video_profile', 'graph_index', 'tagging'].includes(String(task?.failure_stage || '')) ? String(task.failure_stage) : 'none'
+      timeline.push({ status, phase, failure_stage: failureStage, retryable: task?.retryable === true, retry_count: Math.max(0, Math.min(999, Number(task?.retry_count || 0))), progress: Math.max(0, Math.min(100, Number(task?.progress || 0))), time_bucket: Math.min(36, Math.floor((Date.now() - started) / 5000)) })
+      if (terminal.has(status) || Date.now() - started >= 180000) break
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    } while (true)
+    const documentsReply = await fetch(`/api/knowledge/documents?kb=${encodeURIComponent(kbName)}`, { headers })
+    const documents = (await documentsReply.json().catch(() => ({})))?.documents
+    const healthReply = await fetch(`/api/knowledge/retrieval-health?kb=${encodeURIComponent(kbName)}`, { headers })
+    const health = await healthReply.json().catch(() => ({}))
+    const task = Array.isArray(tasks) ? tasks.find(item => String(item?.task_id || '') === taskId) : null
+    const doc = Array.isArray(documents) ? documents.find(item => String(item?.upload_task_id || '') === taskId) : null
+    const docId = String(doc?.id || '')
+    let segments = []
+    let segmentsStatus = 0
+    if (docId) {
+      const reply = await fetch(`/api/knowledge/documents/${encodeURIComponent(docId)}/video-segments?kb=${encodeURIComponent(kbName)}`, { headers })
+      segmentsStatus = reply.status
+      segments = (await reply.json().catch(() => ({})))?.segments
+    }
+    return {
+      task_http_status: taskReply.status,
+      task_count: Array.isArray(tasks) ? Math.min(999, tasks.length) : 0,
+      task_status: ['queued', 'processing', 'retry_wait', 'completed', 'processed', 'failed', 'cancelling'].includes(String(task?.status || '')) ? String(task.status) : 'unknown',
+      task_phase: timeline.length ? timeline[timeline.length - 1].phase : 'unknown',
+      task_failure_stage: timeline.length ? timeline[timeline.length - 1].failure_stage : 'none',
+      task_retryable: task?.retryable === true,
+      task_retry_count: Math.max(0, Math.min(999, Number(task?.retry_count || 0))),
+      task_progress: Math.max(0, Math.min(100, Number(task?.progress || 0))),
+      task_updated_at_bucket: task?.updated_at ? 'present' : 'absent',
+      task_status_timeline: timeline.slice(-90),
+      worker_consumed: timeline.some(item => ['processing', 'retry_wait', 'completed', 'processed', 'failed', 'cancelling'].includes(item.status)) || Number(task?.progress || 0) > 0,
+      task_reason_class: timeline.length ? timeline[timeline.length - 1].failure_stage : 'none',
+      document_http_status: documentsReply.status,
+      document_count: Array.isArray(documents) ? Math.min(999, documents.length) : 0,
+      document_status: ['pending', 'processing', 'processed', 'failed'].includes(String(doc?.status || '')) ? String(doc.status) : 'not_found',
+      document_chunks_count: Math.max(0, Math.min(999, Number(doc?.chunks_count || 0))),
+      retrieval_http_status: healthReply.status,
+      retrieval_ready: Boolean(doc) && healthReply.ok && Array.isArray(health?.documents) && !health.documents.some(item => String(item?.upload_task_id || '') === taskId),
+      retrieval_unready_reason_count: health?.counts && typeof health.counts === 'object' ? Math.min(999, Object.keys(health.counts).length) : 0,
+      video_segments_http_status: segmentsStatus,
+      video_segment_count: Array.isArray(segments) ? Math.min(999, segments.length) : 0,
+    }
+  }, { kbName: upload.name, taskId: upload.task_id })
+  writeEvidence({ schema_version: 1, browser: 'playwright', upload_diagnosis: true, runtime_status: 'passed', failure_class: null, kb_created: true, upload_progress: upload.upload_progress, upload_terminal: upload.upload_terminal, upload_batch_status: upload.batch_status, observations: result })
 }
 
 async function runPhaseARepresentative(page, account) {
@@ -3255,10 +3329,10 @@ async function main() {
     updateCurrentStage('browser-desktop-super_admin-bootstrap-input')
   }
   if (!base || !accountsPath || !evidencePath || !fixture || !fs.existsSync(fixture)
-    || (!phaseAMode() && (!legacyResourcePath || !fs.existsSync(legacyResourcePath) || compatibilityFixtures.length !== 3 || compatibilityFixtures.some(path => !fs.existsSync(path))))) fail('browser-input')
+    || (!phaseAMode() && !uploadDiagnosisMode && (!legacyResourcePath || !fs.existsSync(legacyResourcePath) || compatibilityFixtures.length !== 3 || compatibilityFixtures.some(path => !fs.existsSync(path))))) fail('browser-input')
   const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'))
   let legacyResource = null
-  if (!phaseAMode()) {
+  if (!phaseAMode() && !uploadDiagnosisMode) {
     legacyResource = JSON.parse(fs.readFileSync(legacyResourcePath, 'utf8'))
     updateCurrentStage('browser-desktop-super_admin-bootstrap-legacy-resource')
     if (!legacyResource?.kb || !legacyResource?.agent_id || !legacyResource?.task_id) fail('browser-legacy-resource')
@@ -3279,6 +3353,20 @@ async function main() {
       updateCurrentStage(`browser-desktop-super_admin-bootstrap-role-${account.role}`)
       if (reply.status !== 201) fail('browser-role-bootstrap')
     }
+  }
+  if (uploadDiagnosisMode) {
+    const browser = await chromium.launch({ headless: true, executablePath: chromiumExecutablePath() })
+    const context = await browser.newContext({ viewport: viewports.desktop })
+    const page = await context.newPage()
+    try {
+      if (!base || !accountsPath || !evidencePath || !fixture || !fs.existsSync(fixture)) fail('browser-input')
+      const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'))
+      await runUploadDiagnosis(page, { ...accounts.admin, role: 'super_admin' })
+    } finally {
+      await context.close()
+      await browser.close()
+    }
+    return
   }
   if (phaseAMode()) updateCurrentStage('browser-phase-a-browser-launch')
   const browser = await chromium.launch({ headless: true, executablePath: chromiumExecutablePath() })

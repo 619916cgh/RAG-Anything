@@ -27,6 +27,32 @@ def test_upload_batch_status_is_retained_when_upload_progress_harness_fails():
     assert "upload_progress_locator_multiple_match" in source
 
 
+def test_upload_diagnosis_is_single_upload_and_redacted_state_contract():
+    source = (Path(__file__).parent / "acceptance" / "video_browser_uat.mjs").read_text(encoding="utf-8")
+    assert "VIDEO_BROWSER_UPLOAD_DIAGNOSIS" in source
+    assert "waitForTerminal = true" in source
+    assert "waitForTerminal: false" in source
+    for field in (
+        "task_status_timeline", "task_reason_class", "worker_consumed",
+        "document_status", "document_chunks_count", "retrieval_unready_reason_count",
+        "video_segments_http_status", "video_segment_count",
+    ):
+        assert field in source
+    assert "createAgent(page" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
+    assert "threadId" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
+
+
+def test_upload_diagnosis_runner_mode_is_isolated_and_non_phase_a():
+    source = (Path(__file__).parent.parent / "scripts" / "run_isolated_acceptance.py").read_text(encoding="utf-8")
+    compose = (Path(__file__).parent / "acceptance" / "compose.yml").read_text(encoding="utf-8")
+    assert "--upload-diagnosis" in source
+    assert "VIDEO_BROWSER_UPLOAD_DIAGNOSIS" in source
+    assert 'result["release_recommendation"] = "upload-diagnosis-pass"' in source
+    assert 'VIDEO_BROWSER_UPLOAD_DIAGNOSIS: ${VIDEO_BROWSER_UPLOAD_DIAGNOSIS:-0}' in compose
+    assert "_load_upload_diagnosis_evidence" in source
+    assert "_write_diagnosis_command_output" in source
+
+
 def test_video_fixture_requires_absolute_nonempty_mp4(tmp_path):
     source = tmp_path / "lesson.mp4"
     source.write_bytes(b"video")

@@ -16,6 +16,7 @@ services:
       retries: 30
     labels: &acceptance_labels
       raganything.acceptance.run-id: ${ACCEPTANCE_RUN_ID:?required}
+      raganything.acceptance.owner: ${ACCEPTANCE_OWNER:?required}
   redis:
     image: ${ACCEPTANCE_REDIS_IMAGE:?redis image required}
     volumes: [redisdata:/data]
@@ -30,6 +31,7 @@ services:
     labels: *acceptance_labels
   app:
     image: ${ACCEPTANCE_APP_IMAGE:?app image required}
+    stop_grace_period: 30s
     environment:
       RAGANYTHING_ENV: acceptance
       PORT: "8000"
@@ -79,11 +81,42 @@ services:
       retries: 20
     labels: *acceptance_labels
   nginx:
-    image: ${ACCEPTANCE_NGINX_IMAGE:?nginx image required}
+    image: ${ACCEPTANCE_FRONTEND_IMAGE:?frontend image required}
     ports: ["127.0.0.1:${ACCEPTANCE_HTTP_PORT:?required}:80"]
     volumes:
       - ${ACCEPTANCE_RUN_DIR:?run directory required}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on: {app: {condition: service_started}}
+    labels: *acceptance_labels
+  fixture:
+    image: ${ACCEPTANCE_APP_IMAGE:?app image required}
+    working_dir: /acceptance
+    command: ["python", "/acceptance/generate_video_fixture.py", "/acceptance"]
+    environment:
+      ACCEPTANCE_RUN_ID: ${ACCEPTANCE_RUN_ID:?required}
+      ACCEPTANCE_OWNER: ${ACCEPTANCE_OWNER:?required}
+    volumes:
+      - ${ACCEPTANCE_RUN_DIR:?run directory required}:/acceptance
+    labels: *acceptance_labels
+  browser:
+    image: ${ACCEPTANCE_BROWSER_IMAGE:?browser image required}
+    profiles: [browser]
+    working_dir: /acceptance/run
+    command: ["node", "/acceptance/run/video_browser_uat.mjs"]
+    environment:
+      VIDEO_BROWSER_BASE_URL: http://nginx
+      VIDEO_BROWSER_ACCOUNTS_PATH: /acceptance/run/browser-accounts.json
+      VIDEO_BROWSER_EVIDENCE_PATH: /acceptance/run/browser-stage-evidence.json
+      VIDEO_BROWSER_FIXTURE: /acceptance/run/video-fixture.mp4
+      VIDEO_BROWSER_COMPAT_FIXTURES: /acceptance/run/compatibility.txt,/acceptance/run/compatibility.png,/acceptance/run/compatibility.pdf
+      VIDEO_BROWSER_LEGACY_RESOURCE_PATH: /acceptance/run/legacy-browser-resource.json
+      VIDEO_BROWSER_PHASE_A: ${VIDEO_BROWSER_PHASE_A:-0}
+      VIDEO_BROWSER_UPLOAD_DIAGNOSIS: ${VIDEO_BROWSER_UPLOAD_DIAGNOSIS:-0}
+      HOME: /acceptance/run/browser-profile
+      XDG_CACHE_HOME: /acceptance/run/browser-profile/cache
+      XDG_CONFIG_HOME: /acceptance/run/browser-profile/config
+    volumes:
+      - ${ACCEPTANCE_RUN_DIR:?run directory required}:/acceptance/run
+    depends_on: {nginx: {condition: service_started}}
     labels: *acceptance_labels
 volumes:
   pgdata: {labels: *acceptance_labels}
@@ -91,3 +124,5 @@ volumes:
   uploads: {labels: *acceptance_labels}
   rag_storage: {labels: *acceptance_labels}
   output: {labels: *acceptance_labels}
+networks:
+  default: {labels: *acceptance_labels}
