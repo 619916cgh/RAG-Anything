@@ -50,6 +50,7 @@ _INITIAL_VERIFICATION_PATHS = {
     "summary-delta-video54-sse-manifest-repair-20260901.md",
 }
 _VERIFICATION_PATHS = _INITIAL_VERIFICATION_PATHS | {
+    "Dockerfile",
     "scripts/run_isolated_acceptance.py",
     "tests/acceptance/compose.yml",
     "tests/acceptance/generate_compat_fixtures.py",

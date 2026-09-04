@@ -4,6 +4,7 @@
 ARG DEBIAN_MIRROR_HOST=deb.debian.org
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
+ARG PLAYWRIGHT_BROWSER_IMAGE=mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
 # Slow or proxied package sources can take longer than the default read window.
 # These are transport controls only; lock contents and hash verification remain fixed.
 ARG PIP_NETWORK_TIMEOUT=600
@@ -16,6 +17,12 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY frontend/ ./
 RUN npm run build
+
+FROM ${PLAYWRIGHT_BROWSER_IMAGE} AS acceptance-browser
+
+WORKDIR /acceptance
+COPY tests/acceptance/browser/package.json tests/acceptance/browser/package-lock.json ./
+RUN npm ci --ignore-scripts
 
 # Bookworm still provides OpenJDK 17, which is required by the
 # OpenDataLoader runtime. The floating slim tag moved to trixie, where that
