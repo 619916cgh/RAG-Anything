@@ -1249,9 +1249,18 @@ async function runUploadDiagnosis(page, account) {
       && String(document?.upload_task_id || '').trim() === taskId
       && ['queued', 'processing', 'retry_wait'].includes(String(document?.status || ''))
       && Number(document?.chunks || document?.chunks_count || 0) === 0
+    // /api/upload/tasks is backed by the durable uploaded_files projection.
+    // Keep only bounded match counts so evidence never contains raw task IDs;
+    // exclude the synthetic in-flight document row from provenance counts.
+    const uploadedFilesTaskIdMatchCount = (Array.isArray(tasks) ? tasks : []).filter(item => String(item?.task_id || '').trim() === taskId).length
+    const persistedDocuments = documentList.filter(document => !isSyntheticTaskRow(document))
+    const documentTrackIdMatchCount = persistedDocuments.filter(document => String(document?.track_id || '').trim() === taskId).length
+    const documentTaskIdMatchCount = persistedDocuments.filter(document => String(document?.task_id || '').trim() === taskId).length
+    const documentMetadataTaskIdMatchCount = persistedDocuments.filter(document => String(document?.metadata?.task_id || '').trim() === taskId).length
     const taskProvenance = document => [
       ['document.upload_task_id', document?.upload_task_id],
       ['document.track_id', document?.track_id],
+      ['document.task_id', document?.task_id],
       ['document.metadata.task_id', document?.metadata?.task_id],
     ].map(([source, value]) => ({ source, value: String(value || '').trim() }))
       .filter(item => item.value)
@@ -1321,6 +1330,10 @@ async function runUploadDiagnosis(page, account) {
       task_status_timeline: timeline.slice(-90),
       worker_consumed: timeline.some(item => ['processing', 'retry_wait', 'completed', 'processed', 'failed', 'cancelling'].includes(item.status)) || Number(task?.progress || 0) > 0,
       task_reason_class: timeline.length ? timeline[timeline.length - 1].failure_stage : 'none',
+      uploaded_files_task_id_match_count: boundedCount(uploadedFilesTaskIdMatchCount),
+      document_track_id_match_count: boundedCount(documentTrackIdMatchCount),
+      document_task_id_match_count: boundedCount(documentTaskIdMatchCount),
+      document_metadata_task_id_match_count: boundedCount(documentMetadataTaskIdMatchCount),
       task_id_present: Boolean(taskId),
       document_id_present: Boolean(fullDocumentId),
       full_document_id_present: Boolean(fullDocumentId),
@@ -1332,8 +1345,12 @@ async function runUploadDiagnosis(page, account) {
       mapping_failure_reason_class: mapping.failure_reason_class,
       document_http_status: documentsReply.status,
       document_count: Array.isArray(documents) ? Math.min(999, documents.length) : 0,
-      document_status: ['pending', 'processing', 'processed', 'failed'].includes(String(doc?.status || '')) ? String(doc.status) : 'not_found',
-      document_chunks_count: Math.max(0, Math.min(999, Number(doc?.chunks_count || 0))),
+      document_status: mapping.status === 'matched'
+        ? (['pending', 'processing', 'processed', 'failed'].includes(String(doc?.status || '')) ? String(doc.status) : 'not_found')
+        : 'not_reached',
+      document_chunks_count: mapping.status === 'matched'
+        ? Math.max(0, Math.min(999, Number(doc?.chunks_count || 0)))
+        : 0,
       retrieval_http_status: healthReply.status,
       retrieval_ready: Boolean(doc) && healthReply.ok && Array.isArray(health?.documents) && !health.documents.some(item => String(item?.upload_task_id || '') === taskId),
       retrieval_unready_reason_count: health?.counts && typeof health.counts === 'object' ? Math.min(999, Object.keys(health.counts).length) : 0,

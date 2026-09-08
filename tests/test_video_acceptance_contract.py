@@ -34,6 +34,8 @@ def test_upload_diagnosis_is_single_upload_and_redacted_state_contract():
     assert "waitForTerminal: false" in source
     for field in (
         "task_status_timeline", "task_reason_class", "worker_consumed",
+        "uploaded_files_task_id_match_count", "document_track_id_match_count",
+        "document_task_id_match_count", "document_metadata_task_id_match_count",
         "document_status", "document_chunks_count", "retrieval_unready_reason_count",
         "video_segments_http_status", "video_segment_count",
         "task_id_present", "document_id_present", "full_document_id_present", "full_document_id_used", "document_id_candidate_present", "task_document_mapping",
@@ -47,7 +49,9 @@ def test_upload_diagnosis_is_single_upload_and_redacted_state_contract():
     assert "doc.full_id || doc.document_id || doc.id" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
     assert "document.upload_task_id" in source
     assert "document.track_id" in source
+    assert "document.task_id" in source
     assert "document.metadata.task_id" in source
+    assert "document_status: mapping.status === 'matched'" in source
     assert "task_provenance_not_found" in source
     assert "task_document_provenance_unavailable" in source
     assert "createAgent(page" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
@@ -79,6 +83,10 @@ def test_upload_diagnosis_loader_rejects_inconsistent_mapping(tmp_path):
             "task_status_timeline": [],
             "task_reason_class": "none",
             "worker_consumed": True,
+            "uploaded_files_task_id_match_count": 1,
+            "document_track_id_match_count": 0,
+            "document_task_id_match_count": 0,
+            "document_metadata_task_id_match_count": 0,
             "task_id_present": True,
             "document_id_present": False,
             "full_document_id_present": False,
@@ -90,7 +98,7 @@ def test_upload_diagnosis_loader_rejects_inconsistent_mapping(tmp_path):
             "mapping_failure_reason_class": "none",
             "document_http_status": 200,
             "document_count": 0,
-            "document_status": "not_found",
+            "document_status": "not_reached",
             "retrieval_http_status": 200,
             "retrieval_ready": False,
             "video_segments_http_status": 0,
@@ -119,6 +127,10 @@ def test_upload_diagnosis_loader_marks_unmatched_mapping_incomplete(tmp_path):
             "task_status_timeline": [],
             "task_reason_class": "none",
             "worker_consumed": True,
+            "uploaded_files_task_id_match_count": 1,
+            "document_track_id_match_count": 0,
+            "document_task_id_match_count": 0,
+            "document_metadata_task_id_match_count": 0,
             "task_id_present": True,
             "document_id_present": False,
             "full_document_id_present": False,
@@ -130,7 +142,7 @@ def test_upload_diagnosis_loader_marks_unmatched_mapping_incomplete(tmp_path):
             "mapping_failure_reason_class": "task_provenance_not_found",
             "document_http_status": 200,
             "document_count": 1,
-            "document_status": "not_found",
+            "document_status": "not_reached",
             "retrieval_http_status": 0,
             "retrieval_ready": False,
             "video_segments_http_status": 0,
@@ -162,6 +174,10 @@ def test_upload_diagnosis_loader_rejects_matched_mapping_without_full_id_use(tmp
             "task_status_timeline": [],
             "task_reason_class": "none",
             "worker_consumed": True,
+            "uploaded_files_task_id_match_count": 1,
+            "document_track_id_match_count": 0,
+            "document_task_id_match_count": 0,
+            "document_metadata_task_id_match_count": 0,
             "task_id_present": True,
             "document_id_present": False,
             "full_document_id_present": False,
@@ -183,6 +199,50 @@ def test_upload_diagnosis_loader_rejects_matched_mapping_without_full_id_use(tmp
     path = tmp_path / "browser-stage-evidence.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="did not use full document ID"):
+        _load_upload_diagnosis_evidence(path)
+
+
+def test_upload_diagnosis_loader_rejects_unbounded_provenance_match_counts(tmp_path):
+    from scripts.run_isolated_acceptance import _load_upload_diagnosis_evidence
+
+    payload = {
+        "schema_version": 2,
+        "upload_diagnosis": True,
+        "upload_batch_status": 200,
+        "upload_progress": True,
+        "upload_terminal": False,
+        "observations": {
+            "task_http_status": 200,
+            "task_count": 1,
+            "task_status": "completed",
+            "task_status_timeline": [],
+            "task_reason_class": "none",
+            "worker_consumed": True,
+            "uploaded_files_task_id_match_count": 1000,
+            "document_track_id_match_count": 0,
+            "document_task_id_match_count": 0,
+            "document_metadata_task_id_match_count": 0,
+            "task_id_present": True,
+            "document_id_present": False,
+            "full_document_id_present": False,
+            "full_document_id_used": False,
+            "document_id_candidate_present": False,
+            "task_document_mapping": "unmatched",
+            "task_document_mapping_match": False,
+            "task_document_mapping_source": "document.provenance",
+            "mapping_failure_reason_class": "task_provenance_not_found",
+            "document_http_status": 200,
+            "document_count": 1,
+            "document_status": "not_reached",
+            "retrieval_http_status": 0,
+            "retrieval_ready": False,
+            "video_segments_http_status": 0,
+            "video_segment_count": 0,
+        },
+    }
+    path = tmp_path / "browser-stage-evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="provenance match counts are invalid"):
         _load_upload_diagnosis_evidence(path)
 
 

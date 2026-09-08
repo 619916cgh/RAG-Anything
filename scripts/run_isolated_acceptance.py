@@ -1007,11 +1007,24 @@ def _load_upload_diagnosis_evidence(path: Path) -> dict[str, object]:
     if payload.get("upload_batch_status") != 200 or payload.get("upload_progress") is not True:
         raise ValueError("upload diagnosis did not retain successful batch evidence")
     observations = payload.get("observations")
-    required = {"task_http_status", "task_count", "task_status", "task_status_timeline", "task_reason_class", "worker_consumed", "task_id_present", "document_id_present", "full_document_id_present", "full_document_id_used", "document_id_candidate_present", "task_document_mapping", "task_document_mapping_match", "task_document_mapping_source", "mapping_failure_reason_class", "document_http_status", "document_count", "document_status", "retrieval_http_status", "retrieval_ready", "video_segments_http_status", "video_segment_count"}
+    required = {"task_http_status", "task_count", "task_status", "task_status_timeline", "task_reason_class", "worker_consumed", "uploaded_files_task_id_match_count", "document_track_id_match_count", "document_task_id_match_count", "document_metadata_task_id_match_count", "task_id_present", "document_id_present", "full_document_id_present", "full_document_id_used", "document_id_candidate_present", "task_document_mapping", "task_document_mapping_match", "task_document_mapping_source", "mapping_failure_reason_class", "document_http_status", "document_count", "document_status", "retrieval_http_status", "retrieval_ready", "video_segments_http_status", "video_segment_count"}
     if not isinstance(observations, dict) or not required.issubset(observations):
         raise ValueError("upload diagnosis observations are incomplete")
     if not isinstance(observations["task_status_timeline"], list) or len(observations["task_status_timeline"]) > 90:
         raise ValueError("upload diagnosis timeline is invalid")
+    count_fields = (
+        "uploaded_files_task_id_match_count",
+        "document_track_id_match_count",
+        "document_task_id_match_count",
+        "document_metadata_task_id_match_count",
+    )
+    if any(
+        isinstance(observations[field], bool)
+        or not isinstance(observations[field], int)
+        or not 0 <= observations[field] <= 999
+        for field in count_fields
+    ):
+        raise ValueError("upload diagnosis provenance match counts are invalid")
     if not isinstance(observations["task_id_present"], bool) or not isinstance(observations["document_id_present"], bool) or not isinstance(observations["full_document_id_present"], bool) or not isinstance(observations["full_document_id_used"], bool) or not isinstance(observations["document_id_candidate_present"], bool):
         raise ValueError("upload diagnosis identifier presence is invalid")
     if observations["task_document_mapping"] not in {"matched", "unmatched", "unavailable"}:
