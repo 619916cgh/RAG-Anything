@@ -150,7 +150,17 @@ def _secret() -> str:
 
 
 def _run(cmd: list[str], *, env: dict[str, str], timeout: int = 180, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True, timeout=timeout, check=False)
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        env=env,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
 
 
 def _write_redacted_command_output(path: Path, result: subprocess.CompletedProcess[str], *, label: str) -> None:

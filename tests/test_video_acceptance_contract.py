@@ -1,10 +1,35 @@
 import json
+import os
 from pathlib import Path
+import sys
 from unittest.mock import patch
 
 import pytest
 
 from scripts import run_isolated_acceptance as acceptance
+
+
+def test_runner_replaces_invalid_child_output_and_keeps_redaction(tmp_path):
+    secret = "sensitive-upload-secret"
+    child = (
+        "import sys; "
+        "sys.stdout.buffer.write(bytes([128]) + b' password=sensitive-upload-secret' + bytes([10])); "
+        "sys.stderr.buffer.write(bytes([129]) + b' token=sensitive-upload-secret' + bytes([10])); "
+        "sys.exit(7)"
+    )
+    completed = acceptance._run([sys.executable, "-c", child], env=os.environ.copy())
+
+    assert completed.returncode == 7
+    assert "\ufffd" in completed.stdout
+    assert "\ufffd" in completed.stderr
+
+    output = tmp_path / "browser-runner-output.json"
+    acceptance._write_redacted_command_output(output, completed, label="browser-upload-diagnosis")
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["label"] == "browser-upload-diagnosis"
+    assert payload["returncode"] == 7
+    assert secret not in output.read_text(encoding="utf-8")
+    assert all("[redacted]" in line for line in payload["lines"] if "password" in line or "token" in line)
 
 
 def test_upload_progress_locator_contract_is_scoped_and_classified_as_harness_owned():
