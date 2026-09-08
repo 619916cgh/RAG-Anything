@@ -1007,12 +1007,12 @@ def _load_upload_diagnosis_evidence(path: Path) -> dict[str, object]:
     if payload.get("upload_batch_status") != 200 or payload.get("upload_progress") is not True:
         raise ValueError("upload diagnosis did not retain successful batch evidence")
     observations = payload.get("observations")
-    required = {"task_http_status", "task_count", "task_status", "task_status_timeline", "task_reason_class", "worker_consumed", "task_id_present", "document_id_present", "document_id_candidate_present", "task_document_mapping", "task_document_mapping_match", "task_document_mapping_source", "mapping_failure_reason_class", "document_http_status", "document_count", "document_status", "retrieval_http_status", "retrieval_ready", "video_segments_http_status", "video_segment_count"}
+    required = {"task_http_status", "task_count", "task_status", "task_status_timeline", "task_reason_class", "worker_consumed", "task_id_present", "document_id_present", "full_document_id_present", "full_document_id_used", "document_id_candidate_present", "task_document_mapping", "task_document_mapping_match", "task_document_mapping_source", "mapping_failure_reason_class", "document_http_status", "document_count", "document_status", "retrieval_http_status", "retrieval_ready", "video_segments_http_status", "video_segment_count"}
     if not isinstance(observations, dict) or not required.issubset(observations):
         raise ValueError("upload diagnosis observations are incomplete")
     if not isinstance(observations["task_status_timeline"], list) or len(observations["task_status_timeline"]) > 90:
         raise ValueError("upload diagnosis timeline is invalid")
-    if not isinstance(observations["task_id_present"], bool) or not isinstance(observations["document_id_present"], bool) or not isinstance(observations["document_id_candidate_present"], bool):
+    if not isinstance(observations["task_id_present"], bool) or not isinstance(observations["document_id_present"], bool) or not isinstance(observations["full_document_id_present"], bool) or not isinstance(observations["full_document_id_used"], bool) or not isinstance(observations["document_id_candidate_present"], bool):
         raise ValueError("upload diagnosis identifier presence is invalid")
     if observations["task_document_mapping"] not in {"matched", "unmatched", "unavailable"}:
         raise ValueError("upload diagnosis mapping status is invalid")
@@ -1020,13 +1020,29 @@ def _load_upload_diagnosis_evidence(path: Path) -> dict[str, object]:
         raise ValueError("upload diagnosis mapping match is invalid")
     if observations["task_document_mapping_match"] != (observations["task_document_mapping"] == "matched"):
         raise ValueError("upload diagnosis mapping match is inconsistent")
+    if observations["task_document_mapping"] == "matched" and (observations["full_document_id_present"] is not True or observations["full_document_id_used"] is not True):
+        raise ValueError("upload diagnosis matched mapping did not use full document ID")
+    if observations["task_document_mapping"] != "matched" and observations["full_document_id_used"] is not False:
+        raise ValueError("upload diagnosis used full document ID without a matched mapping")
     if not isinstance(observations["task_document_mapping_source"], str) or not re.fullmatch(r"[a-z0-9_.-]{1,80}", observations["task_document_mapping_source"]):
         raise ValueError("upload diagnosis mapping source is invalid")
     if not isinstance(observations["mapping_failure_reason_class"], str) or not re.fullmatch(r"[a-z0-9_.-]{1,80}", observations["mapping_failure_reason_class"]):
         raise ValueError("upload diagnosis mapping failure class is invalid")
     if _LOCAL_PATH_RE.search(json.dumps(payload, ensure_ascii=True)):
         raise ValueError("upload diagnosis evidence contains a local path")
-    return {"complete": True, "upload_diagnosis": True, "upload_batch_status": 200, "upload_progress": True, "upload_terminal": payload.get("upload_terminal") is True, "observations": observations}
+    mapping_status = observations["task_document_mapping"]
+    mapping_complete = mapping_status == "matched"
+    return {
+        "complete": mapping_complete,
+        "diagnosis_status": "complete" if mapping_complete else "incomplete",
+        "upload_diagnosis": True,
+        "upload_batch_status": 200,
+        "upload_progress": True,
+        "upload_terminal": payload.get("upload_terminal") is True,
+        "mapping_status": mapping_status,
+        "mapping_failure_reason_class": observations["mapping_failure_reason_class"],
+        "observations": observations,
+    }
 
 
 def _write_citation_probe_failure_evidence(path: Path, *, run_id: str, owner: str, project: str, failure_class: str) -> None:
@@ -1743,9 +1759,17 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path | Non
                 if browser.returncode:
                     raise RuntimeError("browser-upload-diagnosis")
                 result["browser"] = _load_upload_diagnosis_evidence(browser_evidence)
+                if result["browser"].get("complete") is not True:
+                    raise StageFailure(
+                        "upload-diagnosis-mapping-incomplete"
+                    )
             if not _stage("browser-upload-diagnosis", upload_diagnosis_browser, evidence):
                 return result
-            result["release_recommendation"] = "upload-diagnosis-pass"
+            result["release_recommendation"] = (
+                "upload-diagnosis-pass"
+                if result.get("browser", {}).get("complete") is True
+                else "not-releasable"
+            )
             return result
         if phase_a:
             # The representative Phase A path is intentionally UI-only: one
@@ -1933,7 +1957,11 @@ def run(target_id: str, workdir: Path, commit: str, *, video_fixture: Path | Non
             browser_stage_name = "browser-upload-diagnosis"
             browser_stage_passed = any(stage.get("name") == browser_stage_name and stage.get("outcome") == "passed" for stage in evidence)
             passed = browser_stage_passed and isinstance(result.get("browser"), dict) and result["browser"].get("complete") is True and all(stage["outcome"] == "passed" for stage in evidence)
-            result["release_recommendation"] = "upload-diagnosis-pass" if passed else "not-releasable"
+            result["release_recommendation"] = (
+                "upload-diagnosis-pass"
+                if passed and result.get("browser", {}).get("complete") is True
+                else "not-releasable"
+            )
         else:
             browser_stage_name = "browser-phase-a" if phase_a else "browser-uat"
             browser_stage_passed = any(stage.get("name") == browser_stage_name and stage.get("outcome") == "passed" for stage in evidence)

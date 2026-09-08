@@ -1234,8 +1234,6 @@ async function runUploadDiagnosis(page, account) {
     } while (true)
     const documentsReply = await fetch(`/api/knowledge/documents?kb=${encodeURIComponent(kbName)}`, { headers })
     const documents = (await documentsReply.json().catch(() => ({})))?.documents
-    const healthReply = await fetch(`/api/knowledge/retrieval-health?kb=${encodeURIComponent(kbName)}`, { headers })
-    const health = await healthReply.json().catch(() => ({}))
     const task = Array.isArray(tasks) ? tasks.find(item => String(item?.task_id || '') === taskId) : null
     const documentList = Array.isArray(documents) ? documents : []
     const explicitDocumentId = value => {
@@ -1290,11 +1288,23 @@ async function runUploadDiagnosis(page, account) {
         mapping = { status: 'unmatched', matched: false, source: 'document.provenance', failure_reason_class: 'task_provenance_not_found' }
       }
     }
-    const docId = doc ? String(doc.full_id || doc.document_id || doc.id || '').trim() : ''
+    // Segment routes require the canonical full ID. A mapping match without it
+    // remains diagnostically incomplete and must not fall back to a short ID.
+    const fullDocumentId = doc ? String(doc.full_id || '').trim() : ''
+    if (mapping.status === 'matched' && !fullDocumentId) {
+      mapping = { status: 'unavailable', matched: false, source: mapping.source, failure_reason_class: 'full_document_id_unavailable' }
+      doc = null
+    }
+    let healthReply = { status: 0, ok: false }
+    let health = {}
+    if (mapping.status === 'matched') {
+      healthReply = await fetch(`/api/knowledge/retrieval-health?kb=${encodeURIComponent(kbName)}`, { headers })
+      health = await healthReply.json().catch(() => ({}))
+    }
     let segments = []
     let segmentsStatus = 0
-    if (docId) {
-      const reply = await fetch(`/api/knowledge/documents/${encodeURIComponent(docId)}/video-segments?kb=${encodeURIComponent(kbName)}`, { headers })
+    if (mapping.status === 'matched' && fullDocumentId) {
+      const reply = await fetch(`/api/knowledge/documents/${encodeURIComponent(fullDocumentId)}/video-segments?kb=${encodeURIComponent(kbName)}`, { headers })
       segmentsStatus = reply.status
       segments = (await reply.json().catch(() => ({})))?.segments
     }
@@ -1312,7 +1322,9 @@ async function runUploadDiagnosis(page, account) {
       worker_consumed: timeline.some(item => ['processing', 'retry_wait', 'completed', 'processed', 'failed', 'cancelling'].includes(item.status)) || Number(task?.progress || 0) > 0,
       task_reason_class: timeline.length ? timeline[timeline.length - 1].failure_stage : 'none',
       task_id_present: Boolean(taskId),
-      document_id_present: Boolean(docId),
+      document_id_present: Boolean(fullDocumentId),
+      full_document_id_present: Boolean(fullDocumentId),
+      full_document_id_used: mapping.status === 'matched' && Boolean(fullDocumentId),
       document_id_candidate_present: Boolean(taskDocumentId || batchDocumentIdValue),
       task_document_mapping: mapping.status,
       task_document_mapping_match: mapping.matched,
@@ -1329,7 +1341,19 @@ async function runUploadDiagnosis(page, account) {
       video_segment_count: Array.isArray(segments) ? Math.min(999, segments.length) : 0,
     }
   }, { kbName: upload.name, taskId: upload.task_id, batchDocumentId: upload.batch_document_id })
-  writeEvidence({ schema_version: 2, browser: 'playwright', upload_diagnosis: true, runtime_status: 'passed', failure_class: null, kb_created: true, upload_progress: upload.upload_progress, upload_terminal: upload.upload_terminal, upload_batch_status: upload.batch_status, observations: result })
+  const diagnosisComplete = result.task_document_mapping === 'matched'
+  writeEvidence({
+    schema_version: 2,
+    browser: 'playwright',
+    upload_diagnosis: true,
+    runtime_status: diagnosisComplete ? 'passed' : 'incomplete',
+    failure_class: diagnosisComplete ? null : `upload-diagnosis-mapping-${result.task_document_mapping}`,
+    kb_created: true,
+    upload_progress: upload.upload_progress,
+    upload_terminal: upload.upload_terminal,
+    upload_batch_status: upload.batch_status,
+    observations: result,
+  })
 }
 
 async function runPhaseARepresentative(page, account) {

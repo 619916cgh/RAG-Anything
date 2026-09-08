@@ -36,13 +36,15 @@ def test_upload_diagnosis_is_single_upload_and_redacted_state_contract():
         "task_status_timeline", "task_reason_class", "worker_consumed",
         "document_status", "document_chunks_count", "retrieval_unready_reason_count",
         "video_segments_http_status", "video_segment_count",
-        "task_id_present", "document_id_present", "document_id_candidate_present", "task_document_mapping",
+        "task_id_present", "document_id_present", "full_document_id_present", "full_document_id_used", "document_id_candidate_present", "task_document_mapping",
         "task_document_mapping_match", "task_document_mapping_source",
         "mapping_failure_reason_class",
     ):
         assert field in source
     assert "schema_version: 2" in source
     assert "document?.full_id" in source
+    assert "String(doc.full_id || '').trim()" in source
+    assert "doc.full_id || doc.document_id || doc.id" not in source[source.index("async function runUploadDiagnosis"):source.index("async function runPhaseARepresentative")]
     assert "document.upload_task_id" in source
     assert "document.track_id" in source
     assert "document.metadata.task_id" in source
@@ -79,6 +81,8 @@ def test_upload_diagnosis_loader_rejects_inconsistent_mapping(tmp_path):
             "worker_consumed": True,
             "task_id_present": True,
             "document_id_present": False,
+            "full_document_id_present": False,
+            "full_document_id_used": False,
             "document_id_candidate_present": False,
             "task_document_mapping": "matched",
             "task_document_mapping_match": False,
@@ -99,12 +103,96 @@ def test_upload_diagnosis_loader_rejects_inconsistent_mapping(tmp_path):
         _load_upload_diagnosis_evidence(path)
 
 
+def test_upload_diagnosis_loader_marks_unmatched_mapping_incomplete(tmp_path):
+    from scripts.run_isolated_acceptance import _load_upload_diagnosis_evidence
+
+    payload = {
+        "schema_version": 2,
+        "upload_diagnosis": True,
+        "upload_batch_status": 200,
+        "upload_progress": True,
+        "upload_terminal": False,
+        "observations": {
+            "task_http_status": 200,
+            "task_count": 1,
+            "task_status": "completed",
+            "task_status_timeline": [],
+            "task_reason_class": "none",
+            "worker_consumed": True,
+            "task_id_present": True,
+            "document_id_present": False,
+            "full_document_id_present": False,
+            "full_document_id_used": False,
+            "document_id_candidate_present": False,
+            "task_document_mapping": "unmatched",
+            "task_document_mapping_match": False,
+            "task_document_mapping_source": "document.provenance",
+            "mapping_failure_reason_class": "task_provenance_not_found",
+            "document_http_status": 200,
+            "document_count": 1,
+            "document_status": "not_found",
+            "retrieval_http_status": 0,
+            "retrieval_ready": False,
+            "video_segments_http_status": 0,
+            "video_segment_count": 0,
+        },
+    }
+    path = tmp_path / "browser-stage-evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    loaded = _load_upload_diagnosis_evidence(path)
+    assert loaded["complete"] is False
+    assert loaded["diagnosis_status"] == "incomplete"
+    assert loaded["mapping_status"] == "unmatched"
+    assert loaded["mapping_failure_reason_class"] == "task_provenance_not_found"
+
+
+def test_upload_diagnosis_loader_rejects_matched_mapping_without_full_id_use(tmp_path):
+    from scripts.run_isolated_acceptance import _load_upload_diagnosis_evidence
+
+    payload = {
+        "schema_version": 2,
+        "upload_diagnosis": True,
+        "upload_batch_status": 200,
+        "upload_progress": True,
+        "upload_terminal": True,
+        "observations": {
+            "task_http_status": 200,
+            "task_count": 1,
+            "task_status": "completed",
+            "task_status_timeline": [],
+            "task_reason_class": "none",
+            "worker_consumed": True,
+            "task_id_present": True,
+            "document_id_present": False,
+            "full_document_id_present": False,
+            "full_document_id_used": False,
+            "document_id_candidate_present": True,
+            "task_document_mapping": "matched",
+            "task_document_mapping_match": True,
+            "task_document_mapping_source": "task.document_id",
+            "mapping_failure_reason_class": "none",
+            "document_http_status": 200,
+            "document_count": 1,
+            "document_status": "processed",
+            "retrieval_http_status": 0,
+            "retrieval_ready": False,
+            "video_segments_http_status": 0,
+            "video_segment_count": 0,
+        },
+    }
+    path = tmp_path / "browser-stage-evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="did not use full document ID"):
+        _load_upload_diagnosis_evidence(path)
+
+
 def test_upload_diagnosis_runner_mode_is_isolated_and_non_phase_a():
     source = (Path(__file__).parent.parent / "scripts" / "run_isolated_acceptance.py").read_text(encoding="utf-8")
     compose = (Path(__file__).parent / "acceptance" / "compose.yml").read_text(encoding="utf-8")
     assert "--upload-diagnosis" in source
     assert "VIDEO_BROWSER_UPLOAD_DIAGNOSIS" in source
-    assert 'result["release_recommendation"] = "upload-diagnosis-pass"' in source
+    assert 'result["release_recommendation"] = (' in source
+    assert 'result.get("browser", {}).get("complete") is True' in source
     assert 'VIDEO_BROWSER_UPLOAD_DIAGNOSIS: ${VIDEO_BROWSER_UPLOAD_DIAGNOSIS:-0}' in compose
     assert "_load_upload_diagnosis_evidence" in source
     assert "_write_diagnosis_command_output" in source
