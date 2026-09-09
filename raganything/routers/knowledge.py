@@ -4737,6 +4737,121 @@ async def _remove_document_processing_tasks(
     return matching_ids
 
 
+async def _purge_lightrag_pg_orphan_rows(kb: str) -> dict[str, int]:
+    """Remove orphaned LightRAG PG rows for documents missing doc_status."""
+    from raganything.services.pg_state_repo import get_pg_pool
+
+    pool = get_pg_pool()
+    workspace = kb_dir(kb)
+    deleted: dict[str, int] = {}
+
+    def _count(result: object) -> int:
+        try:
+            return int(str(result).rsplit(" ", 1)[-1])
+        except (TypeError, ValueError, IndexError):
+            return 0
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            valid_rows = await conn.fetch(
+                "SELECT id FROM LIGHTRAG_DOC_STATUS WHERE workspace=$1",
+                workspace,
+            )
+            valid_ids = [str(row["id"]) for row in valid_rows]
+            chunk_rows = await conn.fetch(
+                "SELECT id FROM lightrag_doc_chunks WHERE workspace=$1 "
+                "AND NOT (full_doc_id = ANY($2::text[]))",
+                workspace, valid_ids,
+            )
+            orphan_chunk_ids = [str(row["id"]) for row in chunk_rows]
+
+            # Tables keyed directly by document ID.
+            for table_name in (
+                "lightrag_doc_full",
+                "lightrag_full_entities",
+                "lightrag_full_relations",
+            ):
+                result = await conn.execute(
+                    f"DELETE FROM {table_name} WHERE workspace=$1 "
+                    "AND NOT (id = ANY($2::text[]))",
+                    workspace, valid_ids,
+                )
+                deleted[table_name] = deleted.get(table_name, 0) + _count(result)
+
+            # Tables with an explicit full_doc_id column.
+            doc_tables = await conn.fetch(
+                "SELECT table_name FROM information_schema.columns "
+                "WHERE table_schema='public' "
+                "AND column_name IN ('workspace', 'full_doc_id') "
+                "AND table_name LIKE 'lightrag%' "
+                "GROUP BY table_name "
+                "HAVING bool_or(column_name='workspace') "
+                "AND bool_or(column_name='full_doc_id')"
+            )
+            for row in doc_tables:
+                table_name = str(row["table_name"])
+                result = await conn.execute(
+                    f"DELETE FROM {table_name} WHERE workspace=$1 "
+                    "AND NOT (full_doc_id = ANY($2::text[]))",
+                    workspace, valid_ids,
+                )
+                deleted[table_name] = deleted.get(table_name, 0) + _count(result)
+
+            if orphan_chunk_ids:
+                chunk_columns = await conn.fetch(
+                    "SELECT table_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema='public' AND column_name='chunk_ids' "
+                    "AND table_name LIKE 'lightrag%'"
+                )
+                for row in chunk_columns:
+                    table_name = str(row["table_name"])
+                    data_type = str(row["data_type"]).lower()
+                    if "json" in data_type:
+                        result = await conn.execute(
+                            f"DELETE FROM {table_name} WHERE workspace=$1 "
+                            "AND COALESCE(chunk_ids, '[]'::jsonb) "
+                            "?| $2::text[]",
+                            workspace, orphan_chunk_ids,
+                        )
+                    else:
+                        result = await conn.execute(
+                            f"DELETE FROM {table_name} WHERE workspace=$1 "
+                            "AND COALESCE(chunk_ids::text[], ARRAY[]::text[]) "
+                            "&& $2::text[]",
+                            workspace, orphan_chunk_ids,
+                        )
+                    deleted[table_name] = deleted.get(table_name, 0) + _count(result)
+    return deleted
+
+
+async def _purge_orphaned_task_residue(instance: object, kb: str) -> dict[str, int]:
+    """Run KB orphan reconciliation after deleting a failed processing task."""
+    report: dict[str, int] = {}
+    try:
+        report = await _purge_all_orphans(instance, kb, deep_scan=True)
+    except Exception as exc:
+        lightrag_logger.warning(
+            "[CLEANUP] failed task orphan purge unavailable for KB=%s: %s",
+            kb, exc,
+        )
+    try:
+        pg_deleted = await _purge_lightrag_pg_orphan_rows(kb)
+    except Exception as exc:
+        lightrag_logger.warning(
+            "[CLEANUP] failed task PG residue purge unavailable for KB=%s: %s",
+            kb, exc,
+        )
+        pg_deleted = {}
+    report["pg_rows"] = sum(pg_deleted.values())
+    if report:
+        try:
+            from raganything.query_cache import get_query_cache
+            get_query_cache().invalidate()
+        except Exception:
+            pass
+    return report
+
+
 @router.delete("/knowledge/documents/{doc_id}")
 @_lease_kb_cache_for_operation
 async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_access), _perm: None = Depends(require_permission(Permission.KB_WRITE)), current_user: dict = Depends(get_current_user)):
@@ -4763,6 +4878,7 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
                 task, doc_status, kb=kb, task_id=doc_id,
             ):
                 raise HTTPException(409, "文档仍在处理中，不能删除活动任务")
+            await _purge_orphaned_task_residue(instance, kb)
             fname = task.get("file", "未知")
             _cleanup_document_files(kb, fname)
             await pg_release_upload_for_deleted_document(kb, fname)
@@ -4778,6 +4894,7 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
                     task, doc_status, kb=kb, task_id=tid,
                 ):
                     raise HTTPException(409, "文档仍在处理中，不能删除活动任务")
+                await _purge_orphaned_task_residue(instance, kb)
                 _cleanup_document_files(kb, doc_id)
                 await pg_release_upload_for_deleted_document(kb, doc_id)
                 await delete_task(tid)
@@ -4913,6 +5030,7 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
     deleted_full_ids: list[str] = []  # for multimodal_status_cache batch cleanup
     not_found_full_ids: list[str] = []  # for LightRAG orphan cleanup
     artifact_cleanup_pending: list[str] = []
+    deleted_processing_tasks = False
 
     for doc_id in req.doc_ids:
         full_id = None
@@ -4936,6 +5054,7 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
                 await delete_task(doc_id)
                 await add_event("doc_delete", file=task.get("file", "?"), doc_id=doc_id, kb=kb, source="processing_tasks", user_id=current_user["id"])
                 deleted.append(doc_id)
+                deleted_processing_tasks = True
             else:
                 not_found.append(doc_id)
             continue
@@ -4965,6 +5084,9 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
                 errors.append({"doc_id": doc_id, "error": result.message})
         except Exception as e:
             errors.append({"doc_id": doc_id, "error": str(e)})
+
+    if deleted_processing_tasks:
+        await _purge_orphaned_task_residue(instance, kb)
 
     # ── 对 "not_found" 文档执行 LightRAG 深层存储清理 ──
     for _nf_id in not_found_full_ids:

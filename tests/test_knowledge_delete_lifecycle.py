@@ -23,6 +23,11 @@ def _isolate_document_delete_side_effects(monkeypatch):
     monkeypatch.setattr(
         provenance, "delete_document_provenance", AsyncMock(return_value=1)
     )
+    monkeypatch.setattr(
+        knowledge,
+        "_purge_orphaned_task_residue",
+        AsyncMock(return_value={}),
+    )
 
 
 class _Store:
@@ -193,6 +198,36 @@ async def test_single_delete_cleans_a_stalled_parsing_task_without_worker(monkey
 
     assert result["status"] == "deleted"
     delete_task.assert_awaited_once_with("task-stalled")
+
+
+@pytest.mark.asyncio
+async def test_single_delete_runs_residue_purge_for_orphaned_processing_task(monkeypatch):
+    instance = SimpleNamespace(lightrag=_LightRAG({}))
+    stalled_task = {
+        "status": "processing",
+        "phase": "parsing",
+        "updated_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        "file": "report.docx",
+        "kb": "demo",
+    }
+    purge = AsyncMock(return_value={"pg_rows": 3})
+
+    monkeypatch.setattr(knowledge, "get_kb", AsyncMock(return_value=instance))
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", AsyncMock(return_value={}))
+    monkeypatch.setattr(knowledge, "get_task_status", AsyncMock(return_value=stalled_task))
+    monkeypatch.setattr(knowledge, "delete_task", AsyncMock())
+    monkeypatch.setattr(knowledge, "_kb_worker_procs", {})
+    monkeypatch.setattr(knowledge, "_cleanup_document_files", lambda *args: None)
+    monkeypatch.setattr(knowledge, "add_event", AsyncMock())
+    monkeypatch.setattr(knowledge, "_purge_orphaned_task_residue", purge)
+    _install_query_cache(monkeypatch)
+
+    result = await knowledge.delete_document(
+        "task-stalled", kb="demo", _perm=None, current_user={"id": 1}
+    )
+
+    assert result["status"] == "deleted"
+    purge.assert_awaited_once_with(instance, "demo")
 
 
 @pytest.mark.asyncio
