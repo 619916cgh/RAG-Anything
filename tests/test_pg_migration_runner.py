@@ -148,7 +148,7 @@ def test_repository_manifest_covers_every_sql_file_and_keeps_duplicate_prefixes(
         "010_manufacturing_to_autorepair_permissions.sql",
         "010_uploaded_files_task_queue.sql",
     }
-    assert migrations[-1].migration_id == "037_remove_dag_workflow.sql"
+    assert migrations[-1].migration_id == "038_citation_provenance.sql"
 
 
 def test_provider_governance_migration_is_atomic_and_registered():
@@ -171,7 +171,7 @@ def test_workflow_retirement_migration_is_atomic_and_registered():
     body = transaction_body_for_migration(migration.read_text(encoding="utf-8"))
     manifest = load_manifest(root)
 
-    assert manifest[-1].migration_id == migration.name
+    assert any(item.migration_id == migration.name for item in manifest)
     assert "workflow:read" in body
     assert "workflow:write" in body
     assert body.index("DROP TABLE IF EXISTS workflow_runs") < body.index(

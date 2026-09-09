@@ -2,6 +2,8 @@
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -123,6 +125,54 @@ class TestCleanupKbResourcesOrdering:
         async def fake_save_meta(meta):
             return None
 
+        class Transaction:
+            def __init__(self, connection):
+                self.connection = connection
+
+            async def __aenter__(self):
+                return None
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+        class Connection:
+            def transaction(self):
+                return Transaction(self)
+
+            async def fetch(self, _sql, *args):
+                return []
+
+            async def execute(self, _sql, *args):
+                return "DELETE 0"
+
+        class Acquire:
+            def __init__(self):
+                self.connection = Connection()
+
+            async def __aenter__(self):
+                return self.connection
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+        class Pool:
+            def acquire(self):
+                return Acquire()
+
+        from raganything import query_cache
+        from raganything.services import pg_kb_meta_repo, pg_state_repo
+
+        monkeypatch.setattr(pg_state_repo, "get_pg_pool", lambda: Pool())
+        monkeypatch.setattr(
+            pg_kb_meta_repo,
+            "pg_delete_kb_meta",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            query_cache,
+            "get_query_cache",
+            lambda: SimpleNamespace(invalidate=lambda: None),
+        )
         monkeypatch.setattr(kb_service, "_load_doc_status_json", fake_load_doc_status)
         monkeypatch.setattr(kb_service, "_load_text_chunks_json", fake_load_text_chunks)
         monkeypatch.setattr(kb_service.kb_instances, "begin_deletion", fake_begin_deletion)

@@ -3020,6 +3020,33 @@ async def update_document_chunk(
                 await _refresh_chunk_search(instance, kb)
                 await move_chunk_tags(kb, full_id, chunk_id, new_id)
                 await bump_kb_corpus_revision(kb)
+                provenance_metadata = status_info.get("metadata") or {}
+                provenance_metadata = (
+                    provenance_metadata.get("citation_provenance")
+                    if isinstance(provenance_metadata, dict)
+                    else None
+                )
+                provenance_source_sha256 = (
+                    str(provenance_metadata.get("source_sha256") or "").strip().lower()
+                    if isinstance(provenance_metadata, dict)
+                    else ""
+                )
+                if provenance_source_sha256:
+                    from raganything.services.provenance import replace_chunk_provenance
+
+                    await replace_chunk_provenance(
+                        kb,
+                        full_id,
+                        chunk_id,
+                        new_id,
+                        document_name=display_document_name(
+                            old_chunk.get("file_path")
+                            or status_info.get("file_path")
+                        ),
+                        excerpt=update.content,
+                        source_sha256=provenance_source_sha256,
+                        fail_soft=True,
+                    )
             except Exception as exc:
                 await _restore_chunk_mutation(lg, full_id, old_status, chunk_id, old_chunk, new_id)
                 try:
@@ -3124,6 +3151,11 @@ async def delete_document_chunk(
                 await _refresh_chunk_search(instance, kb)
                 await delete_chunk_tags(kb, full_id, chunk_id)
                 await bump_kb_corpus_revision(kb)
+                from raganything.services.provenance import delete_chunk_provenance
+
+                await delete_chunk_provenance(
+                    kb, full_id, chunk_id, fail_soft=True
+                )
             except Exception as exc:
                 await _restore_chunk_mutation(lg, full_id, old_status, chunk_id, old_chunk, None)
                 try:
@@ -4782,6 +4814,8 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
         await delete_document_tags(kb, full_id)
         from raganything.services.video_segments import delete_video_segments
         await delete_video_segments(kb, full_id)
+        from raganything.services.provenance import delete_document_provenance
+        await delete_document_provenance(kb, full_id, fail_soft=True)
         await pg_release_upload_for_deleted_document(kb, file_name)
         await _remove_document_processing_tasks(kb, full_id, file_name)
         from raganything.services.document_repair import cancel_repair_jobs
@@ -4826,6 +4860,8 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
             await delete_document_tags(kb, full_id)
             from raganything.services.video_segments import delete_video_segments
             await delete_video_segments(kb, full_id)
+            from raganything.services.provenance import delete_document_provenance
+            await delete_document_provenance(kb, full_id, fail_soft=True)
             await pg_release_upload_for_deleted_document(kb, file_name)
             await _remove_document_processing_tasks(kb, full_id, file_name)
             from raganything.services.document_repair import cancel_repair_jobs
@@ -4956,6 +4992,8 @@ async def batch_delete_documents(req: BatchDeleteRequest, kb: str = Depends(veri
         await delete_document_tags(kb, deleted_document_id)
         from raganything.services.video_segments import delete_video_segments
         await delete_video_segments(kb, deleted_document_id)
+        from raganything.services.provenance import delete_document_provenance
+        await delete_document_provenance(kb, deleted_document_id, fail_soft=True)
     if deleted_full_ids:
         from raganything.services.document_repair import cancel_repair_jobs
         await cancel_repair_jobs(kb, deleted_full_ids)

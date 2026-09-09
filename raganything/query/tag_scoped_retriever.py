@@ -44,6 +44,7 @@ async def retrieve_tag_scoped_context(
     top_k: int = 20,
     max_total_tokens: int = 8000,
     deadline_monotonic: float | None = None,
+    query_execution_scope: Any = None,
 ) -> str:
     """Retrieve tagged context without exceeding the request-wide deadline."""
     try:
@@ -54,6 +55,7 @@ async def retrieve_tag_scoped_context(
                 query,
                 top_k=top_k,
                 max_total_tokens=max_total_tokens,
+                query_execution_scope=query_execution_scope,
             ),
             deadline_monotonic,
         )
@@ -68,6 +70,7 @@ async def _retrieve_tag_scoped_context_unbounded(
     *,
     top_k: int = 20,
     max_total_tokens: int = 8000,
+    query_execution_scope: Any = None,
 ) -> str:
     """Rank only tagged chunks, then build citation-friendly RAG context.
 
@@ -88,6 +91,7 @@ async def _retrieve_tag_scoped_context_unbounded(
     token_budget = max(1000, int(max_total_tokens or 8000))
     used_tokens = 0
     sections = [f"[检索范围仅限标签：{scope.tag_name}]" ]
+    selected = []
     for chunk in ranked:
         content = str(chunk.get("content") or "").strip()
         if not content:
@@ -95,11 +99,33 @@ async def _retrieve_tag_scoped_context_unbounded(
         tokens = int(chunk.get("tokens") or max(1, len(content) // 2))
         if len(sections) > 1 and used_tokens + tokens > token_budget:
             break
+        selected.append(chunk)
+        used_tokens += tokens
+
+    if not selected:
+        return ""
+
+    from raganything.query.pipeline import (
+        _format_provenance_context,
+        _prepare_provenance_references,
+        _register_provenance_references,
+        _scope_provenance_sink,
+    )
+
+    if _scope_provenance_sink(query_execution_scope) is not None:
+        references = await _prepare_provenance_references(instance, selected)
+        registered = _register_provenance_references(
+            query_execution_scope, references
+        )
+        sections.append(_format_provenance_context(registered))
+        return "\n\n".join(sections)
+
+    for chunk in selected:
+        content = str(chunk.get("content") or "").strip()
         filename = display_document_name(chunk.get("file_path"), default="未命名文档")
         order = chunk.get("chunk_order_index")
         position = f"，切块 {int(order) + 1}" if isinstance(order, int) or str(order).isdigit() else ""
         sections.append(f"[来源：{filename}{position}]\n{content}")
-        used_tokens += tokens
     return "\n\n".join(sections) if len(sections) > 1 else ""
 
 

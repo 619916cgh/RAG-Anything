@@ -43,3 +43,38 @@ async def test_tag_scope_reads_and_formats_only_allowed_chunks():
     assert "检索范围仅限标签：课程设计" in context
     assert "课程设计包括需求分析" in context
     assert "绝不能进入" not in context
+
+
+@pytest.mark.asyncio
+async def test_tag_scope_populates_numeric_provenance_in_ranked_order():
+    store = _Store()
+    store.records["tagged-a"]["full_doc_id"] = "doc-a"
+    store.records["tagged-b"]["full_doc_id"] = "doc-b"
+    instance = SimpleNamespace(
+        lightrag=SimpleNamespace(text_chunks=store), embedding_func=None
+    )
+    scope = TagScope(
+        tag_id=9,
+        tag_name="课程设计",
+        chunk_ids=("tagged-a", "tagged-b"),
+    )
+    sink = []
+
+    context = await retrieve_tag_scoped_context(
+        instance,
+        scope,
+        "课程设计如何评分",
+        top_k=2,
+        query_execution_scope={"provenance_sink": sink},
+    )
+
+    assert "[来源 1]" in context
+    assert "[来源 2]" in context
+    expected_order = [
+        match.split("\n", 1)[1].split("\n", 1)[0].removeprefix("资料：")
+        for match in context.split("[来源 ")[1:]
+    ]
+    assert [item["document_name"] for item in sink] == expected_order
+    assert {
+        (item["document_id"], item["chunk_id"]) for item in sink
+    } == {("doc-a", "tagged-a"), ("doc-b", "tagged-b")}

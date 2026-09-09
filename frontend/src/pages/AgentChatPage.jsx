@@ -4,15 +4,14 @@ import {
   Send, User, Clock, Plus, Trash2, Edit3, X, ChevronLeft,
   ChevronDown, ChevronRight, Brain, Zap, MessageSquare, ArrowLeft,
   Layers, Cpu, Database, GitGraph, Image, StopCircle, Sparkles,
-  BookOpen, Search, AlertTriangle, RefreshCw, Check, Tag
+  Search, AlertTriangle, RefreshCw, Check, Tag
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, streamSSE } from '../utils/api'
 import { formatCompleteAgentRelationMarkdown, parseAgentRelationMarker } from '../utils/agentRelationMarkdown'
 import { useAuth } from '../context/AuthContext'
-import { ControlledMediaImage } from '../components/ControlledMedia'
-import VideoSegmentPlayer from '../components/VideoSegmentPlayer'
+import ProvenanceList from '../components/ProvenanceList'
 import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
 // ── 模式定义 ───────────────────────────────────────────
@@ -474,6 +473,7 @@ export default function AgentChatPage({ onToast }) {
             m.id === msgId ? {
               ...m, done: true, thinkingDone: true, elapsed,
               images: images || [],
+              sources: event.sources || [],
               citations: event.citations || [],
               image_description: event.image_description || m.image_description || null,
               similar_images: event.similar_images || [],
@@ -493,8 +493,18 @@ export default function AgentChatPage({ onToast }) {
               setMessages(previous => {
                 const streamed = previous.find(message => message.id === msgId)
                 const lastAssistant = [...mapped].reverse().find(message => message.role === 'assistant')
-                const next = streamed?.citations?.length && lastAssistant
-                  ? mapped.map(message => message === lastAssistant ? { ...message, citations: streamed.citations } : message)
+                const hasStreamedEvidence = streamed && (
+                  streamed.citations?.length || streamed.sources?.length
+                  || streamed.images?.length || streamed.similar_images?.length
+                )
+                const next = hasStreamedEvidence && lastAssistant
+                  ? mapped.map(message => message === lastAssistant ? {
+                      ...message,
+                      citations: streamed.citations?.length ? streamed.citations : message.citations,
+                      sources: streamed.sources?.length ? streamed.sources : message.sources,
+                      images: streamed.images?.length ? streamed.images : message.images,
+                      similar_images: streamed.similar_images?.length ? streamed.similar_images : message.similar_images,
+                    } : message)
                   : mapped
                 cleanupMessageBlobUrls(next)
                 return next
@@ -1238,74 +1248,14 @@ export default function AgentChatPage({ onToast }) {
                       )}
 
                       {/* ── 来源引用 ──────────────────── */}
-                      {/* 相似图片（视觉检索） */}
-                      {m.citations?.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-cloud-200 dark:border-sky-800/30 space-y-3">
-                          {m.citations.map(citation => (
-                            <VideoSegmentPlayer
-                              key={`${citation.media_kb}-${citation.media_id}`}
-                              segments={(citation.video_segments || []).map(segment => ({
-                                ...segment,
-                                media_id: citation.media_id,
-                                media_kb: citation.media_kb,
-                                media_url: citation.media_url,
-                                document_name: citation.document_name,
-                              }))}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {m.similar_images && m.similar_images.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-cloud-200 dark:border-sky-800/30">
-                          <p className="text-2xs font-medium text-ink-muted dark:text-cloud-500 mb-2 flex items-center gap-1">
-                            <Image size={10} /> 视觉相似结果 ({m.similar_images.length})
-                          </p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {m.similar_images.map((sim, si) => (
-                              <div key={si} className="bg-white dark:bg-sky-950/60 rounded-lg p-2 border border-cloud-200 dark:border-sky-800/30">
-                                <ControlledMediaImage
-                                  media={sim}
-                                  alt={sim.name || sim.entity_name || ''}
-                                  className="w-full h-24 object-cover rounded-md mb-1.5"
-                                />
-                                <p className="text-2xs text-ink-body dark:text-cloud-300 font-medium truncate">
-                                  {sim.name || sim.entity_name || sim.caption || '知识库图片'}
-                                </p>
-                                <p className="text-2xs text-sky-500 dark:text-sky-400 font-mono">
-                                  相似度 {(sim.score * 100).toFixed(1)}%
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 知识库引用图片 */}
-                      {m.images && m.images.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-cloud-200 dark:border-sky-800/30">
-                          <p className="text-2xs font-medium text-ink-muted dark:text-cloud-500 mb-2 flex items-center gap-1">
-                            <BookOpen size={10} /> 引用来源 ({m.images.length})
-                          </p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {m.images.map((img, idx) => {
-                              const hasControlledMedia = img && typeof img === 'object'
-                                && img.media_id && img.kb
-                              if (!hasControlledMedia) return null
-                              return (
-                                <div key={idx}
-                                  className="block rounded-lg overflow-hidden border border-cloud-200 dark:border-sky-800/30 hover:border-sky-300 dark:hover:border-sky-700 transition-colors"
-                                >
-                                  <ControlledMediaImage
-                                    media={img}
-                                    alt={img.caption || `引用图片 ${idx + 1}`}
-                                    className="w-full h-28 object-cover"
-                                  />
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
+                      {/* 结构化来源、图片和视频时间统一展示 */}
+                      <ProvenanceList
+                        citations={m.citations}
+                        sources={m.sources}
+                        images={m.images}
+                        similarImages={m.similar_images}
+                        kbName={agent?.kb_name || ''}
+                      />
 
                       {/* 耗时 */}
                       {m.elapsed && m.done && (

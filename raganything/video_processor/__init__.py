@@ -1300,10 +1300,20 @@ class VideoModalProcessor(BaseModalProcessor):
                         scene_boundaries.append(float(value))
             stage_timings["scene_ms"] = _elapsed_ms(_stage_start)
 
-            from raganything.video_segments import plan_segments, segment_id, source_sha256
+            from raganything.video_segments import (
+                plan_segments,
+                segment_id,
+                source_sha256,
+                video_asset_id,
+            )
             segments = plan_segments(duration, asr_segments=asr_segments, scene_boundaries=scene_boundaries)
             source_hash = source_sha256(video_path)
-            media_id = f"video-{source_hash[:32]}"
+            media_id = video_asset_id(
+                kb_name,
+                doc_id,
+                source_hash,
+                self._video_index_profile_version,
+            )
             from raganything.processor.chunk_processor import compute_chunk_id
             from raganything.services.video_segments import upsert_video_asset, upsert_video_segment
             await upsert_video_asset({
@@ -1415,13 +1425,21 @@ class VideoModalProcessor(BaseModalProcessor):
             for offset, segment in enumerate(segments):
                 item = by_offset[offset]
                 segment_content_length += item["content_length"]
+                persisted_segment_id = segment_id(
+                    source_hash,
+                    segment.start_ms,
+                    segment.end_ms,
+                    self._video_index_profile_version,
+                    scope=media_id,
+                )
                 await upsert_video_segment({
-                    "segment_id": segment_id(source_hash, segment.start_ms, segment.end_ms, self._video_index_profile_version),
+                    "segment_id": persisted_segment_id,
                     "media_id": media_id, "kb_name": kb_name, "document_id": doc_id,
                     "segment_index": segment.index, "start_ms": segment.start_ms, "end_ms": segment.end_ms,
                     "transcript_text": item["local_text"], "visual_summary": item["visual_summary"],
                     "frame_refs": item["frame_refs"], "chunk_id": item["chunk_id"], "source_sha256": source_hash,
                     "profile_version": self._video_index_profile_version,
+                    "document_name": Path(video_path).name,
                 })
                 chunk_ids.append(item["chunk_id"])
                 results.extend(item["chunk_results"])

@@ -875,6 +875,12 @@ class OpenDataLoaderParser(Parser):
             "_odl_media": media,
             "_odl_media_output_root": str(output_root),
             "_odl_provenance_index": len(provenance),
+            "_provenance": {
+                "source_page": page_number,
+                "page_idx": page_idx,
+                "element_id": f"page-render-{page_number}",
+                "element_type": "page_render",
+            },
         }
         provenance.append(
             {
@@ -909,6 +915,7 @@ class OpenDataLoaderParser(Parser):
                 if not isinstance(el, dict):
                     continue
 
+                content_start = len(content_list)
                 el_type = el.get("type", "")
                 el_id = el.get("id")
                 src_page = el.get("page number")
@@ -1057,6 +1064,24 @@ class OpenDataLoaderParser(Parser):
                             }
                         )
 
+                block_provenance = {
+                    "source_page": prov_entry.get("source_page"),
+                    "page_idx": (
+                        prov_entry.get("page_idx")
+                        if prov_entry.get("source_page") is not None
+                        else None
+                    ),
+                    "element_id": prov_entry.get("odl_id"),
+                    "element_type": prov_entry.get("odl_type"),
+                }
+                if prov_entry.get("bbox") is not None:
+                    block_provenance["bbox"] = prov_entry["bbox"]
+                    block_provenance["bbox_coordinate_system"] = dict(
+                        prov_entry["bbox_coordinate_system"]
+                    )
+                for block in content_list[content_start:]:
+                    block["_provenance"] = dict(block_provenance)
+
                 provenance.append(prov_entry)
 
                 # Recurse into nested kids (e.g. list items inside lists)
@@ -1141,7 +1166,8 @@ class OpenDataLoaderParser(Parser):
             # 3. Source page count (pypdf)
             import pypdf
 
-            source_pages = len(pypdf.PdfReader(str(pdf_path)).pages)
+            source_pdf = pypdf.PdfReader(str(pdf_path))
+            source_pages = len(source_pdf.pages)
 
             # 4. Convert each page in an independently supervised process.
             conv_start = time.monotonic()
@@ -1180,6 +1206,20 @@ class OpenDataLoaderParser(Parser):
                 page_content, page_provenance, pages_seen = self._flatten_elements(
                     data["kids"], page_dir, working_dir
                 )
+                media_box = source_pdf.pages[page - 1].mediabox
+                page_width = float(media_box.width)
+                page_height = float(media_box.height)
+                for block in page_content:
+                    block_provenance = block.get("_provenance")
+                    if not isinstance(block_provenance, dict):
+                        continue
+                    coordinate_system = block_provenance.get(
+                        "bbox_coordinate_system"
+                    )
+                    if isinstance(coordinate_system, dict):
+                        coordinate_system.update(
+                            {"width": page_width, "height": page_height}
+                        )
                 if pages_seen and pages_seen != {page}:
                     raise ODLPageCoverageError(
                         f"OpenDataLoader artifact for page {page} contains another page"

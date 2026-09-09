@@ -9,6 +9,7 @@ import { api } from '../utils/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import Pagination from '../components/Pagination'
 import ResourceSortControl from '../components/ResourceSortControl'
+import { UserDialogConfirmation } from '../components/UserDialog'
 import { useAuth } from '../context/AuthContext'
 import { sortAgents } from '../utils/agentSorting'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
@@ -788,27 +789,17 @@ export default function AgentsPage({ onToast }) {
       document.body
       )}
 
-      {/* 删除确认 */}
-      <AnimatePresence>
-        {deleteConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 dark:bg-black/40 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)} role="dialog" aria-modal="true" aria-label="确认删除智能体">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="card p-6 max-w-sm w-full m-4"
-              onClick={e => e.stopPropagation()}
-            >
-              <h3 className="font-medium text-ink-primary mb-2">确认删除智能体？</h3>
-              <p className="text-sm text-ink-muted mb-4">删除后对话历史将永久丢失，关联的知识库不受影响。</p>
-              <div className="flex gap-3">
-                <button onClick={() => deleteAgent(deleteConfirm)} className="flex-1 py-2 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 text-sm hover:bg-rose-100 transition-colors">确认删除</button>
-                <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2 rounded-xl bg-cloud-100 text-ink-muted text-sm hover:bg-cloud-300 transition-colors">取消</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <UserDialogConfirmation
+        isOpen={Boolean(deleteConfirm)}
+        title="确认删除智能体？"
+        description="删除后对话历史将永久丢失，关联的知识库不受影响。"
+        confirmLabel="确认删除"
+        cancelLabel="取消"
+        onConfirm={() => deleteAgent(deleteConfirm)}
+        onCancel={() => setDeleteConfirm(null)}
+        danger
+        lockScroll
+      />
     </div>
   )
 }

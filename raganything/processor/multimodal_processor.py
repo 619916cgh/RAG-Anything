@@ -18,10 +18,25 @@ from raganything.utils import (
 )
 import asyncio
 
+from raganything.services.provenance import (
+    CitationProvenanceError,
+    find_citation_provenance_error,
+)
+
 
 
 class MultimodalProcessorMixin:
     """Multimodal content processing and document status queries."""
+
+    @staticmethod
+    def _provenance_chunk_order_index(
+        record: Dict[str, Any], default: int = -1
+    ) -> int:
+        try:
+            return int(record.get("chunk_order_index", default))
+        except (TypeError, ValueError, OverflowError):
+            return default
+
     async def _get_multimodal_status_record(self, doc_id: str) -> Dict[str, Any] | None:
         """Get compatibility multimodal completion state when doc_status cannot store it."""
         if (
@@ -108,6 +123,7 @@ class MultimodalProcessorMixin:
         doc_id: str,
         pipeline_status: Optional[Any] = None,
         pipeline_status_lock: Optional[Any] = None,
+        provenance_required: bool = False,
     ):
         """
         Process multimodal content (using specialized processors)
@@ -197,11 +213,17 @@ class MultimodalProcessorMixin:
             has_video = any(item.get("type") == "video" for item in multimodal_items)
             if has_video:
                 processed = await self._process_multimodal_content_individual(
-                    multimodal_items, file_path, doc_id
+                    multimodal_items,
+                    file_path,
+                    doc_id,
+                    provenance_required=provenance_required,
                 )
             else:
                 processed = await self._process_multimodal_content_batch_type_aware(
-                    multimodal_items=multimodal_items, file_path=file_path, doc_id=doc_id
+                    multimodal_items=multimodal_items,
+                    file_path=file_path,
+                    doc_id=doc_id,
+                    provenance_required=provenance_required,
                 )
             if processed is not True:
                 raise RuntimeError(
@@ -233,6 +255,8 @@ class MultimodalProcessorMixin:
 
         except Exception as e:
             self.logger.error(f"Error in multimodal processing: {e}")
+            if find_citation_provenance_error(e) is not None:
+                raise
             # A v2 video is an atomic indexing unit: its own compensation
             # cleanup already removed partial artifacts, and the generic batch
             # fallback would silently index a competing whole-video chunk.
@@ -255,6 +279,7 @@ class MultimodalProcessorMixin:
                         file_path,
                         doc_id,
                         defer_odl_media_audit=True,
+                        provenance_required=provenance_required,
                     )
                     if processed is not True:
                         raise RuntimeError(
@@ -263,6 +288,8 @@ class MultimodalProcessorMixin:
                 recovered = True
             except Exception as e2:
                 self.logger.error(f"Batch retry also failed: {e2}")
+                if find_citation_provenance_error(e2) is not None:
+                    raise
                 if getattr(self, "_multimodal_storage_started", False):
                     await self._set_multimodal_status_record(doc_id, False)
                     raise RuntimeError(
@@ -270,7 +297,10 @@ class MultimodalProcessorMixin:
                     ) from e2
                 self.logger.warning("Falling back to individual multimodal processing")
                 recovered = await self._process_multimodal_content_individual(
-                    multimodal_items, file_path, doc_id
+                    multimodal_items,
+                    file_path,
+                    doc_id,
+                    provenance_required=provenance_required,
                 )
 
             if recovered:
@@ -295,6 +325,8 @@ class MultimodalProcessorMixin:
         multimodal_items: List[Dict[str, Any]],
         file_ref: str,
         doc_id: str,
+        *,
+        provenance_required: bool = False,
     ):
         """Background task: process multimodal content without blocking document insertion.
 
@@ -306,9 +338,17 @@ class MultimodalProcessorMixin:
             self.logger.info(
                 f"Background multimodal processing started: {len(multimodal_items)} items for doc {doc_id}"
             )
-            await self._process_multimodal_content(
-                multimodal_items, file_ref, doc_id
-            )
+            if provenance_required:
+                await self._process_multimodal_content(
+                    multimodal_items,
+                    file_ref,
+                    doc_id,
+                    provenance_required=True,
+                )
+            else:
+                await self._process_multimodal_content(
+                    multimodal_items, file_ref, doc_id
+                )
             completed = True
             self.logger.info(
                 f"Background multimodal processing completed for doc {doc_id}"
@@ -326,7 +366,11 @@ class MultimodalProcessorMixin:
                 failure_metadata = {
                     "content_ready": False,
                     "multimodal_processed": False,
-                    "failure_stage": "multimodal",
+                    "failure_stage": (
+                        "provenance"
+                        if find_citation_provenance_error(exc) is not None
+                        else "multimodal"
+                    ),
                     "cleanup_pending": True,
                     "residual_data": True,
                     "last_error": str(exc)[:4000],
@@ -369,7 +413,12 @@ class MultimodalProcessorMixin:
                     )
 
     async def _process_multimodal_content_individual(
-        self, multimodal_items: List[Dict[str, Any]], file_path: str, doc_id: str
+        self,
+        multimodal_items: List[Dict[str, Any]],
+        file_path: str,
+        doc_id: str,
+        *,
+        provenance_required: bool = False,
     ):
         """
         Process multimodal content individually (fallback method)
@@ -385,6 +434,7 @@ class MultimodalProcessorMixin:
         # Collect all chunk results for batch processing (similar to text content processing)
         all_chunk_results = []
         multimodal_chunk_ids = []
+        provenance_items: List[Dict[str, Any]] = []
 
         # Get current text chunks count to set proper order indexes for multimodal chunks
         existing_doc_status = await self.lightrag.doc_status.get_by_id(doc_id)
@@ -444,6 +494,16 @@ class MultimodalProcessorMixin:
                     all_chunk_results.extend(chunk_results)
 
                     multimodal_chunk_ids.extend(chunk_ids)
+                    if content_type != "video":
+                        for offset, chunk_id in enumerate(chunk_ids):
+                            provenance_items.append(
+                                {
+                                    "content_type": content_type,
+                                    "original_item": item,
+                                    "chunk_order_index": next_chunk_order_index + offset,
+                                    "chunk_id": chunk_id,
+                                }
+                            )
                     next_chunk_order_index += len(chunk_ids)
 
                     self.logger.info(
@@ -461,6 +521,8 @@ class MultimodalProcessorMixin:
                 # partial multimodal success that could leave segments indexed.
                 from raganything.video_processor import VideoProcessingError
                 if isinstance(e, VideoProcessingError):
+                    raise
+                if find_citation_provenance_error(e) is not None:
                     raise
                 self.logger.error(f"Error processing multimodal content: {str(e)}")
                 self.logger.debug("Exception details:", exc_info=True)
@@ -556,6 +618,26 @@ class MultimodalProcessorMixin:
 
             await self.lightrag._insert_done()
 
+        if provenance_items:
+            raw_chunks = await self.lightrag.text_chunks.get_by_ids(
+                multimodal_chunk_ids
+            )
+            chunks_by_id = self._chunk_records_by_id(
+                multimodal_chunk_ids, raw_chunks
+            )
+            lightrag_chunks = {}
+            for item in provenance_items:
+                chunk_id = item["chunk_id"]
+                chunk = dict(chunks_by_id.get(chunk_id) or {})
+                chunk.setdefault("chunk_order_index", item["chunk_order_index"])
+                lightrag_chunks[chunk_id] = chunk
+            await self._persist_multimodal_chunk_provenance(
+                doc_id,
+                provenance_items,
+                lightrag_chunks,
+                provenance_required=provenance_required,
+            )
+
         completed = failed_count == 0 and processed_count == len(multimodal_items)
         if completed:
             self.logger.info("Individual multimodal content processing complete")
@@ -575,6 +657,7 @@ class MultimodalProcessorMixin:
         doc_id: str,
         *,
         defer_odl_media_audit: bool = False,
+        provenance_required: bool = False,
     ):
         """
         Type-aware batch processing that selects correct processors based on content type.
@@ -886,7 +969,210 @@ class MultimodalProcessorMixin:
             finalize=not defer_odl_media_audit,
         ):
             raise RuntimeError("image_media_incomplete")
+        await self._persist_multimodal_chunk_provenance(
+            doc_id,
+            multimodal_data_list,
+            lightrag_chunks,
+            provenance_required=provenance_required,
+        )
         return True
+
+    async def _persist_multimodal_chunk_provenance(
+        self,
+        doc_id: str,
+        multimodal_data_list: List[Dict[str, Any]],
+        lightrag_chunks: Dict[str, Any],
+        *,
+        provenance_required: bool = False,
+    ) -> None:
+        """Persist image/table/equation locators from the parser contract."""
+        from raganything.services.pg_state_repo import get_pg_pool
+
+        try:
+            get_pg_pool()
+        except RuntimeError as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance storage is unavailable"
+                ) from exc
+            self.logger.debug(
+                "Citation provenance skipped because PostgreSQL is unavailable"
+            )
+            return
+
+        try:
+            status = await self.lightrag.doc_status.get_by_id(doc_id)
+        except Exception as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance document context is unavailable"
+                ) from exc
+            raise
+        if not isinstance(status, dict):
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance document context is missing"
+                )
+            return
+        metadata = (status or {}).get("metadata") or {}
+        context = (
+            metadata.get("citation_provenance")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if not isinstance(context, dict) or context.get("version") != "v1":
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance context is missing"
+                )
+            return
+        kb_name = str(context.get("kb_name") or "").strip()
+        source_sha256 = str(context.get("source_sha256") or "").strip()
+        document_name = str(context.get("document_name") or "").strip()
+        if not kb_name or len(source_sha256) != 64:
+            error = CitationProvenanceError if provenance_required else RuntimeError
+            raise error("citation provenance context is incomplete")
+
+        chunk_by_order = {}
+        for chunk_id, chunk in lightrag_chunks.items():
+            if not isinstance(chunk, dict):
+                continue
+            order = self._provenance_chunk_order_index(chunk)
+            if order >= 0:
+                chunk_by_order[order] = (chunk_id, chunk)
+        records: List[Dict[str, Any]] = []
+        for item in multimodal_data_list:
+            order = self._provenance_chunk_order_index(item)
+            chunk_entry = chunk_by_order.get(order)
+            if chunk_entry is None:
+                if provenance_required:
+                    raise CitationProvenanceError(
+                        "Required citation provenance is missing a multimodal chunk"
+                    )
+                continue
+            chunk_id, chunk = chunk_entry
+            full_doc_id = str(chunk.get("full_doc_id") or doc_id)
+            if full_doc_id != doc_id:
+                if provenance_required:
+                    raise CitationProvenanceError(
+                        "Required citation provenance chunk ownership mismatched"
+                    )
+                continue
+            original = item.get("original_item") or {}
+            original = original if isinstance(original, dict) else {}
+            provenance = original.get("_provenance")
+            provenance = provenance if isinstance(provenance, dict) else {}
+            media = original.get("_odl_media")
+            media = media if isinstance(media, dict) else {}
+
+            source_page = provenance.get("source_page")
+            if not isinstance(source_page, int) or source_page < 1:
+                media_page = media.get("page")
+                source_page = (
+                    media_page
+                    if isinstance(media_page, int) and media_page >= 1
+                    else None
+                )
+            section_path = original.get("_section_path")
+            if isinstance(section_path, str):
+                section_path = [
+                    value.strip()
+                    for value in section_path.split(" > ")
+                    if value.strip()
+                ]
+            elif not isinstance(section_path, list):
+                section_path = []
+
+            caption = (
+                media.get("caption")
+                or original.get("caption")
+                or original.get("image_caption")
+                or original.get("img_caption")
+                or ""
+            )
+            if isinstance(caption, list):
+                caption = next((str(value) for value in caption if value), "")
+            caption = str(caption).strip()
+            figure_label = ""
+            if caption:
+                import re
+
+                match = re.match(
+                    r"^\s*((?:图\s*|Figure\s+|Fig\.?\s+)"
+                    r"[A-Za-z0-9一二三四五六七八九十]+"
+                    r"(?:[-‐‑‒–—－_.．][A-Za-z0-9一二三四五六七八九十]+)*)",
+                    caption,
+                    re.I,
+                )
+                if match:
+                    figure_label = match.group(1).strip()
+
+            modality = str(item.get("content_type") or "generic").lower()
+            bbox = provenance.get("bbox")
+            media_id = str(media.get("media_id") or "").strip() or None
+            locator_status = (
+                "exact"
+                if source_page is not None and bbox is not None and media_id
+                else "page"
+                if source_page is not None
+                else "document"
+                if document_name
+                else "unavailable"
+            )
+            records.append(
+                {
+                    "kb_name": kb_name,
+                    "document_id": doc_id,
+                    "document_name": document_name,
+                    "chunk_id": chunk_id,
+                    "source_sha256": source_sha256,
+                    "provenance_version": "v1",
+                    "page": source_page,
+                    "page_idx": source_page - 1 if source_page is not None else None,
+                    "section_path": section_path,
+                    "modality": modality,
+                    "media_id": media_id,
+                    "element_id": provenance.get("element_id")
+                    or media.get("element_id"),
+                    "figure_label": figure_label or None,
+                    "bbox": bbox,
+                    "bbox_coordinate_system": provenance.get(
+                        "bbox_coordinate_system"
+                    ),
+                    "locator_status": locator_status,
+                    "excerpt": str(chunk.get("content") or "")[:1000],
+                    "metadata": {
+                        "caption": caption,
+                        "element_type": provenance.get("element_type"),
+                    },
+                }
+            )
+        if not records:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance produced no multimodal records"
+                )
+            return
+        if provenance_required and len(records) != len(multimodal_data_list):
+            raise CitationProvenanceError(
+                "Required citation provenance multimodal record count mismatched"
+            )
+        from raganything.services.provenance import upsert_provenance_records
+
+        try:
+            persisted = await upsert_provenance_records(records)
+        except CitationProvenanceError:
+            raise
+        except Exception as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance multimodal write failed"
+                ) from exc
+            raise
+        if provenance_required and len(persisted or []) != len(records):
+            raise CitationProvenanceError(
+                "Required citation provenance multimodal write was incomplete"
+            )
 
     async def _bind_and_audit_odl_image_media(
         self,
@@ -904,10 +1190,13 @@ class MultimodalProcessorMixin:
         """
         expected: dict[str, str] = {}
         manifest_paths: set[str] = set()
-        chunk_by_order = {
-            int(chunk.get("chunk_order_index", -1)): chunk_id
-            for chunk_id, chunk in lightrag_chunks.items()
-        }
+        chunk_by_order = {}
+        for chunk_id, chunk in lightrag_chunks.items():
+            if not isinstance(chunk, dict):
+                continue
+            order = self._provenance_chunk_order_index(chunk)
+            if order >= 0:
+                chunk_by_order[order] = chunk_id
         for item in multimodal_data_list:
             original = item.get("original_item") or {}
             media = original.get("_odl_media")
@@ -915,7 +1204,9 @@ class MultimodalProcessorMixin:
             if not isinstance(media, dict) and not manifest_path:
                 continue
             media_id = media.get("media_id") if isinstance(media, dict) else None
-            chunk_id = chunk_by_order.get(int(item.get("chunk_order_index", -1)))
+            chunk_id = chunk_by_order.get(
+                self._provenance_chunk_order_index(item)
+            )
             if not isinstance(media_id, str) or not isinstance(manifest_path, str) or not chunk_id:
                 return await self._record_odl_image_media_incomplete(doc_id, 0, 0, 0)
             expected[media_id] = chunk_id

@@ -214,3 +214,35 @@ def test_failing_migration_stops_before_later_file(isolated_database, tmp_path):
         ],
     )
     assert history == "failed"
+
+    _run(
+        PsqlExecutor(env=isolated_database),
+        [
+            "-c",
+            "DELETE FROM schema_migration_history "
+            "WHERE migration_id = '002_intentional_failure.sql';",
+        ],
+    )
+    _write_manifest(
+        tmp_path,
+        [
+            ("001_base.sql", "CREATE TABLE failure_marker (id INTEGER PRIMARY KEY);\n"),
+            ("002_intentional_failure.sql", "SELECT 2;\n"),
+            (
+                "003_never_run.sql",
+                "CREATE TABLE must_not_exist (id INTEGER PRIMARY KEY);\n",
+            ),
+        ],
+    )
+    recovery_runner = MigrationRunner(
+        tmp_path, executor=PsqlExecutor(env=isolated_database, cwd=tmp_path)
+    )
+    recovery_runner.apply(backup_acknowledged=True)
+    assert recovery_runner.plan().pending == ()
+    assert (
+        _run(
+            PsqlExecutor(env=isolated_database),
+            ["-At", "-c", "SELECT to_regclass('public.must_not_exist');"],
+        )
+        == "must_not_exist"
+    )

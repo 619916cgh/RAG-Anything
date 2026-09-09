@@ -13,13 +13,17 @@ import logging
 import re
 import time
 import asyncio
+import uuid
+from collections.abc import Iterator, Mapping
+from contextvars import ContextVar
 from typing import AsyncIterator, Callable, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import jieba
 
 from raganything.routers.shared import recall_query_images
-from .source_tracer import SourceTracer
+from raganything.services.query_execution import QueryExecutionScope
+from .source_tracer import SourceTracer, normalize_citation_list
 from ..knowledge_graph.models import AgentResponse
 
 logger = logging.getLogger(__name__)
@@ -41,8 +45,47 @@ _SENSITIVE_TEXT_PATTERNS = (
 _VIDEO_SEGMENT_CONTEXT_PATTERN = re.compile(
     r"\[VIDEO_SEGMENT\s+segment_id=(?P<segment_id>[^\s\]]+)\s+"
     r"media_id=(?P<media_id>[^\s\]]+)\s+start_ms=(?P<start_ms>\d+)\s+"
-    r"end_ms=(?P<end_ms>\d+)\s+document_id=(?P<document_id>[^\s\]]+)\]"
+    r"end_ms=(?P<end_ms>\d+)\s+document_id=(?P<document_id>[^\s\]]+)"
+    r"(?:\s+chunk_id=(?P<chunk_id>[^\s\]]+))?\]"
 )
+_SOURCE_CONTEXT_PATTERN = re.compile(
+    r"(?ms)^\[来源\s+(?P<label>[^\]]+)\]\s*\n"
+    r"(?P<content>.*?)(?=^\[来源\s+[^\]]+\]\s*$|^\[VIDEO_SEGMENT\s|\Z)"
+)
+
+
+class _ContextQueryScope(Mapping[str, object]):
+    """Concurrency-safe view of the current AutoRepair query scope."""
+
+    def __init__(self, current: ContextVar[QueryExecutionScope | None]):
+        self._current = current
+
+    def _scope(self) -> QueryExecutionScope:
+        scope = self._current.get()
+        if scope is None:
+            raise RuntimeError("AutoRepair query scope is not initialized")
+        return scope
+
+    @property
+    def provenance_sink(self):
+        return self._scope().provenance_sink
+
+    @property
+    def deadline_monotonic(self):
+        return self._scope().deadline_monotonic
+
+    @property
+    def trace_id(self):
+        return self._scope().trace_id
+
+    def __getitem__(self, key: str) -> object:
+        return self._scope()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._scope())
+
+    def __len__(self) -> int:
+        return len(self._scope())
 
 
 def _video_segment_anchors_from_contexts(contexts: object, kb_name: str) -> list[dict]:
@@ -152,6 +195,10 @@ class QAEngine:
         self._media_url_resolver = media_url_resolver
         self._query_mode = query_mode
         self._max_steps = max_steps
+        self._query_scope_var: ContextVar[QueryExecutionScope | None] = ContextVar(
+            f"autorepair_query_scope_{id(self)}", default=None
+        )
+        self._context_query_scope = _ContextQueryScope(self._query_scope_var)
 
         # Build caption lookup map for keyword matching
         self._image_captions: dict[str, str] = {}
@@ -211,8 +258,29 @@ class QAEngine:
             search_tool = SearchTool(
                 rag_instance=self.rag_client,
                 query_mode=self._query_mode,
+                query_execution_scope=self._context_query_scope,
             )
             self._agentic_rag.register_tool(search_tool)
+
+    def _begin_query_scope(self, timeout: float = 30.0) -> QueryExecutionScope:
+        lightrag = getattr(self.rag_client, "lightrag", None)
+        workspace = str(
+            getattr(lightrag, "workspace", None)
+            or getattr(self.rag_client, "workspace", None)
+            or self.kb_name
+        )
+        scope = QueryExecutionScope(
+            trace_id=f"autorepair-{uuid.uuid4().hex}",
+            workspace=workspace,
+            corpus_revision=str(getattr(self.rag_client, "corpus_revision", "")),
+            permission_scope=f"autorepair:{self.kb_name}",
+            settings_fingerprint="autorepair-rrf",
+            llm_profile_fingerprint="",
+            deadline_monotonic=time.monotonic() + max(float(timeout), 1.0),
+            provenance_sink=[],
+        )
+        self._query_scope_var.set(scope)
+        return scope
 
     @staticmethod
     def _resolve_llm_adapter(client) -> Optional[Callable]:
@@ -253,9 +321,16 @@ class QAEngine:
         """Tier 1 直接 RRF 检索，返回上下文字符串。"""
         if self.rag_client is None or not hasattr(self.rag_client, 'aquery'):
             return ""
+        scope = self._query_scope_var.get() or self._begin_query_scope(timeout)
         try:
             return await asyncio.wait_for(
-                self.rag_client.aquery(query, mode="rrf", only_need_context=True, top_k=self.top_k),
+                self.rag_client.aquery(
+                    query,
+                    mode="rrf",
+                    only_need_context=True,
+                    top_k=self.top_k,
+                    query_execution_scope=scope,
+                ),
                 timeout=timeout,
             ) or ""
         except asyncio.TimeoutError:
@@ -407,6 +482,48 @@ class QAEngine:
                 )
         return await self._fallback_match_images(query, docs)
 
+    def _citation_source_docs(self, contexts: list[str]) -> list[dict]:
+        """Prefer request-local persisted provenance over parsed text labels."""
+        scope = self._query_scope_var.get()
+        sink = scope.provenance_sink if scope is not None else None
+        if sink:
+            return [dict(item) for item in sink if isinstance(item, dict)]
+
+        docs: list[dict] = []
+        for context in contexts:
+            if not isinstance(context, str):
+                continue
+            for match in _SOURCE_CONTEXT_PATTERN.finditer(context):
+                label = match.group("label").strip()
+                content = match.group("content").strip()
+                try:
+                    reference_index = int(label)
+                except ValueError:
+                    reference_index = None
+                docs.append({
+                    "reference_index": reference_index,
+                    "citation_label": f"[来源 {label}]",
+                    "document_name": None if reference_index is not None else label,
+                    "content": _sanitize_client_text(content),
+                })
+        if docs:
+            return docs
+        return [
+            {"content": _sanitize_client_text(item)}
+            for item in contexts
+            if isinstance(item, str) and item
+        ]
+
+    def _build_citations(self, answer: str, contexts: list[str]) -> list[dict]:
+        sources = self.source_tracer.extract_citations(
+            answer, self._citation_source_docs(contexts)
+        )
+        video = normalize_citation_list(
+            _video_segment_anchors_from_contexts(contexts, self.kb_name),
+            kb_name=self.kb_name,
+        )
+        return sources + video
+
     async def _post_process(self, query: str, answer_text: str, retrieved_texts: list[str],
                             start_time: float, trace: list[dict] | None = None) -> AgentResponse:
         """后处理：图片匹配 + 引用溯源 + 置信度。"""
@@ -420,8 +537,7 @@ class QAEngine:
 
         ctx = "\n\n".join([t for t in retrieved_texts if t])
         images = await self._recall_images_from_context(query, ctx, docs)
-        citations = self.source_tracer.extract_citations(safe_answer, docs)
-        citations = citations + _video_segment_anchors_from_contexts(retrieved_texts, self.kb_name)
+        citations = self._build_citations(safe_answer, retrieved_texts)
         confidence = self._estimate_confidence(docs)
         ms = round((time.time() - start_time) * 1000, 2)
         safe_trace = [
@@ -448,6 +564,7 @@ class QAEngine:
                      context: Optional[dict] = None) -> AgentResponse:
         """两级问答 — Tier 1 直接检索 → Tier 2 AgenticRAG 兜底。"""
         start_time = time.time()
+        self._begin_query_scope()
 
         if self._llm_adapter is None:
             return AgentResponse(query=query, answer="LLM 服务未配置。",
@@ -527,6 +644,7 @@ class QAEngine:
             {"type": "done", "images": [...], "citations": [...], "confidence": ...}
         """
         start_time = time.time()
+        self._begin_query_scope()
 
         if self._llm_adapter is None:
             yield {"type": "done", "content": "LLM 服务未配置。", "images": [], "citations": [], "confidence": 0.0}
@@ -588,8 +706,7 @@ class QAEngine:
                 "type": "done",
                 "answer": safe_answer,
                 "images": await self._recall_images_from_context(query, "\n\n".join(retrieved_contexts), docs),
-                "citations": self.source_tracer.extract_citations(safe_answer, docs)
-                + _video_segment_anchors_from_contexts(retrieved_contexts, self.kb_name),
+                "citations": self._build_citations(safe_answer, retrieved_contexts),
                 "confidence": self._estimate_confidence(docs),
                 "elapsed_ms": round((time.time() - start_time) * 1000, 2),
                 "trace": trace_steps,
@@ -633,8 +750,7 @@ class QAEngine:
             "type": "done",
             "answer": safe_answer,
             "images": await self._recall_images_from_context(query, ctx, docs),
-            "citations": self.source_tracer.extract_citations(safe_answer, docs)
-            + _video_segment_anchors_from_contexts([ctx], self.kb_name),
+            "citations": self._build_citations(safe_answer, [ctx]),
             "confidence": self._estimate_confidence(docs),
             "elapsed_ms": round((time.time() - start_time) * 1000, 2),
         }

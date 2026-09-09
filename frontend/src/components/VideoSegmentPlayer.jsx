@@ -11,18 +11,19 @@ function formatTime(seconds) {
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`
 }
 
-export default function VideoSegmentPlayer({ segments = [] }) {
+export default function VideoSegmentPlayer({ segments = [], resolveSource }) {
   const [activeIdx, setActiveIdx] = useState(null)
   const [playbackError, setPlaybackError] = useState('')
   const videoRef = useRef(null)
   const active = activeIdx === null ? null : segments[activeIdx]
-  const source = useControlledMediaSource(active)
+  const controlledSource = useControlledMediaSource(active)
+  const source = resolveSource ? resolveSource(active) : controlledSource
 
   useEffect(() => setPlaybackError(''), [activeIdx, source])
 
   const seekToSegment = () => {
     if (!videoRef.current || !active) return
-    videoRef.current.currentTime = toSeconds(active.start_ms)
+    videoRef.current.currentTime = toSeconds(active.start_ms ?? active.start_ts)
     videoRef.current.play().catch(() => {})
   }
 
@@ -31,7 +32,7 @@ export default function VideoSegmentPlayer({ segments = [] }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="video-segment-player" data-video-segment-count={segments.length} data-video-segment-id={segments[0]?.segment_id || undefined}>
       <p className="text-xs font-medium text-ink-body flex items-center gap-1.5">
         <Play size={13} className="text-coral-400" />视频片段 ({segments.length})
       </p>

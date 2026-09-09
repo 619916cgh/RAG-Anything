@@ -29,17 +29,23 @@ from .batch_processor import register_background_task
 import time
 import hashlib
 import json
+import re
 from typing import Dict, List, Any
 from pathlib import Path
 from raganything.utils.media import is_supported_video_file
 
 from raganything.base import DocStatus
 from raganything.parser import MineruParser, MineruExecutionError, get_parser
+from raganything.services.provenance import (
+    CitationProvenanceError,
+    find_citation_provenance_error,
+)
 from raganything.utils import (
     beijing_now,
     separate_content,
     insert_text_content,
     insert_text_content_with_multimodal_content,
+    display_document_name,
 )
 import asyncio
 
@@ -47,6 +53,11 @@ import asyncio
 
 class DocProcessorMixin:
     """Document parsing, caching, and processing entry points."""
+
+    _PROVENANCE_VERSION = "v1"
+    _SOURCE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+    _PAGE_MARKER_RE = re.compile(r"\[第\s*(\d+)\s*页\]")
+    _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
     # ── PDF page-coverage gate (generalised) ──────────────────────────
     # Any parser that declares PDF coverage support SHALL comply with this
@@ -165,6 +176,265 @@ class DocProcessorMixin:
                 + ",".join(str(p) for p in sorted(failed | skipped))
             )
         return page_coverage
+
+    def _attach_trusted_page_provenance(
+        self,
+        content_list: List[Dict[str, Any]],
+        file_path: Path,
+        parser_name: str,
+    ) -> None:
+        """Mark page indexes only when the parser proves PDF page coverage."""
+        if file_path.suffix.lower() != ".pdf" or not self._parser_supports_pdf_coverage(
+            parser_name
+        ):
+            return
+        for item in content_list:
+            if not isinstance(item, dict):
+                continue
+            provenance = item.get("_provenance")
+            provenance = dict(provenance) if isinstance(provenance, dict) else {}
+            source_page = provenance.get("source_page")
+            page_idx = provenance.get("page_idx", item.get("page_idx"))
+            if not isinstance(source_page, int) or source_page < 1:
+                if not isinstance(page_idx, int) or page_idx < 0:
+                    continue
+                source_page = page_idx + 1
+            provenance.update(
+                {
+                    "source_page": source_page,
+                    "page_idx": source_page - 1,
+                    "parser": parser_name,
+                }
+            )
+            item["_provenance"] = provenance
+            item["_page_number_trusted"] = True
+
+    @classmethod
+    def _resolve_provenance_source_sha256(
+        cls,
+        source_sha256: str | None,
+        *,
+        file_path: str | Path | None = None,
+        content_list: List[Dict[str, Any]] | None = None,
+    ) -> str:
+        candidate = str(source_sha256 or "").strip().lower()
+        if candidate:
+            if not cls._SOURCE_SHA256_RE.fullmatch(candidate):
+                raise ValueError("source_sha256 must be a full lowercase SHA-256 digest")
+            return candidate
+        if file_path is not None:
+            path = Path(file_path)
+            if path.is_file():
+                digest = hashlib.sha256()
+                with path.open("rb") as source:
+                    for block in iter(lambda: source.read(1024 * 1024), b""):
+                        digest.update(block)
+                return digest.hexdigest()
+        payload = json.dumps(
+            content_list or [],
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _resolve_provenance_kb_name(self, kb_name: str | None = None) -> str:
+        explicit = str(kb_name or "").strip()
+        if explicit:
+            return explicit
+        workspace = str(getattr(self.lightrag, "workspace", "") or "")
+        leaf = workspace.replace("\\", "/").rstrip("/").split("/")[-1]
+        if leaf == "rag_storage":
+            return "default"
+        if leaf.startswith("rag_storage_") and len(leaf) > len("rag_storage_"):
+            return leaf[len("rag_storage_") :]
+        return "default"
+
+    def _citation_provenance_metadata(
+        self,
+        *,
+        kb_name: str,
+        document_name: str,
+        source_sha256: str,
+        page_trusted: bool,
+    ) -> Dict[str, Any]:
+        return {
+            "citation_provenance": {
+                "version": self._PROVENANCE_VERSION,
+                "kb_name": kb_name,
+                "document_name": display_document_name(document_name),
+                "source_sha256": source_sha256,
+                "page_trusted": bool(page_trusted),
+            }
+        }
+
+    @staticmethod
+    def _chunk_records_by_id(
+        chunk_ids: List[str], records: Any
+    ) -> Dict[str, Dict[str, Any]]:
+        if isinstance(records, dict):
+            return {
+                str(chunk_id): record
+                for chunk_id, record in records.items()
+                if isinstance(record, dict)
+            }
+        if isinstance(records, list):
+            return {
+                chunk_id: record
+                for chunk_id, record in zip(chunk_ids, records)
+                if isinstance(record, dict)
+            }
+        return {}
+
+    @staticmethod
+    def _chunk_order_index(record: Dict[str, Any], default: int = 0) -> int:
+        try:
+            return int(record.get("chunk_order_index", default))
+        except (TypeError, ValueError, OverflowError):
+            return default
+
+    async def _persist_text_chunk_provenance(
+        self,
+        *,
+        doc_id: str,
+        document_name: str,
+        kb_name: str,
+        source_sha256: str,
+        provenance_required: bool = False,
+    ) -> None:
+        """Persist ordered text chunk locators after LightRAG commits chunks."""
+        from raganything.services.pg_state_repo import get_pg_pool
+
+        try:
+            get_pg_pool()
+        except RuntimeError as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance storage is unavailable"
+                ) from exc
+            self.logger.debug(
+                "Citation provenance skipped because PostgreSQL is unavailable"
+            )
+            return
+
+        try:
+            status = await self.lightrag.doc_status.get_by_id(doc_id)
+        except Exception as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance document context is unavailable"
+                ) from exc
+            raise
+        if not isinstance(status, dict):
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance document context is missing"
+                )
+            return
+        chunk_ids = [
+            str(value) for value in status.get("chunks_list", []) if value
+        ]
+        if not chunk_ids:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance has no text chunks"
+                )
+            return
+        try:
+            raw_records = await self.lightrag.text_chunks.get_by_ids(chunk_ids)
+        except Exception as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance chunks are unavailable"
+                ) from exc
+            raise
+        records_by_id = self._chunk_records_by_id(chunk_ids, raw_records)
+        if provenance_required and any(
+            chunk_id not in records_by_id for chunk_id in chunk_ids
+        ):
+            raise CitationProvenanceError(
+                "Required citation provenance is missing persisted text chunks"
+            )
+        ordered = sorted(
+            (
+                (chunk_id, records_by_id[chunk_id])
+                for chunk_id in chunk_ids
+                if chunk_id in records_by_id
+            ),
+            key=lambda item: self._chunk_order_index(item[1]),
+        )
+
+        current_page: int | None = None
+        section_levels: Dict[int, str] = {}
+        provenance_records: List[Dict[str, Any]] = []
+        for chunk_id, chunk in ordered:
+            full_doc_id = str(chunk.get("full_doc_id") or doc_id)
+            if full_doc_id != doc_id:
+                if provenance_required:
+                    raise CitationProvenanceError(
+                        "Required citation provenance chunk ownership mismatched"
+                    )
+                continue
+            content = str(chunk.get("content") or "")
+            pages = [
+                int(value)
+                for value in self._PAGE_MARKER_RE.findall(content)
+                if int(value) >= 1
+            ]
+            chunk_page = pages[0] if pages else current_page
+            if pages:
+                current_page = pages[-1]
+            for marker, title in self._HEADING_RE.findall(content):
+                level = len(marker)
+                section_levels = {
+                    key: value for key, value in section_levels.items() if key < level
+                }
+                section_levels[level] = title.strip()
+            section_path = [section_levels[key] for key in sorted(section_levels)]
+            provenance_records.append(
+                {
+                    "kb_name": kb_name,
+                    "document_id": doc_id,
+                    "document_name": display_document_name(document_name),
+                    "chunk_id": chunk_id,
+                    "source_sha256": source_sha256,
+                    "provenance_version": self._PROVENANCE_VERSION,
+                    "page": chunk_page,
+                    "page_idx": chunk_page - 1 if chunk_page is not None else None,
+                    "section_path": section_path,
+                    "modality": "text",
+                    "locator_status": "page" if chunk_page is not None else "document",
+                    "excerpt": content[:1000],
+                    "metadata": {"pages": list(dict.fromkeys(pages))},
+                }
+            )
+        if not provenance_records:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance produced no text records"
+                )
+            return
+        if provenance_required and len(provenance_records) != len(chunk_ids):
+            raise CitationProvenanceError(
+                "Required citation provenance text record count mismatched"
+            )
+        from raganything.services.provenance import upsert_provenance_records
+
+        try:
+            persisted = await upsert_provenance_records(provenance_records)
+        except CitationProvenanceError:
+            raise
+        except Exception as exc:
+            if provenance_required:
+                raise CitationProvenanceError(
+                    "Required citation provenance text write failed"
+                ) from exc
+            raise
+        if provenance_required and len(persisted or []) != len(provenance_records):
+            raise CitationProvenanceError(
+                "Required citation provenance text write was incomplete"
+            )
 
     def _generate_cache_key(
         self, file_path: Path, parse_method: str = None, **kwargs
@@ -560,6 +830,9 @@ class DocProcessorMixin:
         )
         if cached_result is not None:
             content_list, doc_id = cached_result
+            self._attach_trusted_page_provenance(
+                content_list, file_path, effective_parser
+            )
             self.logger.info(f"Using cached parsing result for: {file_path}")
             if display_stats:
                 self.logger.info(
@@ -826,6 +1099,10 @@ class DocProcessorMixin:
                     # Keep original content_list, don't retry further
                     break
 
+        self._attach_trusted_page_provenance(
+            content_list, file_path, effective_parser
+        )
+
         # Generate doc_id based on content
         doc_id = self._generate_content_based_doc_id(content_list)
 
@@ -873,6 +1150,9 @@ class DocProcessorMixin:
         doc_id: str | None = None,
         file_name: str | None = None,
         chunking_strategy: str | None = None,
+        kb_name: str | None = None,
+        source_sha256: str | None = None,
+        provenance_required: bool = False,
         **kwargs,
     ):
         """
@@ -924,6 +1204,19 @@ class DocProcessorMixin:
             if doc_id is None:
                 doc_id = content_based_doc_id
 
+            provenance_kb_name = self._resolve_provenance_kb_name(kb_name)
+            provenance_source_sha256 = self._resolve_provenance_source_sha256(
+                source_sha256, file_path=file_path, content_list=content_list
+            )
+            provenance_metadata = self._citation_provenance_metadata(
+                kb_name=provenance_kb_name,
+                document_name=file_name,
+                source_sha256=provenance_source_sha256,
+                page_trusted=self._requires_pdf_page_coverage(Path(file_path)),
+            )
+            if isinstance(page_coverage, dict):
+                provenance_metadata["page_coverage"] = page_coverage
+
             # Step 2: Separate text and multimodal content
             text_content, multimodal_items = separate_content(content_list)
 
@@ -938,10 +1231,7 @@ class DocProcessorMixin:
                     status=DocStatus.HANDLING,
                     error_msg="",
                     chunking_strategy=chunking_strategy,
-                    metadata=(
-                        {"page_coverage": page_coverage}
-                        if isinstance(page_coverage, dict) else None
-                    ),
+                    metadata=provenance_metadata,
                 )
 
             # Step 2.5: Set content source for context extraction in multimodal processing
@@ -996,10 +1286,7 @@ class DocProcessorMixin:
                     status=DocStatus.HANDLING,
                     error_msg="",
                     chunking_strategy=chunking_strategy,
-                    metadata=(
-                        {"page_coverage": page_coverage}
-                        if isinstance(page_coverage, dict) else None
-                    ),
+                    metadata=provenance_metadata,
                 )
                 # Register chunk → doc source mappings for citation tracing
                 # After text insertion, LightRAG populates chunks_list in doc_status
@@ -1013,6 +1300,16 @@ class DocProcessorMixin:
                         )
                 except Exception:
                     pass  # Non-critical
+
+                if provenance_required:
+                    stage = "provenance"
+                await self._persist_text_chunk_provenance(
+                    doc_id=doc_id,
+                    document_name=file_name,
+                    kb_name=provenance_kb_name,
+                    source_sha256=provenance_source_sha256,
+                    provenance_required=provenance_required,
+                )
 
                 if callback_manager is not None:
                     insert_duration = time.time() - insert_start
@@ -1029,9 +1326,17 @@ class DocProcessorMixin:
             # Step 4: Process multimodal content (using specialized processors)
             stage = "multimodal"
             if multimodal_items:
-                await self._process_multimodal_content(
-                    multimodal_items, file_name, doc_id
-                )
+                if provenance_required:
+                    await self._process_multimodal_content(
+                        multimodal_items,
+                        file_name,
+                        doc_id,
+                        provenance_required=True,
+                    )
+                else:
+                    await self._process_multimodal_content(
+                        multimodal_items, file_name, doc_id
+                    )
             else:
                 # If no multimodal content, mark multimodal processing as complete
                 # This ensures the document status properly reflects completion of all processing
@@ -1045,10 +1350,13 @@ class DocProcessorMixin:
                 )
 
         except Exception as exc:
+            provenance_error = find_citation_provenance_error(exc)
+            if provenance_error is not None:
+                stage = provenance_error.failure_stage
             if doc_id is not None:
                 try:
                     degraded = False
-                    if stage == "text_insert":
+                    if stage == "text_insert" and provenance_error is None:
                         try:
                             degraded = await self._persist_degraded_graph_status(
                                 doc_id,
@@ -1074,6 +1382,11 @@ class DocProcessorMixin:
                         status=DocStatus.FAILED,
                         error_msg=str(exc),
                         chunking_strategy=chunking_strategy,
+                        metadata=(
+                            {"failure_stage": "provenance"}
+                            if provenance_error is not None
+                            else None
+                        ),
                     )
                 except Exception as status_exc:
                     self.logger.debug(
@@ -1392,6 +1705,11 @@ class DocProcessorMixin:
         display_stats: bool = None,
         chunking_strategy: str | None = None,
         track_id: str | None = None,
+        kb_name: str | None = None,
+        source_sha256: str | None = None,
+        source_path: str | None = None,
+        provenance_page_trusted: bool = False,
+        provenance_required: bool = False,
     ):
         """
         Insert content list directly without document parsing
@@ -1441,6 +1759,34 @@ class DocProcessorMixin:
             doc_id = self._generate_content_based_doc_id(content_list)
 
         file_ref = self._get_file_reference(file_path)
+        if provenance_page_trusted:
+            for item in content_list:
+                if not isinstance(item, dict):
+                    continue
+                page_idx = item.get("page_idx")
+                if not isinstance(page_idx, int) or page_idx < 0:
+                    continue
+                provenance = item.get("_provenance")
+                provenance = (
+                    dict(provenance) if isinstance(provenance, dict) else {}
+                )
+                provenance.update(
+                    {"source_page": page_idx + 1, "page_idx": page_idx}
+                )
+                item["_provenance"] = provenance
+                item["_page_number_trusted"] = True
+        provenance_kb_name = self._resolve_provenance_kb_name(kb_name)
+        provenance_source_sha256 = self._resolve_provenance_source_sha256(
+            source_sha256,
+            file_path=source_path or file_path,
+            content_list=content_list,
+        )
+        provenance_metadata = self._citation_provenance_metadata(
+            kb_name=provenance_kb_name,
+            document_name=file_ref,
+            source_sha256=provenance_source_sha256,
+            page_trusted=provenance_page_trusted,
+        )
 
         # Display content statistics if requested
         if display_stats:
@@ -1473,6 +1819,7 @@ class DocProcessorMixin:
                 status=DocStatus.HANDLING,
                 error_msg="",
                 chunking_strategy=chunking_strategy,
+                metadata=provenance_metadata,
             )
 
         # Step 1.5: Set content source for context extraction in multimodal processing
@@ -1526,6 +1873,22 @@ class DocProcessorMixin:
                 status=DocStatus.HANDLING,
                 error_msg="",
                 chunking_strategy=chunking_strategy,
+                metadata=provenance_metadata,
+            )
+            try:
+                status = await self.lightrag.doc_status.get_by_id(doc_id)
+                if status and status.get("chunks_list"):
+                    self._register_chunk_sources(
+                        doc_id, source_path or file_path, status["chunks_list"]
+                    )
+            except Exception:
+                pass
+            await self._persist_text_chunk_provenance(
+                doc_id=doc_id,
+                document_name=file_ref,
+                kb_name=provenance_kb_name,
+                source_sha256=provenance_source_sha256,
+                provenance_required=provenance_required,
             )
             if callback_manager is not None:
                 insert_duration = time.time() - insert_start
@@ -1549,7 +1912,10 @@ class DocProcessorMixin:
                 await self._set_multimodal_status_record(doc_id, False)
                 bg_task = loop.create_task(
                     self._process_multimodal_content_background(
-                        multimodal_items, file_ref, doc_id
+                        multimodal_items,
+                        file_ref,
+                        doc_id,
+                        provenance_required=provenance_required,
                     )
                 )
                 register_background_task(bg_task)
@@ -1562,9 +1928,17 @@ class DocProcessorMixin:
                 # document must not look complete while VLM/vision work runs.
             except RuntimeError:
                 # No event loop available — fall back to sync
-                await self._process_multimodal_content(
-                    multimodal_items, file_ref, doc_id
-                )
+                if provenance_required:
+                    await self._process_multimodal_content(
+                        multimodal_items,
+                        file_ref,
+                        doc_id,
+                        provenance_required=True,
+                    )
+                else:
+                    await self._process_multimodal_content(
+                        multimodal_items, file_ref, doc_id
+                    )
                 if not await self._mark_multimodal_processing_complete(doc_id):
                     raise RuntimeError(
                         "multimodal completion marker could not be persisted"

@@ -52,6 +52,7 @@ from raganything.processor import (
 from raganything.utils.pdf_fallback import extract_pdf_embedded_images
 from raganything.utils.process_lock import FileLock, get_file_lock_path
 from raganything.utils.media import is_supported_video_file
+from raganything.services.provenance import find_citation_provenance_error
 
 # Keep in sync with kb_service.EMB_DIM; the worker subprocess inherits the parent's os.environ.
 EMB_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
@@ -283,6 +284,10 @@ def _is_incomplete_pdf_coverage_error(exc: BaseException) -> bool:
         getattr(exc, "failure_code", "") == "pdf_page_coverage_incomplete"
         or "pdf page coverage is incomplete" in _exception_chain_text(exc)
     )
+
+
+def _is_citation_provenance_error(exc: BaseException) -> bool:
+    return find_citation_provenance_error(exc) is not None
 
 
 async def _preflight_embedding_service(rag) -> None:
@@ -554,14 +559,16 @@ async def _drain_background_tasks_or_raise() -> None:
     while True:
         completed_errors = consume_background_task_errors()
         if completed_errors:
-            raise RuntimeError(f"background processing failed: {completed_errors[0]}")
+            raise RuntimeError(
+                f"background processing failed: {completed_errors[0]}"
+            ) from completed_errors[0]
         pending = get_pending_background_tasks()
         if not pending:
             completed_errors = consume_background_task_errors()
             if completed_errors:
                 raise RuntimeError(
                     f"background processing failed: {completed_errors[0]}"
-                )
+                ) from completed_errors[0]
             return
         remaining = deadline - loop.time()
         if remaining <= 0:
@@ -576,7 +583,7 @@ async def _drain_background_tasks_or_raise() -> None:
         errors = [result for result in results if isinstance(result, BaseException)]
         errors.extend(consume_background_task_errors())
         if errors:
-            raise RuntimeError(f"background processing failed: {errors[0]}")
+            raise RuntimeError(f"background processing failed: {errors[0]}") from errors[0]
         if still_pending:
             for task in still_pending:
                 task.cancel()
@@ -829,6 +836,9 @@ async def process_file(
         print(f"[PROGRESS] phase=model-preflight status=done file={filename}", flush=True)
 
         safe_path = str(Path(file_path).resolve())
+        from raganything.video_segments import source_sha256 as compute_source_sha256
+
+        source_hash = compute_source_sha256(safe_path)
         current_stage = "parsing"
         if ext in PLAIN_TEXT_EXTS:
             print("[WORKER] 纯文本模式，直接读取", flush=True)
@@ -844,6 +854,10 @@ async def process_file(
                     file_path=filename,
                     chunking_strategy=strategy,
                     track_id=task_id,
+                    kb_name=kb_name,
+                    source_sha256=source_hash,
+                    source_path=safe_path,
+                    provenance_required=True,
                 )
             print(f"[PROGRESS] phase=parsing status=done file={filename}", flush=True)
         else:
@@ -856,9 +870,15 @@ async def process_file(
                     output_dir=output_dir,
                     chunking_strategy=strategy,
                     track_id=task_id,
+                    kb_name=kb_name,
+                    source_sha256=source_hash,
+                    provenance_required=True,
                 )
                 docling_ok = True
             except Exception as e:
+                if _is_citation_provenance_error(e):
+                    current_stage = "provenance"
+                    raise
                 video_failure_code = _video_failure_code(e)
                 if video_failure_code:
                     current_stage = "video_processing"
@@ -914,11 +934,17 @@ async def process_file(
                                 output_dir=output_dir,
                                 chunking_strategy=strategy,
                                 track_id=task_id,
+                                kb_name=kb_name,
+                                source_sha256=source_hash,
+                                provenance_required=True,
                             )
                             docling_ok = True
                         else:
                             print("[WORKER] 未找到解析输出文件，使用 VLM OCR 兜底", flush=True)
                     except Exception as e2:
+                        if _is_citation_provenance_error(e2):
+                            current_stage = "provenance"
+                            raise
                         print(f"[WORKER] 预处理失败: {e2}，使用 VLM OCR 兜底", flush=True)
 
             # VLM OCR 兜底（Docling 失败或产生 0 chunk 时触发）
@@ -972,6 +998,10 @@ async def process_file(
                                 file_path=filename,
                                 chunking_strategy=strategy,
                                 track_id=task_id,
+                                kb_name=kb_name,
+                                source_sha256=source_hash,
+                                source_path=safe_path,
+                                provenance_required=True,
                             )
                             ocr_characters = sum(
                                 len(str(item.get("text") or ""))
@@ -1077,7 +1107,9 @@ async def process_file(
         )
         exit_code = 4 if retryable else 1
         chain_text = _exception_chain_text(e)
-        if hnsw_memory_error:
+        if _is_citation_provenance_error(e):
+            current_stage = "provenance"
+        elif hnsw_memory_error:
             current_stage = "graph_index"
         elif video_failure_code:
             current_stage = "video_processing"

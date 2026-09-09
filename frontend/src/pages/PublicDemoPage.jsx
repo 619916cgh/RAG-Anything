@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ArrowDown, Bot, Database, Expand, RotateCcw, Send, Sparkles, Square } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import ProvenanceList from '../components/ProvenanceList'
 import { controlledDemoMediaUrl, loadPublicDemo, readDemoToken, streamPublicDemo } from '../utils/publicDemoClient'
 import { formatPublicDemoMarkdown, isCompactEntity, parseDemoDisplayMarker } from '../utils/publicDemoMarkdown'
 
@@ -35,15 +36,16 @@ const demoMarkdown = {
 
 const getDemoEvidence = message => {
   const sources = Array.isArray(message.sources)
-    ? message.sources.filter(source => typeof source?.name === 'string' && source.name.trim())
+    ? message.sources.filter(source => source && typeof source === 'object')
     : []
-  const citations = !sources.length && Array.isArray(message.citations)
-    ? message.citations.filter(citation => citation?.document_name || citation?.caption)
+  const citations = Array.isArray(message.citations)
+    ? message.citations.filter(citation => citation && typeof citation === 'object')
     : []
   const media = Array.isArray(message.images)
-    ? message.images.filter(item => item?.media_id && typeof item?.url === 'string')
+    ? message.images.filter(item => item && typeof item === 'object')
     : []
-  return { sources, citations, media, count: sources.length || citations.length || 0, hasEvidence: sources.length > 0 || citations.length > 0 || media.length > 0 }
+  const count = sources.length + citations.length + media.length
+  return { sources, citations, media, count, hasEvidence: count > 0 }
 }
 
 export default function PublicDemoPage() {
@@ -207,15 +209,14 @@ export default function PublicDemoPage() {
           {message.cancelled && <p className="public-demo-cancelled">已停止，以上为已生成内容。</p>}
           {message.role === 'assistant' && evidence.hasEvidence && <details className="public-demo-evidence">
             <summary><Database size={14} /> 依据与资料 <span>{evidence.count || evidence.media.length} 项</span></summary>
-            {evidence.sources.length > 0 && <section className="public-demo-citations" aria-label="来源引用"><h2>参考来源</h2>{evidence.sources.map((source, sourceIndex) => <p key={`${source.name}-${sourceIndex}`}><span>{sourceIndex + 1}</span>{source.name}</p>)}</section>}
-            {evidence.citations.length > 0 && <section className="public-demo-citations" aria-label="来源引用"><h2>参考来源</h2>{evidence.citations.map((citation, citationIndex) => { const name = citation?.document_name || citation?.caption; return <p key={`${name}-${citationIndex}`}><span>{citationIndex + 1}</span>{name}</p> })}</section>}
-            {evidence.media.length > 0 && <div className="public-demo-media">{evidence.media.map((media, mediaIndex) => {
-              const source = controlledDemoMediaUrl(shareId, media?.url)
-              if (!source) return null
-              return media.mime?.startsWith('video/')
-                ? <video controls key={`${media.media_id}-${mediaIndex}`} src={source} />
-                : <img key={`${media.media_id}-${mediaIndex}`} src={source} alt={media.caption || '知识库引用媒体'} loading="lazy" />
-            })}</div>}
+            <ProvenanceList
+              citations={evidence.citations}
+              sources={evidence.sources}
+              images={evidence.media}
+              publicMode
+              showHeading={false}
+              mediaResolver={media => controlledDemoMediaUrl(shareId, media?.url) || controlledDemoMediaUrl(shareId, media?.media_url)}
+            />
           </details>}
         </article>
         })}

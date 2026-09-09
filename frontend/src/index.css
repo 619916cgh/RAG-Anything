@@ -3462,6 +3462,24 @@ select.input-field {
   overscroll-behavior: none;
 }
 
+.resource-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  overscroll-behavior: none;
+}
+
+.dark .resource-modal-overlay {
+  background: rgba(0, 0, 0, 0.40);
+}
+
 html.agent-config-scroll-locked,
 body.agent-config-scroll-locked {
   overflow: hidden !important;
@@ -3532,6 +3550,8 @@ body.user-dialog-scroll-locked {
   z-index: 80;
   display: block;
   background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* Confirmation dialogs must be centered in the viewport, not in a drawer or

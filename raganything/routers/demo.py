@@ -10,8 +10,10 @@ import mimetypes
 import os
 import re
 import time
+from math import isfinite
 from pathlib import Path
 from typing import AsyncIterator
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -49,6 +51,23 @@ router = APIRouter(tags=["demo"])
 _DEMO_MEDIA_TTL_SECONDS = min(max(int(os.getenv("DEMO_MEDIA_GRANT_TTL", "120")), 30), 300)
 _DEMO_QUERY_TIMEOUT = max(1.0, float(os.getenv("DEMO_QUERY_TIMEOUT", "45")))
 _SOURCE_MARKER = re.compile(r"\[来源\s*[:：]?\s*([^\]]+?)\]")
+_DEMO_MEDIA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
+_DEMO_IDENTIFIER = re.compile(r"^[^\\/\r\n?#%]{1,512}$")
+_LOCATOR_STATUSES = frozenset({"exact", "page", "document", "unavailable"})
+_MODALITIES = frozenset({"text", "image", "video", "table", "audio"})
+_LEGACY_STATUSES = frozenset({"legacy_unavailable"})
+_MAX_SECTION_ITEMS = 32
+_MAX_FRAME_REFS = 100
+_MAX_VIDEO_SEGMENTS = 100
+_MAX_EXCERPT_LENGTH = 8_000
+_COORDINATE_TEXT_FIELDS = ("type", "name", "units", "unit", "kind", "origin")
+_COORDINATE_NUMBER_FIELDS = (
+    "width", "height", "page_width", "page_height", "image_width", "image_height",
+)
+_FRAME_TEXT_FIELDS = ("frame_id", "media_id", "element_id")
+_FRAME_NUMBER_FIELDS = (
+    "timestamp_ms", "index", "page", "page_idx", "x", "y", "width", "height",
+)
 
 
 class DemoShareCreate(BaseModel):
@@ -120,16 +139,231 @@ def _verify_media_grant(share_id: str, media_id: str, grant: str) -> bool:
 
 
 def _safe_demo_media_payload(share: DemoShare, payload: dict) -> dict | None:
-    media_id = payload.get("media_id")
-    if not isinstance(media_id, str) or not media_id:
+    media_id = _safe_demo_media_id(payload.get("media_id"))
+    if media_id is None:
         return None
     expires_at = int(time.time()) + _DEMO_MEDIA_TTL_SECONDS
     return {
         "media_id": media_id,
         "caption": str(payload.get("caption") or ""),
         "mime": str(payload.get("mime") or ""),
-        "url": f"/api/demo/{share.share_id}/media/{media_id}?grant={_media_grant(share.share_id, media_id, expires_at)}",
+        "url": (
+            f"/api/demo/{share.share_id}/media/{quote(media_id, safe='')}?"
+            f"grant={_media_grant(share.share_id, media_id, expires_at)}"
+        ),
     }
+
+
+def _safe_text(value: object, *, max_length: int = 512) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text[:max_length] if text else None
+
+
+def _safe_identifier(value: object) -> str | None:
+    text = _safe_text(value)
+    return text if text and _DEMO_IDENTIFIER.fullmatch(text) else None
+
+
+def _safe_number(
+    value: object, *, minimum: float | None = None, integer: bool = False,
+) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not isfinite(number)
+        or (minimum is not None and number < minimum)
+        or (integer and not number.is_integer())
+    ):
+        return None
+    return int(number) if integer else value
+
+
+def _safe_demo_media_id(value: object) -> str | None:
+    text = _safe_text(value)
+    return text if text and _DEMO_MEDIA_ID.fullmatch(text) else None
+
+
+def _safe_bbox(value: object) -> dict[str, int | float] | None:
+    if not isinstance(value, dict):
+        return None
+    bbox: dict[str, int | float] = {}
+    for field in ("x", "y", "width", "height"):
+        number = _safe_number(
+            value.get(field), minimum=0 if field in {"width", "height"} else None
+        )
+        if number is None:
+            return None
+        bbox[field] = number
+    return bbox
+
+
+def _safe_coordinate_system(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    safe: dict = {}
+    for field in _COORDINATE_TEXT_FIELDS:
+        if (text := _safe_identifier(value.get(field))) is not None:
+            safe[field] = text
+    for field in _COORDINATE_NUMBER_FIELDS:
+        if (number := _safe_number(value.get(field), minimum=0)) is not None:
+            safe[field] = number
+    order = value.get("order")
+    if isinstance(order, list):
+        safe_order = [
+            text for item in order[:8]
+            if (text := _safe_identifier(item)) is not None
+        ]
+        if safe_order:
+            safe["order"] = safe_order
+    return safe or None
+
+
+def _safe_frame_refs(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict] = []
+    for item in value[:_MAX_FRAME_REFS]:
+        if not isinstance(item, dict):
+            continue
+        safe: dict = {}
+        for field in _FRAME_TEXT_FIELDS:
+            text = _safe_demo_media_id(item.get(field)) if field == "media_id" else _safe_identifier(item.get(field))
+            if text is not None:
+                safe[field] = text
+        for field in _FRAME_NUMBER_FIELDS:
+            if (number := _safe_number(item.get(field), minimum=0)) is not None:
+                safe[field] = number
+        if safe:
+            refs.append(safe)
+    return refs
+
+
+def _safe_video_segment(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    safe: dict = {}
+    if (media_id := _safe_demo_media_id(value.get("media_id"))) is not None:
+        safe["media_id"] = media_id
+    if (segment_id := _safe_identifier(value.get("segment_id"))) is not None:
+        safe["segment_id"] = segment_id
+    for field in ("start_ms", "end_ms"):
+        if (number := _safe_number(value.get(field), minimum=0, integer=True)) is not None:
+            safe[field] = number
+    frame_refs = _safe_frame_refs(value.get("frame_refs"))
+    if frame_refs:
+        safe["frame_refs"] = frame_refs
+    return safe or None
+
+
+def _safe_image(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    safe: dict = {}
+    for field in ("element_id", "figure_label"):
+        if (text := _safe_identifier(value.get(field))) is not None:
+            safe[field] = text
+    if (media_id := _safe_demo_media_id(value.get("media_id"))) is not None:
+        safe["media_id"] = media_id
+    if (bbox := _safe_bbox(value.get("bbox"))) is not None:
+        safe["bbox"] = bbox
+    if (coordinate_system := _safe_coordinate_system(value.get("bbox_coordinate_system"))) is not None:
+        safe["bbox_coordinate_system"] = coordinate_system
+    return safe or None
+
+
+def _has_invalid_media_id(value: object) -> bool:
+    if not isinstance(value, dict) or "media_id" not in value:
+        return False
+    raw = value.get("media_id")
+    return raw not in (None, "") and _safe_demo_media_id(raw) is None
+
+
+def _safe_demo_citation(share: DemoShare, citation: dict) -> dict | None:
+    """Build a deep allowlisted DTO and replace private media grants."""
+    if not isinstance(citation, dict):
+        return None
+    safe: dict = {}
+    for field in ("citation_id", "document_id", "chunk_id"):
+        if (identifier := _safe_identifier(citation.get(field))) is not None:
+            safe[field] = identifier
+    if (document_name := _safe_text(citation.get("document_name"))) is not None:
+        safe["document_name"] = display_document_name(document_name)
+    if (
+        excerpt := _safe_text(
+            citation.get("excerpt"), max_length=_MAX_EXCERPT_LENGTH
+        )
+    ) is not None:
+        from raganything.services.provenance import _redact_excerpt
+
+        if (redacted_excerpt := _redact_excerpt(excerpt)):
+            safe["excerpt"] = redacted_excerpt
+    for field, allowed in (
+        ("modality", _MODALITIES),
+        ("locator_status", _LOCATOR_STATUSES),
+        ("legacy_status", _LEGACY_STATUSES),
+    ):
+        value = str(citation.get(field) or "").strip().lower()
+        if value in allowed:
+            safe[field] = value
+    if (index := _safe_number(citation.get("index"), minimum=1, integer=True)) is not None:
+        safe["index"] = index
+    if (page := _safe_number(citation.get("page"), minimum=1, integer=True)) is not None:
+        safe["page"] = page
+    if isinstance(citation.get("section_path"), list):
+        safe["section_path"] = [
+            text for item in citation["section_path"][:_MAX_SECTION_ITEMS]
+            if (text := _safe_text(item)) is not None
+        ]
+
+    top_media_id = _safe_demo_media_id(citation.get("media_id"))
+    image = _safe_image(citation.get("image"))
+    if image is not None:
+        safe["image"] = image
+    segment = _safe_video_segment(citation.get("video_segment"))
+    if segment is not None:
+        safe["video_segment"] = segment
+    raw_segments = citation.get("video_segments")
+    if isinstance(raw_segments, list):
+        segments = [
+            safe_segment for item in raw_segments[:_MAX_VIDEO_SEGMENTS]
+            if (safe_segment := _safe_video_segment(item)) is not None
+        ]
+        if segments:
+            safe["video_segments"] = segments
+
+    invalid_media_id = any((
+        _has_invalid_media_id(citation),
+        _has_invalid_media_id(citation.get("image")),
+        _has_invalid_media_id(citation.get("video_segment")),
+        any(_has_invalid_media_id(item) for item in raw_segments)
+        if isinstance(raw_segments, list) else False,
+    ))
+    media_ids = {
+        media_id for media_id in (
+            top_media_id,
+            image.get("media_id") if image else None,
+            segment.get("media_id") if segment else None,
+            *(item.get("media_id") for item in safe.get("video_segments", [])),
+        ) if media_id
+    }
+    if not invalid_media_id and len(media_ids) == 1:
+        media_id = next(iter(media_ids))
+        safe["media_id"] = media_id
+        expires_at = int(time.time()) + _DEMO_MEDIA_TTL_SECONDS
+        media_url = (
+            f"/api/demo/{share.share_id}/media/{quote(media_id, safe='')}?"
+            f"grant={_media_grant(share.share_id, media_id, expires_at)}"
+        )
+        safe["media_url"] = media_url
+        if image is not None:
+            safe["image"]["media_url"] = media_url
+    return safe or None
 
 
 def _safe_demo_sources(context: object) -> list[dict[str, str]]:
@@ -170,6 +404,7 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
             corpus_revision=revision, permission_scope=f"demo:{share.share_id}",
             settings_fingerprint=f"demo-agent:{agent.get('id', '')}",
             llm_profile_fingerprint=f"demo-model:{runtime['llm_model']}", deadline_monotonic=deadline,
+            provenance_sink=[],
         )
         lease = await await_before_deadline(
             acquire_query_kb(share.kb_name, corpus_revision=revision), deadline, cancel_on_timeout=False,
@@ -188,12 +423,19 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
         if not isinstance(context, str) or not context.strip() or "[no-context]" in context:
             answer = "抱歉，知识库中暂无与您问题相关的数据，无法回答此问题。"
             yield _sse({"type": "token", "content": answer})
-            yield _sse({"type": "done", "demo": True, "fallback": True})
+            yield _sse({
+                "type": "done", "demo": True, "fallback": True,
+                "citations": [], "images": [], "sources": [],
+            })
             return
 
         prompt = PromptBuilder(max_total_tokens=int(os.getenv("MAX_TOKENS", "8192")))
         prompt.retrieval_context(context)
-        prompt.user_query(query, "请基于检索内容作答；信息不足时明确说明。")
+        prompt.user_query(
+            query,
+            "请基于检索内容作答；引用时必须原样复用对应的 `[来源 N]` 编号，"
+            "不得改号或编造；信息不足时明确说明。",
+        )
         final_prompt, _system = prompt.build()
         llm = agent_router._build_agent_llm(runtime)
         yield _sse({"type": "thinking", "content": "正在生成回答..."})
@@ -220,7 +462,27 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
             instance, query, share.kb_name, f"{context}\n{answer}",
         )
         media = [item for item in (_safe_demo_media_payload(share, value) for value in recalled) if item]
-        yield _sse({"type": "done", "demo": True, "images": media, "sources": _safe_demo_sources(context)})
+        citations = await agent_router._provenance_citations_from_scope(
+            scope, share.kb_name, answer
+        )
+        citations = [
+            safe for citation in citations
+            if (safe := _safe_demo_citation(share, citation)) is not None
+        ]
+        sources = []
+        seen_sources = set()
+        for citation in citations:
+            name = display_document_name(citation.get("document_name"))
+            if name and name not in seen_sources:
+                seen_sources.add(name)
+                sources.append({"name": name})
+        yield _sse({
+            "type": "done",
+            "demo": True,
+            "images": media,
+            "sources": sources or _safe_demo_sources(context),
+            "citations": citations,
+        })
     except asyncio.CancelledError:
         raise
     except TimeoutError:

@@ -59,11 +59,215 @@ _RRF_RERANK_MIN_BUDGET_SECONDS = get_env_value(
     "RRF_RERANK_MIN_BUDGET_SECONDS", 1.5, float
 )
 
+_NUMERIC_CITATION_INSTRUCTION = (
+    "## 回答要求\n"
+    "引用检索内容中的事实或原文时，必须原样使用对应的 `[来源 N]` 标记；"
+    "N 必须与检索内容中的编号一致，不得改成文档名、重新编号或编造来源。"
+    "回答末尾可附 `📚 参考来源`，每一项仍使用相同的 `[来源 N]` 标记。"
+)
+
 
 def _scope_deadline(scope: object | None) -> float | None:
     if isinstance(scope, dict):
         return scope.get("deadline_monotonic")
     return getattr(scope, "deadline_monotonic", None)
+
+
+def _scope_provenance_sink(
+    scope: object | None,
+) -> list[dict[str, Any]] | None:
+    if isinstance(scope, dict):
+        sink = scope.get("provenance_sink")
+    else:
+        sink = getattr(scope, "provenance_sink", None)
+    return sink if isinstance(sink, list) else None
+
+
+def _chunk_value(chunk: object, *names: str) -> Any:
+    for name in names:
+        if isinstance(chunk, dict):
+            value = chunk.get(name)
+        else:
+            value = getattr(chunk, name, None)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _clean_optional_text(value: Any) -> str | None:
+    if value in (None, "", "unknown_source"):
+        return None
+    return str(value)
+
+
+async def _load_text_chunk_metadata(
+    lightrag: object,
+    chunk_ids: list[str],
+    deadline_monotonic: float | None,
+) -> dict[str, dict[str, Any]]:
+    storage = getattr(lightrag, "text_chunks", None)
+    getter = getattr(storage, "get_by_ids", None)
+    if not chunk_ids or not callable(getter):
+        return {}
+
+    unique_ids = list(dict.fromkeys(chunk_ids))
+    try:
+        rows = await await_before_deadline(
+            getter(unique_ids), deadline_monotonic
+        )
+    except Exception:
+        return {}
+
+    metadata: dict[str, dict[str, Any]] = {}
+    for requested_id, row in zip(unique_ids, rows or []):
+        if not isinstance(row, dict):
+            continue
+        row_id = _clean_optional_text(
+            row.get("chunk_id") or row.get("id") or row.get("__id__")
+        )
+        metadata[row_id or requested_id] = row
+    return metadata
+
+
+async def _prepare_provenance_references(
+    owner: object,
+    chunks: list[object],
+    *,
+    source_infos: dict[str, dict[str, Any]] | None = None,
+    deadline_monotonic: float | None = None,
+    hydrate_storage: bool = False,
+) -> list[dict[str, Any]]:
+    source_infos = source_infos or {}
+    chunk_ids = [
+        str(chunk_id)
+        for chunk in chunks
+        if (chunk_id := _chunk_value(chunk, "chunk_id", "id", "__id__"))
+    ]
+    stored = {}
+    if hydrate_storage:
+        stored = await _load_text_chunk_metadata(
+            getattr(owner, "lightrag", None), chunk_ids, deadline_monotonic
+        )
+
+    references: list[dict[str, Any]] = []
+    for chunk in chunks:
+        chunk_id = _clean_optional_text(
+            _chunk_value(chunk, "chunk_id", "id", "__id__")
+        )
+        persisted = stored.get(chunk_id or "", {})
+        source_info = source_infos.get(chunk_id or "", {})
+        full_doc_id = _clean_optional_text(
+            _chunk_value(chunk, "full_doc_id", "document_id")
+            or persisted.get("full_doc_id")
+            or persisted.get("document_id")
+            or source_info.get("full_doc_id")
+            or source_info.get("document_id")
+        )
+        file_path = _clean_optional_text(
+            _chunk_value(chunk, "file_path")
+            or persisted.get("file_path")
+            or source_info.get("file_path")
+        )
+        raw_document_name = _clean_optional_text(
+            _chunk_value(chunk, "document_name")
+            or persisted.get("document_name")
+            or source_info.get("document_name")
+            or file_path
+        )
+        document_name = (
+            display_document_name(raw_document_name, default="")
+            if raw_document_name
+            else None
+        )
+        content = (
+            _chunk_value(chunk, "content")
+            or persisted.get("content")
+            or ""
+        )
+        references.append(
+            {
+                "chunk_id": chunk_id,
+                "document_id": full_doc_id,
+                "full_doc_id": full_doc_id,
+                "document_name": document_name or None,
+                "file_path": file_path,
+                "content": str(content),
+                "reference_id": _clean_optional_text(
+                    _chunk_value(chunk, "reference_id")
+                ),
+            }
+        )
+    return references
+
+
+def _collision_safe_reference_identity(
+    reference: dict[str, Any],
+) -> tuple[str, str] | None:
+    document_id = _clean_optional_text(
+        reference.get("document_id") or reference.get("full_doc_id")
+    )
+    chunk_id = _clean_optional_text(reference.get("chunk_id"))
+    if not document_id or not chunk_id:
+        return None
+    return document_id, chunk_id
+
+
+def _register_provenance_references(
+    scope: object | None,
+    references: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    sink = _scope_provenance_sink(scope)
+    existing_by_identity: dict[tuple[str, str], dict[str, Any]] = {}
+    next_index = 0
+    if sink is not None:
+        for existing in sink:
+            try:
+                next_index = max(next_index, int(existing.get("source_index", 0)))
+            except (TypeError, ValueError):
+                pass
+            identity = _collision_safe_reference_identity(existing)
+            if identity is not None:
+                existing_by_identity.setdefault(identity, existing)
+
+    registered: list[dict[str, Any]] = []
+    for reference in references:
+        identity = _collision_safe_reference_identity(reference)
+        existing = existing_by_identity.get(identity) if identity is not None else None
+        if existing is not None:
+            for key, value in reference.items():
+                if existing.get(key) in (None, "") and value not in (None, ""):
+                    existing[key] = value
+            registered.append(existing)
+            continue
+
+        next_index += 1
+        entry = dict(reference)
+        entry["source_index"] = next_index
+        entry["citation_label"] = f"[来源 {next_index}]"
+        if sink is not None:
+            sink.append(entry)
+        if identity is not None:
+            existing_by_identity[identity] = entry
+        registered.append(entry)
+    return registered
+
+
+def _format_provenance_context(
+    references: list[dict[str, Any]],
+) -> str:
+    parts = []
+    for reference in references:
+        chunk_id = reference.get("chunk_id") or ""
+        document_name = reference.get("document_name") or display_document_name(
+            reference.get("file_path"),
+            default=f"未知文档-{str(chunk_id)[:8]}",
+        )
+        parts.append(
+            f"{reference['citation_label']}\n"
+            f"资料：{document_name}\n"
+            f"{reference.get('content') or ''}"
+        )
+    return "\n\n".join(parts)
 
 
 def _settling_deadline(deadline_monotonic: float | None) -> float | None:
@@ -204,6 +408,19 @@ class QueryMixin:
             # actual document names and excerpts (was hallucinating without it).
             # Truncate context to ~2000 chars to keep token cost low.
             context_snippet = context[:2000] if context else ""
+            uses_numeric_labels = bool(
+                re.search(r"\[来源\s*\d+\]", context_snippet)
+            )
+            citation_format = (
+                "`[来源 N] — \"原文摘录...\"`"
+                if uses_numeric_labels
+                else "`[来源 文档名] — \"原文摘录...\"`"
+            )
+            source_rule = (
+                "N 必须复用检索内容中已有的数字编号，严禁改号或编造。"
+                if uses_numeric_labels
+                else "文档名必须复用检索内容中已有的来源名称，严禁编造。"
+            )
             supplement_prompt = (
                 "以下回答缺少来源引用标记。请在**不改变原有回答内容**的前提下，"
                 "仅在末尾追加一个参考文献块。\n\n"
@@ -212,8 +429,8 @@ class QueryMixin:
                 f"## 原始回答\n{answer}\n\n"
                 "## 要求\n"
                 "只输出 `📚 参考来源` 块，每行格式：\n"
-                "`[来源 文档名] — \"原文摘录...\"`\n"
-                "从检索内容中提取真实的 [来源 文档名] 和原文，严禁编造。"
+                f"{citation_format}\n"
+                f"{source_rule}"
                 "不要重复输出原始回答。"
             )
             supplement = await self.llm_model_func(
@@ -350,20 +567,58 @@ class QueryMixin:
         # Enable include_references by default so LightRAG returns source refs
         query_execution_scope = kwargs.pop("query_execution_scope", None)
         deadline_monotonic = _scope_deadline(query_execution_scope)
+        provenance_sink = _scope_provenance_sink(query_execution_scope)
         kwargs.setdefault("include_references", True)
-        query_param = QueryParam(mode=mode, **kwargs)
+        query_param = QueryParam(mode=mode, stream=stream, **kwargs)
 
         # Query text is request content and must not enter server logs.
         self.logger.info("Executing text query mode=%s", mode)
 
         try:
-            # Call LightRAG's query method
-            result = await await_before_deadline(
-                self.lightrag.aquery(
-                    query, param=query_param, system_prompt=system_prompt
-                ),
-                deadline_monotonic,
-            )
+            structured_query = getattr(self.lightrag, "aquery_llm", None)
+            if provenance_sink is not None and callable(structured_query):
+                raw_result = await await_before_deadline(
+                    structured_query(
+                        query, param=query_param, system_prompt=system_prompt
+                    ),
+                    deadline_monotonic,
+                )
+                raw_chunks = []
+                llm_response = {}
+                if isinstance(raw_result, dict):
+                    data = raw_result.get("data")
+                    if isinstance(data, dict) and isinstance(data.get("chunks"), list):
+                        raw_chunks = data["chunks"]
+                    if isinstance(raw_result.get("llm_response"), dict):
+                        llm_response = raw_result["llm_response"]
+
+                references = await _prepare_provenance_references(
+                    self,
+                    raw_chunks,
+                    deadline_monotonic=deadline_monotonic,
+                    hydrate_storage=True,
+                )
+                registered = _register_provenance_references(
+                    query_execution_scope, references
+                )
+                if query_param.only_need_context and registered:
+                    result = _format_provenance_context(registered)
+                elif stream:
+                    result = (
+                        llm_response.get("response_iterator")
+                        or llm_response.get("content")
+                    )
+                else:
+                    result = llm_response.get("content")
+            else:
+                # Compatibility path for older/fake LightRAG implementations and
+                # callers that do not request structured provenance.
+                result = await await_before_deadline(
+                    self.lightrag.aquery(
+                        query, param=query_param, system_prompt=system_prompt
+                    ),
+                    deadline_monotonic,
+                )
 
             # For streaming, return the async generator directly
             if stream:
@@ -421,6 +676,7 @@ class QueryMixin:
         hybrid_engine = getattr(self, "hybrid_search_engine", None)
         only_need_context = kwargs.pop("only_need_context", False)
         query_execution_scope = kwargs.pop("query_execution_scope", None)
+        provenance_sink = _scope_provenance_sink(query_execution_scope)
         retrieval_options = kwargs.pop("retrieval_options", None)
         # RRF is text-only. Keep this pipeline control flag out of the
         # LightRAG QueryParam used when RRF falls back to native hybrid.
@@ -431,12 +687,14 @@ class QueryMixin:
             self.logger.warning(
                 "HybridSearchEngine not initialized — falling back to LightRAG hybrid mode"
             )
-            query_param = QueryParam(mode="hybrid", only_need_context=only_need_context, **kwargs)
-            return await await_before_deadline(
-                self.lightrag.aquery(
-                    query, param=query_param, system_prompt=system_prompt
-                ),
-                deadline_monotonic,
+            return await self.aquery(
+                query,
+                mode="hybrid",
+                system_prompt=system_prompt,
+                only_need_context=only_need_context,
+                query_execution_scope=query_execution_scope,
+                vlm_enhanced=False,
+                **kwargs,
             )
 
         callback_manager = getattr(self, "callback_manager", None)
@@ -587,27 +845,74 @@ class QueryMixin:
                 except Exception:
                     video_segments = {}
                 context_parts = []
-                doc_name_counts: dict[str, int] = {}
-                for chunk in chunks[:15]:
-                    info = source_infos.get(chunk.chunk_id, {})
-                    document_name = chunk.document_name or info.get("document_name")
-                    source_name = display_document_name(
-                        document_name, default=f"未知文档-{chunk.chunk_id[:8]}"
+                if provenance_sink is not None:
+                    references = await _prepare_provenance_references(
+                        self,
+                        list(chunks[:15]),
+                        source_infos=source_infos,
+                        deadline_monotonic=post_retrieval_deadline,
+                        hydrate_storage=True,
                     )
-                    count = doc_name_counts.get(source_name, 0)
-                    doc_name_counts[source_name] = count + 1
-                    source_label = (
-                        source_name if count == 0 else f"{source_name} (片段{count + 1})"
+                    registered = _register_provenance_references(
+                        query_execution_scope, references
                     )
-                    context_parts.append(f"[来源 {source_label}]\n{chunk.content}")
-                for segment in video_segments.values():
+                    for reference in registered:
+                        video_chunk_id = str(reference.get("chunk_id") or "")
+                        segment = video_segments.get(video_chunk_id)
+                        if not isinstance(segment, dict):
+                            continue
+                        reference_document_id = str(
+                            reference.get("document_id")
+                            or reference.get("full_doc_id")
+                            or ""
+                        )
+                        if (
+                            not reference_document_id
+                            or str(segment.get("document_id") or "")
+                            != reference_document_id
+                        ):
+                            continue
+                        structured_segment = {
+                            **segment,
+                            "chunk_id": video_chunk_id,
+                        }
+                        existing_segments = reference.setdefault(
+                            "_video_segments", []
+                        )
+                        if not any(
+                            item.get("segment_id") == structured_segment.get("segment_id")
+                            for item in existing_segments
+                            if isinstance(item, dict)
+                        ):
+                            existing_segments.append(structured_segment)
+                    context_parts.append(_format_provenance_context(registered))
+                else:
+                    doc_name_counts: dict[str, int] = {}
+                    for chunk in chunks[:15]:
+                        info = source_infos.get(chunk.chunk_id, {})
+                        document_name = chunk.document_name or info.get("document_name")
+                        source_name = display_document_name(
+                            document_name,
+                            default=f"未知文档-{chunk.chunk_id[:8]}",
+                        )
+                        count = doc_name_counts.get(source_name, 0)
+                        doc_name_counts[source_name] = count + 1
+                        source_label = (
+                            source_name
+                            if count == 0
+                            else f"{source_name} (片段{count + 1})"
+                        )
+                        context_parts.append(
+                            f"[来源 {source_label}]\n{chunk.content}"
+                        )
+                for video_chunk_id, segment in video_segments.items():
                     context_parts.append(
                         "[VIDEO_SEGMENT "
                         f"segment_id={segment['segment_id']} media_id={segment['media_id']} "
                         f"start_ms={segment['start_ms']} end_ms={segment['end_ms']} "
-                        f"document_id={segment['document_id']}]"
+                        f"document_id={segment['document_id']} chunk_id={video_chunk_id}]"
                     )
-                context = "\n\n".join(context_parts)
+                context = "\n\n".join(part for part in context_parts if part)
                 self.logger.info("RRF query completed (context-only mode)")
                 if callback_manager is not None:
                     callback_manager.dispatch(
@@ -661,17 +966,41 @@ class QueryMixin:
                 chunk.file_path = chunk.file_path or info.get("file_path")
                 chunk.document_name = chunk.document_name or info.get("document_name")
 
-            # Track doc names to deduplicate same-document chunks
-            doc_name_counts: dict[str, int] = {}
-            context_parts = []
-            for chunk in chunks[:15]:  # top-15 for context window
-                doc_name = display_document_name(
-                    chunk.document_name, default=f"未知文档-{chunk.chunk_id[:8]}"
+            if provenance_sink is not None:
+                references = await _prepare_provenance_references(
+                    self,
+                    list(chunks[:15]),
+                    source_infos=source_infos,
+                    deadline_monotonic=post_retrieval_deadline,
+                    hydrate_storage=True,
                 )
-                # Deduplicate: append number suffix if same doc name appears multiple times
-                count = doc_name_counts.get(doc_name, 0)
-                doc_name_counts[doc_name] = count + 1
-                source_label = doc_name if count == 0 else f"{doc_name} (片段{count + 1})"
+                registered = _register_provenance_references(
+                    query_execution_scope, references
+                )
+            else:
+                registered = []
+                doc_name_counts: dict[str, int] = {}
+                for chunk in chunks[:15]:
+                    document_name = display_document_name(
+                        chunk.document_name,
+                        default=f"未知文档-{chunk.chunk_id[:8]}",
+                    )
+                    count = doc_name_counts.get(document_name, 0)
+                    doc_name_counts[document_name] = count + 1
+                    source_label = (
+                        document_name
+                        if count == 0
+                        else f"{document_name} (片段{count + 1})"
+                    )
+                    registered.append(
+                        {
+                            "citation_label": f"[来源 {source_label}]",
+                            "document_name": document_name,
+                            "source_index": source_label,
+                        }
+                    )
+            context_parts = []
+            for chunk, reference in zip(chunks[:15], registered):
                 # Annotate chunks with relevant entity names using word-boundary matching
                 matched_relevant = []   # entities with relevant types (模块/功能/组件/系统)
                 matched_other = []      # other entities (fallback)
@@ -689,13 +1018,24 @@ class QueryMixin:
 
                 # Prioritize relevant-type entities, fall back to others
                 display_entities = (matched_relevant[:5] or matched_other[:5])
-                context_parts.append(
-                    f"[来源 {source_label}]\n"
-                    f"{chunk.content}"
+                document_name = reference.get("document_name") or display_document_name(
+                    reference.get("file_path"),
+                    default=f"未知文档-{chunk.chunk_id[:8]}",
                 )
+                if provenance_sink is not None:
+                    context_parts.append(
+                        f"{reference['citation_label']}\n"
+                        f"资料：{document_name}\n"
+                        f"{chunk.content}"
+                    )
+                else:
+                    context_parts.append(
+                        f"{reference['citation_label']}\n{chunk.content}"
+                    )
                 if display_entities:
                     context_parts.append(
-                        f"[关联实体（来源 {source_label}）：{', '.join(display_entities)}]"
+                        f"[关联实体（来源 {reference['source_index']}）："
+                        f"{', '.join(display_entities)}]"
                     )
             context = "\n\n".join(context_parts)
 
@@ -738,8 +1078,13 @@ class QueryMixin:
 
             # Stage 3: Generate answer via LLM
             citation_instruction = (
-                ANSWER_FORMAT_INSTRUCTION if self.config.enforce_citation
-                else INLINE_QUOTE_INSTRUCTION
+                _NUMERIC_CITATION_INSTRUCTION
+                if provenance_sink is not None
+                else (
+                    ANSWER_FORMAT_INSTRUCTION
+                    if self.config.enforce_citation
+                    else INLINE_QUOTE_INSTRUCTION
+                )
             )
             # Detect degraded context: has entities/relations but no text chunks
             has_chunks = "[来源 " in context and len(context.strip()) > 200
@@ -798,12 +1143,14 @@ class QueryMixin:
                 )
             # Fallback to LightRAG hybrid mode
             self.logger.warning("Falling back to LightRAG hybrid mode")
-            query_param = QueryParam(mode="hybrid", only_need_context=only_need_context, **kwargs)
-            return await await_before_deadline(
-                self.lightrag.aquery(
-                    query, param=query_param, system_prompt=system_prompt
-                ),
-                deadline_monotonic,
+            return await self.aquery(
+                query,
+                mode="hybrid",
+                system_prompt=system_prompt,
+                only_need_context=only_need_context,
+                query_execution_scope=query_execution_scope,
+                vlm_enhanced=False,
+                **kwargs,
             )
 
     async def _aquery_graph(
@@ -819,9 +1166,9 @@ class QueryMixin:
         """
         hybrid_engine = getattr(self, "hybrid_search_engine", None)
         only_need_context = kwargs.pop("only_need_context", False)
-        deadline_monotonic = _scope_deadline(
-            kwargs.pop("query_execution_scope", None)
-        )
+        query_execution_scope = kwargs.pop("query_execution_scope", None)
+        deadline_monotonic = _scope_deadline(query_execution_scope)
+        provenance_sink = _scope_provenance_sink(query_execution_scope)
 
         if hybrid_engine is None:
             return "Graph query unavailable — no knowledge graph initialized."
@@ -909,15 +1256,42 @@ class QueryMixin:
         except Exception:
             source_infos = {}
 
+        if provenance_sink is not None:
+            references = await _prepare_provenance_references(
+                self,
+                [item["chunk"] for item in results[:15]],
+                source_infos=source_infos,
+                deadline_monotonic=deadline_monotonic,
+                hydrate_storage=True,
+            )
+            registered = _register_provenance_references(
+                query_execution_scope, references
+            )
+        else:
+            registered = []
+            for item in results[:15]:
+                chunk = item["chunk"]
+                info = source_infos.get(chunk.chunk_id, {})
+                document_name = display_document_name(
+                    chunk.document_name or info.get("document_name"),
+                    default=f"未知文档-{chunk.chunk_id[:8]}",
+                )
+                registered.append(
+                    {
+                        "citation_label": f"[来源 {document_name}]",
+                        "document_name": document_name,
+                    }
+                )
         context_parts = []
-        for i, item in enumerate(results[:15]):
+        for item, reference in zip(results[:15], registered):
             chunk = item["chunk"]
             # Fill source info
             info = source_infos.get(chunk.chunk_id, {})
             chunk.file_path = chunk.file_path or info.get("file_path")
             chunk.document_name = chunk.document_name or info.get("document_name")
-            doc_name = display_document_name(
-                chunk.document_name, default=f"未知文档-{chunk.chunk_id[:8]}"
+            document_name = reference.get("document_name") or display_document_name(
+                reference.get("file_path"),
+                default=f"未知文档-{chunk.chunk_id[:8]}",
             )
 
             paths = item.get("paths", [])
@@ -931,11 +1305,20 @@ class QueryMixin:
                     )
                 paths_str = "\n".join(path_lines)
             chunk_text = chunk.content[:800] if chunk.content else "(empty)"
-            context_parts.append(
-                f"[来源 {doc_name}] score={chunk.score:.3f}\n"
-                f"Entity paths:\n{paths_str}\n"
-                f"Content: {chunk_text}"
-            )
+            if provenance_sink is not None:
+                context_parts.append(
+                    f"{reference['citation_label']}\n"
+                    f"资料：{document_name}\n"
+                    f"score={chunk.score:.3f}\n"
+                    f"Entity paths:\n{paths_str}\n"
+                    f"Content: {chunk_text}"
+                )
+            else:
+                context_parts.append(
+                    f"{reference['citation_label']} score={chunk.score:.3f}\n"
+                    f"Entity paths:\n{paths_str}\n"
+                    f"Content: {chunk_text}"
+                )
 
         context = "\n\n".join(context_parts)
 
@@ -958,8 +1341,13 @@ class QueryMixin:
             return context
 
         citation_instruction = (
-            ANSWER_FORMAT_INSTRUCTION if self.config.enforce_citation
-            else INLINE_QUOTE_INSTRUCTION
+            _NUMERIC_CITATION_INSTRUCTION
+            if provenance_sink is not None
+            else (
+                ANSWER_FORMAT_INSTRUCTION
+                if self.config.enforce_citation
+                else INLINE_QUOTE_INSTRUCTION
+            )
         )
         # Detect degraded context: has entities/relations but no text chunks
         has_chunks = "Content:" in context and len(context.strip()) > 200

@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from raganything.services.odl_media_delivery import (
     build_persisted_media_catalog,
     catalog_media_payload,
+    controlled_odl_media_url,
     issue_legacy_media_grant,
     issue_owned_legacy_media_grant,
     resolve_catalog_media,
@@ -83,6 +84,7 @@ def test_catalog_resolves_only_persisted_valid_media(tmp_path, monkeypatch):
     assert resolved is not None
     assert resolved.path == image.resolve()
     assert resolved.caption == "caption"
+    assert catalog[0]["element_id"] == "image-1"
 
     image.write_bytes(b"tampered")
     assert resolve_catalog_media(catalog, kb_name="kb-visible", media_id=entry["media_id"]) is None
@@ -120,6 +122,12 @@ def test_controlled_media_url_encodes_kb_query_value(tmp_path, monkeypatch):
     assert payload["url"].startswith("/api/knowledge/media/")
     assert payload["url"].endswith("?kb=kb%26scope")
     assert str(image) not in payload["url"]
+
+
+def test_controlled_odl_media_url_encodes_identity_and_kb():
+    assert controlled_odl_media_url("media/one", "kb&scope") == (
+        "/api/knowledge/media/media%2Fone?kb=kb%26scope"
+    )
 
 
 def test_catalog_payload_ignores_disappeared_recall_candidate(tmp_path, monkeypatch):
@@ -442,7 +450,10 @@ async def test_agent_stream_done_event_uses_controlled_media_payload(tmp_path, m
     monkeypatch.setattr(agent, "_build_agent_llm", lambda _runtime, _selected=None: answer_llm)
     monkeypatch.setattr(agent, "pg_add_message", noop)
     monkeypatch.setattr(agent, "record_query", noop)
-    monkeypatch.setattr(agent, "pg_get_conversation", noop)
+    async def owned_conversation(_agent_id, thread_id):
+        return {"id": thread_id, "owner_id": 7, "messages": []}
+
+    monkeypatch.setattr(agent, "pg_get_conversation", owned_conversation)
     from raganything.services import user_settings
     from tests.test_agent_update_runtime import _resolved_settings
 

@@ -97,6 +97,7 @@ English:
 from __future__ import annotations
 
 import logging
+import json
 import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -377,7 +378,7 @@ async def insert_query_history(record: dict[str, Any]) -> None:
     Args:
         record: Full record dict matching the agent.py:583-592 structure.
                 Required keys: id, query, mode, agent_mode, answer,
-                reasoning_trace, images, time, elapsed, kb, agent_id,
+                reasoning_trace, images, citations, time, elapsed, kb, agent_id,
                 thread_id, user_id, username, fallback.
 
     Raises:
@@ -391,6 +392,8 @@ async def insert_query_history(record: dict[str, Any]) -> None:
     reasoning_trace_str = _json.dumps(reasoning_trace, ensure_ascii=False) if isinstance(reasoning_trace, (dict, list)) else str(reasoning_trace)
     images = record.get("images", [])
     images_str = _json.dumps(images, ensure_ascii=False) if isinstance(images, (dict, list)) else str(images)
+    citations = record.get("citations", [])
+    citations_str = _json.dumps(citations, ensure_ascii=False) if isinstance(citations, list) else "[]"
     # asyncpg needs a datetime object for timestamptz, not an ISO string
     _time = record.get("time")
     if isinstance(_time, str):
@@ -402,12 +405,12 @@ async def insert_query_history(record: dict[str, Any]) -> None:
             """
             INSERT INTO query_history (
                 id, query, mode, agent_mode, answer,
-                reasoning_trace, images, time, elapsed, kb,
+                reasoning_trace, images, citations, time, elapsed, kb,
                 agent_id, thread_id, user_id, username, fallback
             ) VALUES (
                 $1, $2, $3, $4, $5,
-                $6::jsonb, $7::jsonb, $8::timestamptz, $9, $10,
-                $11, $12, $13, $14, $15
+                $6::jsonb, $7::jsonb, $8::jsonb, $9::timestamptz, $10, $11,
+                $12, $13, $14, $15, $16
             )
             """,
             record.get("id", ""),
@@ -417,6 +420,7 @@ async def insert_query_history(record: dict[str, Any]) -> None:
             record.get("answer", ""),
             reasoning_trace_str,
             images_str,
+            citations_str,
             _time,
             record.get("elapsed", 0.0),
             record.get("kb", ""),
@@ -446,7 +450,7 @@ async def get_query_history(
             rows = await conn.fetch(
                 """
                 SELECT id, query, mode, agent_mode, answer,
-                       reasoning_trace, images, time, elapsed, kb,
+                       reasoning_trace, images, citations, time, elapsed, kb,
                        agent_id, thread_id, user_id, username, fallback
                 FROM query_history
                 WHERE user_id = $1
@@ -459,7 +463,7 @@ async def get_query_history(
             rows = await conn.fetch(
                 """
                 SELECT id, query, mode, agent_mode, answer,
-                       reasoning_trace, images, time, elapsed, kb,
+                       reasoning_trace, images, citations, time, elapsed, kb,
                        agent_id, thread_id, user_id, username, fallback
                 FROM query_history
                 ORDER BY time DESC
@@ -467,7 +471,18 @@ async def get_query_history(
                 """,
                 limit,
             )
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = dict(row)
+        citations = item.get("citations")
+        if isinstance(citations, str):
+            try:
+                citations = json.loads(citations)
+            except (TypeError, ValueError):
+                citations = []
+        item["citations"] = citations if isinstance(citations, list) else []
+        result.append(item)
+    return result
 
 
 async def prune_query_history(max_rows: int = 100) -> int:

@@ -81,6 +81,29 @@ async def test_delete_video_segments_removes_document_rows_before_shared_asset(m
     calls = []
 
     class Pool:
+        class Acquire:
+            def __init__(self, pool):
+                self.pool = pool
+
+            async def __aenter__(self):
+                return self.pool
+
+            async def __aexit__(self, *exc):
+                return None
+
+        def acquire(self):
+            return self.Acquire(self)
+
+        class Transaction:
+            async def __aenter__(self):
+                return None
+
+            async def __aexit__(self, *exc):
+                return None
+
+        def transaction(self):
+            return self.Transaction()
+
         async def execute(self, query, *args):
             calls.append((query, args))
 
@@ -95,6 +118,21 @@ async def test_delete_video_segments_removes_document_rows_before_shared_asset(m
     assert calls[0][1] == ("kb-a", "doc-1")
     assert "DELETE FROM video_assets" in calls[1][0]
     assert calls[1][1] == ("kb-a", "doc-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_video_segments_fails_closed_unless_legacy_is_explicit(monkeypatch):
+    from raganything.services import video_segments
+
+    def unavailable():
+        raise RuntimeError("PG pool not initialized")
+
+    monkeypatch.setattr(video_segments, "get_pg_pool", unavailable)
+    with pytest.raises(RuntimeError, match="PG pool not initialized"):
+        await video_segments.delete_video_segments("kb-a", "doc-1")
+    await video_segments.delete_video_segments(
+        "kb-a", "doc-1", legacy=True
+    )
 
 
 def test_video_media_path_requires_controlled_upload_root(tmp_path, monkeypatch):
@@ -200,6 +238,43 @@ def _agent_query_context():
     )
 
 
+def _agent_query_context_with_provenance(scope):
+    scope.provenance_sink.append({
+        "source_index": 1,
+        "citation_label": "[来源 1]",
+        "chunk_id": "chunk-1",
+        "document_id": "doc-1",
+        "full_doc_id": "doc-1",
+        "document_name": "battery.mp4",
+        "content": "电池电压应保持在 12V。",
+        "_video_segments": [
+            {
+                "segment_id": "seg-2",
+                "segment_index": 1,
+                "start_ms": 24000,
+                "end_ms": 48000,
+                "document_id": "doc-1",
+                "chunk_id": "chunk-1",
+                "media_id": "m-1",
+            },
+            {
+                "segment_id": "seg-1",
+                "segment_index": 0,
+                "start_ms": 0,
+                "end_ms": 24000,
+                "document_id": "doc-1",
+                "chunk_id": "chunk-1",
+                "media_id": "m-1",
+            },
+        ],
+    })
+    return _agent_query_context().replace(
+        "[来源 battery.mp4]",
+        "[来源 1]\n资料：battery.mp4",
+        1,
+    )
+
+
 def _minimal_resolved_settings():
     return SimpleNamespace(
         models=SimpleNamespace(llm_profile_id="test-llm", vlm_profile_id="test-vlm"),
@@ -244,7 +319,7 @@ def _wire_agent_stream_prerequisites(monkeypatch, *, agent_mode, kb_instance):
         return result
 
     async def empty_conversation(*_args, **_kwargs):
-        return {"messages": []}
+        return {"owner_id": 7, "messages": []}
 
     async def resolve_settings(_user_id, **_kwargs):
         return _minimal_resolved_settings()
@@ -273,7 +348,7 @@ def _wire_agent_stream_prerequisites(monkeypatch, *, agent_mode, kb_instance):
             yield item
 
     async def llm_callable(*_args, **_kwargs):
-        return "电池电压应保持在 12V。"
+        return "电池电压应保持在 12V。[来源 1]"
 
     monkeypatch.setattr(agent_router, "pg_get_agent", get_agent)
     monkeypatch.setattr(agent_router, "acquire_query_kb", acquire_query_kb)
@@ -285,6 +360,10 @@ def _wire_agent_stream_prerequisites(monkeypatch, *, agent_mode, kb_instance):
     monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(agent_router, "_query_cache_scope", query_scope)
     monkeypatch.setattr(agent_router, "_recall_controlled_media_with_budget", recall_media)
+    monkeypatch.setattr(
+        "raganything.services.provenance.batch_get_provenance_for_references",
+        lambda *_args, **_kwargs: value({}),
+    )
     monkeypatch.setattr(agent_router, "authenticated_sse_events", passthrough)
     monkeypatch.setattr(user_settings, "resolve_user_settings_for_task", resolve_settings)
     monkeypatch.setattr(user_settings, "available_sections_for_user", available_sections)
@@ -338,16 +417,38 @@ async def test_query_pipeline_context_injects_video_segment_markers(monkeypatch)
     query.hybrid_search_engine = HybridEngine()
     query.callback_manager = None
     query.logger = logging.getLogger("raganything.query.pipeline")
-    query.batch_get_doc_source_info_async = AsyncMock(return_value={})
+    query.batch_get_doc_source_info_async = AsyncMock(return_value={
+        "chunk-1": {
+            "document_id": "doc-1",
+            "document_name": "battery.mp4",
+        },
+    })
     monkeypatch.setattr(video_segments, "list_video_segments_for_chunks", segments_for_chunks)
 
-    context = await query._aquery_rrf("如何检查电池电压", only_need_context=True)
+    sink = []
+    context = await query._aquery_rrf(
+        "如何检查电池电压",
+        only_need_context=True,
+        query_execution_scope={"provenance_sink": sink},
+    )
 
-    assert "[来源 battery.mp4]" in context
+    assert "[来源 1]\n资料：battery.mp4" in context
     assert (
-        "[VIDEO_SEGMENT segment_id=seg-1 media_id=m-1 start_ms=0 end_ms=24000 document_id=doc-1]"
+        "[VIDEO_SEGMENT segment_id=seg-1 media_id=m-1 start_ms=0 "
+        "end_ms=24000 document_id=doc-1 chunk_id=chunk-1]"
         in context
     )
+    assert sink[0]["_video_segments"] == [{
+        "segment_id": "seg-1",
+        "segment_index": 0,
+        "start_ms": 0,
+        "end_ms": 24000,
+        "document_id": "doc-1",
+        "media_id": "m-1",
+        "media_kb": "kb-a",
+        "document_name": "battery.mp4",
+        "chunk_id": "chunk-1",
+    }]
 
 
 @pytest.mark.asyncio
@@ -357,8 +458,10 @@ async def test_agent_sse_done_event_carries_video_segment_citations(monkeypatch)
     class _KB:
         config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
 
-        async def aquery(self, *_args, **_kwargs):
-            return _agent_query_context()
+        async def aquery(self, *_args, **kwargs):
+            return _agent_query_context_with_provenance(
+                kwargs["query_execution_scope"]
+            )
 
         async def finalize_storages(self):
             return None
@@ -381,7 +484,10 @@ async def test_agent_sse_done_event_carries_video_segment_citations(monkeypatch)
     assert citation["media_id"] == "m-1"
     assert citation["media_kb"] == "kb"
     assert citation["media_url"].startswith("/api/knowledge/media/m-1?")
-    assert citation["video_segment"] == {"segment_id": "seg-1", "start_ms": 0, "end_ms": 24000}
+    assert citation["video_segment"] == {
+        "media_id": "m-1", "segment_id": "seg-1",
+        "start_ms": 0, "end_ms": 24000,
+    }
     assert [item["segment_id"] for item in citation["video_segments"]] == ["seg-1", "seg-2"]
     assert "server_path" not in body
 
@@ -395,8 +501,10 @@ async def test_agent_cot_done_event_carries_video_segment_citations(monkeypatch)
     class _KB:
         config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
 
-        async def aquery(self, *_args, **_kwargs):
-            return _agent_query_context()
+        async def aquery(self, *_args, **kwargs):
+            return _agent_query_context_with_provenance(
+                kwargs["query_execution_scope"]
+            )
 
         async def finalize_storages(self):
             return None
@@ -409,7 +517,10 @@ async def test_agent_cot_done_event_carries_video_segment_citations(monkeypatch)
             self._tools.append(tool)
 
         async def run_with_context(self, query, ctx):
-            return AgentResult(answer="电池电压应保持在 12V。", trace=[])
+            return AgentResult(
+                answer="电池电压应保持在 12V。[来源 1]",
+                trace=[],
+            )
 
     class _FakeSearchTool:
         def __init__(self, *_args, **_kwargs):
@@ -432,7 +543,10 @@ async def test_agent_cot_done_event_carries_video_segment_citations(monkeypatch)
 
     assert done["citations"][0]["media_id"] == "m-1"
     assert done["citations"][0]["media_kb"] == "kb"
-    assert done["citations"][0]["video_segment"] == {"segment_id": "seg-1", "start_ms": 0, "end_ms": 24000}
+    assert done["citations"][0]["video_segment"] == {
+        "media_id": "m-1", "segment_id": "seg-1",
+        "start_ms": 0, "end_ms": 24000,
+    }
     assert [item["segment_id"] for item in done["citations"][0]["video_segments"]] == ["seg-1", "seg-2"]
     assert "server_path" not in body
 
@@ -488,7 +602,10 @@ async def test_autorepair_non_streaming_carries_video_segment_citations(monkeypa
     assert video["media_id"] == "m-1"
     assert video["media_kb"] == "verified-kb"
     assert video["media_url"].startswith("/api/knowledge/media/m-1?")
-    assert video["video_segment"] == {"segment_id": "seg-1", "start_ms": 0, "end_ms": 24000}
+    assert video["video_segment"] == {
+        "media_id": "m-1", "segment_id": "seg-1",
+        "start_ms": 0, "end_ms": 24000, "frame_refs": [],
+    }
     assert [item["segment_id"] for item in video["video_segments"]] == ["seg-1", "seg-2"]
     assert "server_path" not in json.dumps(payload)
 
@@ -539,7 +656,10 @@ async def test_autorepair_stream_done_carries_video_segment_citations(monkeypatc
 
     assert done["citations"][0]["media_id"] == "m-1"
     assert done["citations"][0]["media_kb"] == "verified-kb"
-    assert done["citations"][0]["video_segment"] == {"segment_id": "seg-1", "start_ms": 0, "end_ms": 24000}
+    assert done["citations"][0]["video_segment"] == {
+        "media_id": "m-1", "segment_id": "seg-1",
+        "start_ms": 0, "end_ms": 24000, "frame_refs": [],
+    }
     assert done["citations"][0]["media_url"].startswith("/api/knowledge/media/m-1?")
     assert "server_path" not in body
 

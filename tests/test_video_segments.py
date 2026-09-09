@@ -4,7 +4,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-from raganything.video_segments import plan_segments, segment_id
+from raganything.video_segments import plan_segments, segment_id, video_asset_id
 from lightrag.utils import compute_mdhash_id
 from raganything.processor.chunk_processor import compute_chunk_id
 
@@ -95,6 +95,26 @@ def test_segment_id_is_retry_stable():
     args = ("a" * 64, 0, 24000, "v2")
     assert segment_id(*args) == segment_id(*args)
     assert segment_id(*args) != segment_id(args[0], 0, 24000, "v3")
+
+
+def test_new_video_identity_is_document_scoped_and_retry_stable():
+    source = "a" * 64
+    first = video_asset_id("kb-a", "doc-1", source, "v2")
+
+    assert first == video_asset_id("kb-a", "doc-1", source, "v2")
+    assert first != video_asset_id("kb-b", "doc-1", source, "v2")
+    assert first != video_asset_id("kb-a", "doc-2", source, "v2")
+    assert first != video_asset_id("kb-a", "doc-1", source, "v3")
+
+    scoped = segment_id(source, 0, 24000, "v2", scope=first)
+    assert scoped == segment_id(source, 0, 24000, "v2", scope=first)
+    assert scoped != segment_id(
+        source,
+        0,
+        24000,
+        "v2",
+        scope=video_asset_id("kb-a", "doc-2", source, "v2"),
+    )
 
 
 def test_plan_rejects_invalid_duration():
@@ -569,6 +589,29 @@ async def test_delete_video_segments_removes_document_segments_too(monkeypatch):
     calls = []
 
     class Pool:
+        class Acquire:
+            def __init__(self, pool):
+                self.pool = pool
+
+            async def __aenter__(self):
+                return self.pool
+
+            async def __aexit__(self, *exc):
+                return None
+
+        def acquire(self):
+            return self.Acquire(self)
+
+        class Transaction:
+            async def __aenter__(self):
+                return None
+
+            async def __aexit__(self, *exc):
+                return None
+
+        def transaction(self):
+            return self.Transaction()
+
         async def execute(self, query, *args):
             calls.append((query, args))
 

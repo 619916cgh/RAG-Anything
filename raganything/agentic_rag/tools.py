@@ -108,6 +108,7 @@ class SearchTool(Tool):
                     top_k=self.chunk_top_k,
                     max_total_tokens=8000,
                     deadline_monotonic=self._deadline(),
+                    query_execution_scope=self.query_execution_scope,
                 )
                 if not result:
                     return f"标签“{self.tag_scope.tag_name}”范围内没有与问题相关的内容"

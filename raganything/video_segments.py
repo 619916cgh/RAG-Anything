@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -19,8 +20,33 @@ class VideoSegment:
         return self.end_ms - self.start_ms
 
 
-def segment_id(source_sha256: str, start_ms: int, end_ms: int, profile: str) -> str:
-    value = f"{source_sha256}:{start_ms}:{end_ms}:{profile}".encode()
+def video_asset_id(
+    kb_name: str,
+    document_id: str,
+    source_sha256: str,
+    profile: str,
+) -> str:
+    """Return a retry-stable asset ID scoped to one KB document."""
+    value = json.dumps(
+        [kb_name, document_id, source_sha256, profile],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "video-" + hashlib.sha256(value).hexdigest()[:32]
+
+
+def segment_id(
+    source_sha256: str,
+    start_ms: int,
+    end_ms: int,
+    profile: str,
+    *,
+    scope: str | None = None,
+) -> str:
+    identity = [source_sha256, int(start_ms), int(end_ms), profile]
+    if scope is not None:
+        identity.insert(0, scope)
+    value = json.dumps(identity, separators=(",", ":")).encode("utf-8")
     return "vseg-" + hashlib.sha256(value).hexdigest()[:32]
 
 

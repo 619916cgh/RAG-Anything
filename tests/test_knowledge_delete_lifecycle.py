@@ -11,9 +11,17 @@ from raganything.routers import knowledge
 @pytest.fixture(autouse=True)
 def _isolate_document_delete_side_effects(monkeypatch):
     """Lifecycle tests use in-memory LightRAG stores, not a PostgreSQL pool."""
+    from raganything.services import provenance, video_segments
+
     monkeypatch.setattr(knowledge, "delete_document_tags", AsyncMock())
     monkeypatch.setattr(
         knowledge, "pg_release_upload_for_deleted_document", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        video_segments, "delete_video_segments", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        provenance, "delete_document_provenance", AsyncMock(return_value=1)
     )
 
 

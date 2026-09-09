@@ -471,7 +471,7 @@ async def record_query(entry: dict, max_history: int = 1000):
     Args:
         entry: Query record dict with keys: id, query, answer, elapsed, kb,
                mode, agent_mode, time, user_id, username, reasoning_trace,
-               images, agent_id, thread_id, fallback
+               images, citations, agent_id, thread_id, fallback
         max_history: Ignored (PG pruning via ``prune_query_history``).
     """
     if not _task_pg_ready():

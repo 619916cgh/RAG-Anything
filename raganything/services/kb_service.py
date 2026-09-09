@@ -1683,10 +1683,12 @@ async def _cleanup_cancelled_upload_document(upload: dict[str, Any], kb_name: st
     from raganything.services.document_repair import cancel_repair_jobs
     from raganything.services.document_tagging import cancel_document_tagging
     from raganything.services.kb_tag_repo import delete_document_tags
+    from raganything.services.provenance import delete_document_provenance
     await cancel_repair_jobs(kb_name, doc_ids)
     await cancel_document_tagging(kb_name, doc_ids)
     for doc_id in doc_ids:
         await delete_document_tags(kb_name, doc_id)
+        await delete_document_provenance(kb_name, doc_id, fail_soft=True)
     if getattr(instance, "multimodal_status_cache", None) is not None:
         await instance.multimodal_status_cache.delete(doc_ids)
         await instance.multimodal_status_cache.index_done_callback()
@@ -3327,11 +3329,8 @@ async def cleanup_kb_resources(name: str) -> None:
         await save_kb_meta(meta)
     # Explicitly delete the PG row — pg_save_all_kb_meta only upserts,
     # it does NOT delete entries removed from the dict.
-    try:
-        from raganything.services.pg_kb_meta_repo import pg_delete_kb_meta
-        await pg_delete_kb_meta(name)
-    except Exception:
-        pass
+    from raganything.services.pg_kb_meta_repo import pg_delete_kb_meta
+    await pg_delete_kb_meta(name)
 
     # ── 9. Clean ALL PG LightRAG tables for this workspace ──
     # LightRAG's postgres_impl.py creates 11+ tables (LIGHTRAG_DOC_STATUS,
@@ -3342,20 +3341,21 @@ async def cleanup_kb_resources(name: str) -> None:
     wd = kb_dir(name)
     try:
         from raganything.services.pg_state_repo import get_pg_pool
+        from raganything.services.provenance import _is_undefined_table_error
         pool = get_pg_pool()
         async with pool.acquire() as conn:
-            # Discover all LightRAG tables with workspace-based isolation
-            lightrag_tables = await conn.fetch(
-                """SELECT table_name
-                   FROM information_schema.columns
-                   WHERE table_schema = 'public'
-                     AND column_name = 'workspace'
-                     AND table_name LIKE 'lightrag%'
-                   ORDER BY table_name"""
-            )
-            for row in lightrag_tables:
-                tbl = row["table_name"]
-                try:
+            async with conn.transaction():
+                # Discover all LightRAG tables with workspace-based isolation
+                lightrag_tables = await conn.fetch(
+                    """SELECT table_name
+                       FROM information_schema.columns
+                       WHERE table_schema = 'public'
+                         AND column_name = 'workspace'
+                         AND table_name LIKE 'lightrag%'
+                       ORDER BY table_name"""
+                )
+                for row in lightrag_tables:
+                    tbl = row["table_name"]
                     result = await conn.execute(
                         f"DELETE FROM {tbl} WHERE workspace=$1", wd,
                     )
@@ -3368,12 +3368,9 @@ async def cleanup_kb_resources(name: str) -> None:
                         kb_logger.info(
                             f"[cleanup] PG {tbl}: 已删除 {deleted} 行 (workspace={wd})"
                         )
-                except Exception:
-                    pass
-                # Also clean rows written with empty workspace by pre-fix workers.
-                # Before the set_default_workspace() fix, worker subprocesses
-                # wrote all data with workspace="" (LightRAG default).
-                try:
+                    # Also clean rows written with empty workspace by pre-fix
+                    # workers. Before set_default_workspace(), worker
+                    # subprocesses wrote all data with workspace="".
                     result2 = await conn.execute(
                         f"DELETE FROM {tbl} WHERE workspace=''"
                     )
@@ -3383,31 +3380,37 @@ async def cleanup_kb_resources(name: str) -> None:
                         deleted2 = 0
                     if deleted2:
                         kb_logger.info(
-                            f"[cleanup] PG {tbl}: 已删除 {deleted2} 行 (workspace='', 修复前残留)"
+                            f"[cleanup] PG {tbl}: 已删除 {deleted2} 行 "
+                            "(workspace='', 修复前残留)"
                         )
-                except Exception:
-                    pass
-            # Clean video asset/segment rows for this KB.  These tables key by
-            # kb_name (not workspace), so the LIGHTRAG% sweep above misses them.
-            try:
+                # These tables key by kb_name, not workspace, so the LightRAG%
+                # sweep above misses them.
                 await conn.execute(
                     "DELETE FROM video_segments WHERE kb_name=$1", name,
                 )
                 await conn.execute(
                     "DELETE FROM video_assets WHERE kb_name=$1", name,
                 )
-            except Exception:
-                pass
-            # Clean uploaded_files for this KB
-            try:
                 await conn.execute(
                     "DELETE FROM uploaded_files WHERE kb_name=$1", name,
                 )
-            except Exception:
-                pass
+                # provenance is additive and may be absent in a pre-038
+                # deployment; other database failures must abort cleanup.
+                try:
+                    async with conn.transaction():
+                        await conn.execute(
+                            "DELETE FROM citation_provenance WHERE kb_name=$1",
+                            name,
+                        )
+                except Exception as exc:
+                    if not _is_undefined_table_error(exc):
+                        raise
         kb_logger.info(f"[cleanup] 已清理 PG 表数据: {name}")
     except Exception:
+        kb_instances.cancel_deletion(name)
+        _kbs_being_deleted.discard(name)
         kb_logger.warning(f"[cleanup] PG 表清理失败: {name}", exc_info=True)
+        raise
 
     # ── 11. Reset active KB if needed ────────────────────
     if _rshared.active_kb == name:
@@ -5307,6 +5310,14 @@ async def _cleanup_retry_document_residue(
                     await cache.delete([doc_id])
                     if hasattr(cache, "index_done_callback"):
                         await cache.index_done_callback()
+                if _pg_storage_ready():
+                    from raganything.services.provenance import (
+                        delete_document_provenance,
+                    )
+
+                    await delete_document_provenance(
+                        kb_name, doc_id, fail_soft=True
+                    )
                 cleaned.append(doc_id)
             except Exception as exc:
                 # Keep the marker so a later retry can attempt cleanup again.

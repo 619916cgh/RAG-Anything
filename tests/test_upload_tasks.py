@@ -2091,6 +2091,12 @@ async def test_retry_document_creates_visible_queued_task_and_resets_upload(monk
     monkeypatch.setattr(knowledge, "_compute_file_hash", lambda _path: "hash-1")
     monkeypatch.setattr(knowledge, "add_event", fake_event)
     monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", fake_snapshot)
+    from raganything.services import provenance, video_segments
+
+    monkeypatch.setattr(video_segments, "delete_video_segments", AsyncMock())
+    monkeypatch.setattr(
+        provenance, "delete_document_provenance", AsyncMock(return_value=1)
+    )
     monkeypatch.setattr(
         knowledge,
         "_resolve_upload_vlm_snapshot",

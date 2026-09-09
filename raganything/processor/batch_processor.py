@@ -15,6 +15,7 @@ from pathlib import Path
 
 from raganything.base import DocStatus
 from raganything.parser import MineruParser, MineruExecutionError, get_parser
+from raganything.services.provenance import find_citation_provenance_error
 from raganything.utils import (
     separate_content,
     insert_text_content,
@@ -70,6 +71,8 @@ class BatchProcessorMixin:
         multimodal_items: List[Dict[str, Any]],
         file_ref: str,
         doc_id: str,
+        *,
+        provenance_required: bool = False,
     ):
         """Background task: process multimodal content without blocking document insertion.
 
@@ -81,9 +84,17 @@ class BatchProcessorMixin:
             self.logger.info(
                 f"Background multimodal processing started: {len(multimodal_items)} items for doc {doc_id}"
             )
-            await self._process_multimodal_content(
-                multimodal_items, file_ref, doc_id
-            )
+            if provenance_required:
+                await self._process_multimodal_content(
+                    multimodal_items,
+                    file_ref,
+                    doc_id,
+                    provenance_required=True,
+                )
+            else:
+                await self._process_multimodal_content(
+                    multimodal_items, file_ref, doc_id
+                )
             completed = True
             self.logger.info(
                 f"Background multimodal processing completed for doc {doc_id}"
@@ -101,7 +112,11 @@ class BatchProcessorMixin:
                 failure_metadata = {
                     "content_ready": False,
                     "multimodal_processed": False,
-                    "failure_stage": "multimodal",
+                    "failure_stage": (
+                        "provenance"
+                        if find_citation_provenance_error(exc) is not None
+                        else "multimodal"
+                    ),
                     "cleanup_pending": True,
                     "residual_data": True,
                     "last_error": str(exc)[:4000],

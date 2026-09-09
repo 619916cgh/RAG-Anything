@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Iterator, Mapping
-from dataclasses import dataclass
-from typing import TypeVar
+from dataclasses import dataclass, field
+from typing import Any, TypeVar
 
 
 _Result = TypeVar("_Result")
@@ -21,6 +21,12 @@ class QueryExecutionScope(Mapping[str, object]):
     settings_fingerprint: str
     llm_profile_fingerprint: str
     deadline_monotonic: float
+    # Mutable request-local output channel.  It is deliberately excluded from
+    # the Mapping view below so retrieval content never enters cache keys,
+    # telemetry fields, or other content-free execution metadata.
+    provenance_sink: list[dict[str, Any]] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def _values(self) -> dict[str, object]:
         return {

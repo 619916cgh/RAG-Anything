@@ -141,6 +141,18 @@ async def _wire(monkeypatch, instance, status=None):
     async def fake_delete_tags(*_args, **_kwargs):
         return None
 
+    from raganything.services import provenance as provenance_service
+
+    monkeypatch.setattr(
+        provenance_service,
+        "delete_chunk_provenance",
+        AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(
+        provenance_service,
+        "replace_chunk_provenance",
+        AsyncMock(return_value={}),
+    )
     monkeypatch.setattr(knowledge, "get_kb", fake_get_kb)
     monkeypatch.setattr(knowledge, "_load_doc_status_json", fake_status)
     monkeypatch.setattr(knowledge, "_refresh_chunk_search", fake_refresh)
@@ -448,6 +460,84 @@ async def test_update_compensates_other_store_failures(monkeypatch, failing_stor
 
 
 @pytest.mark.asyncio
+async def test_update_replaces_provenance_with_document_source_hash(monkeypatch):
+    from raganything.services import provenance as provenance_service
+
+    source_hash = "f" * 64
+    status = _status()
+    status["metadata"]["citation_provenance"] = {
+        "source_sha256": source_hash,
+        "version": "v1",
+    }
+    instance = _instance(status=status)
+    refreshes, _ = await _wire(monkeypatch, instance)
+    calls = []
+
+    async def fake_replace(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(
+        provenance_service, "replace_chunk_provenance", fake_replace
+    )
+
+    content = "replacement with provenance"
+    new_id = compute_chunk_id(content)
+    result = await knowledge.update_document_chunk(
+        "doc-1", "chunk-a", knowledge.ChunkContentUpdate(content=content),
+        kb="kb-1", _perm=None, current_user={"id": 7},
+    )
+
+    assert result["new_chunk_id"] == new_id
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ("kb-1", "doc-1", "chunk-a", new_id)
+    assert kwargs["source_sha256"] == source_hash
+    assert kwargs["document_name"] == "manual.pdf"
+    assert kwargs["excerpt"] == content
+    assert kwargs["fail_soft"] is True
+    assert instance.lightrag.doc_status.data["doc-1"]["chunks_list"] == [new_id, "chunk-b"]
+    assert refreshes[-1] == [new_id, "chunk-b"]
+
+
+@pytest.mark.asyncio
+async def test_update_rolls_back_when_provenance_replacement_fails(monkeypatch):
+    from raganything.services import provenance as provenance_service
+
+    status = _status()
+    status["metadata"]["citation_provenance"] = {
+        "source_sha256": "e" * 64,
+        "version": "v1",
+    }
+    instance = _instance(status=status)
+    refreshes, _ = await _wire(monkeypatch, instance)
+
+    async def fail_replace(*_args, **_kwargs):
+        raise RuntimeError("provenance write failed")
+
+    monkeypatch.setattr(
+        provenance_service, "replace_chunk_provenance", fail_replace
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await knowledge.update_document_chunk(
+            "doc-1", "chunk-a",
+            knowledge.ChunkContentUpdate(content="must roll back"),
+            kb="kb-1", _perm=None, current_user={"id": 7},
+        )
+
+    assert exc.value.status_code == 500
+    assert instance.lightrag.text_chunks.data["chunk-a"]["content"] == "alpha"
+    assert "must roll back" not in {
+        item.get("content") for item in instance.lightrag.text_chunks.data.values()
+    }
+    assert instance.lightrag.doc_status.data["doc-1"]["chunks_list"] == [
+        "chunk-a", "chunk-b"
+    ]
+    assert refreshes[-1] == ["chunk-a", "chunk-b"]
+
+
+@pytest.mark.asyncio
 async def test_delete_updates_all_stores_and_statistics(monkeypatch):
     instance = _instance()
     refreshes, _ = await _wire(monkeypatch, instance)
@@ -468,6 +558,33 @@ async def test_delete_updates_all_stores_and_statistics(monkeypatch):
     assert "chunk-a" not in instance.lightrag.chunks_vdb.data
     assert instance.lightrag.doc_status.data["doc-1"]["chunks_list"] == ["chunk-b"]
     assert refreshes[-1] == ["chunk-b"]
+
+
+@pytest.mark.asyncio
+async def test_delete_rolls_back_when_provenance_cleanup_fails(monkeypatch):
+    from raganything.services import provenance as provenance_service
+
+    instance = _instance()
+    refreshes, _ = await _wire(monkeypatch, instance)
+
+    async def fail_delete(*_args, **_kwargs):
+        raise RuntimeError("provenance delete failed")
+
+    monkeypatch.setattr(
+        provenance_service, "delete_chunk_provenance", fail_delete
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await knowledge.delete_document_chunk(
+            "doc-1", "chunk-a", kb="kb-1", _perm=None, current_user={"id": 7}
+        )
+
+    assert exc.value.status_code == 500
+    assert instance.lightrag.text_chunks.data["chunk-a"]["content"] == "alpha"
+    assert instance.lightrag.doc_status.data["doc-1"]["chunks_list"] == [
+        "chunk-a", "chunk-b"
+    ]
+    assert refreshes[-1] == ["chunk-a", "chunk-b"]
 
 
 @pytest.mark.asyncio
@@ -633,7 +750,7 @@ def test_chunk_write_routes_require_kb_write_permission():
             getattr(dependency.call, "__name__", "")
             for dependency in routes[key].dependant.dependencies
         }
-        assert "verify_kb_access" in dependency_names
+        assert "verify_kb_operate_access" in dependency_names
         assert "require_kb_write" in dependency_names
         assert Permission.KB_WRITE == "kb:write"
 

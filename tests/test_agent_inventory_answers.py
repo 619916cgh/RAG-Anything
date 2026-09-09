@@ -83,7 +83,7 @@ async def test_inventory_answer_streams_and_persists_without_retrieval_or_llm(mo
     assert "视频 6" in token_event["content"]
     assert done_event["inventory"]["all"]["total"] == 6
     assert done_event["inventory"]["types"]["video"]["total"] == 6
-    assert "citations" not in done_event
+    assert done_event["citations"] == []
     assert [message["role"] for message in calls["messages"]] == ["user", "assistant"]
     assert calls["record"] == 1
 

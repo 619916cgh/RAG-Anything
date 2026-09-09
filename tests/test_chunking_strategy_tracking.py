@@ -196,6 +196,12 @@ async def test_retry_reuses_document_chunking_strategy(monkeypatch, tmp_path):
     monkeypatch.setattr(knowledge, "_compute_file_hash", lambda _path: "hash-1")
     monkeypatch.setattr(knowledge, "add_event", AsyncMock())
     monkeypatch.setattr(knowledge, "_create_upload_settings_snapshot", AsyncMock())
+    from raganything.services import provenance, video_segments
+
+    monkeypatch.setattr(video_segments, "delete_video_segments", AsyncMock())
+    monkeypatch.setattr(
+        provenance, "delete_document_provenance", AsyncMock(return_value=1)
+    )
     monkeypatch.setattr(
         knowledge,
         "_resolve_upload_vlm_snapshot",

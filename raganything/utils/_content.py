@@ -320,7 +320,17 @@ def _separate_content_structured(
 
     for index, item in enumerate(content_list):
         content_type = item.get("type", "text")
-        page_idx = item.get("page_idx", 0)
+        provenance = item.get("_provenance")
+        provenance = provenance if isinstance(provenance, dict) else {}
+        source_page = provenance.get("source_page")
+        page_idx = provenance.get("page_idx")
+        if isinstance(source_page, int) and source_page >= 1:
+            if not isinstance(page_idx, int) or page_idx < 0:
+                page_idx = source_page - 1
+        elif item.get("_page_number_trusted") is True:
+            page_idx = page_idx if isinstance(page_idx, int) and page_idx >= 0 else None
+        else:
+            page_idx = None
 
         # ── Page boundary marker ──
         if isinstance(page_idx, int) and page_idx != last_page:

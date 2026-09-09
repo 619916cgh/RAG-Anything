@@ -95,7 +95,8 @@ _SENSITIVE_MEDIA_REFERENCE_PATTERNS = (
 _VIDEO_SEGMENT_CONTEXT_PATTERN = re.compile(
     r"\[VIDEO_SEGMENT\s+segment_id=(?P<segment_id>[^\s\]]+)\s+"
     r"media_id=(?P<media_id>[^\s\]]+)\s+start_ms=(?P<start_ms>\d+)\s+"
-    r"end_ms=(?P<end_ms>\d+)\s+document_id=(?P<document_id>[^\s\]]+)\]"
+    r"end_ms=(?P<end_ms>\d+)\s+document_id=(?P<document_id>[^\s\]]+)"
+    r"(?:\s+chunk_id=(?P<chunk_id>[^\s\]]+))?\]"
 )
 
 
@@ -117,7 +118,10 @@ async def _present_agents(agents: list[dict]) -> list[dict]:
     ]
 
 
-def _video_segment_citations_from_context(context: object, kb_name: str) -> list[dict]:
+def _video_segment_citations_from_context(
+    context: object,
+    kb_name: str,
+) -> list[dict]:
     """Convert internal retrieval anchors into path-free citation DTOs."""
     if not isinstance(context, str):
         return []
@@ -383,6 +387,198 @@ def _assistant_message_media(
     if image_description:
         payload["image_description"] = image_description
     return payload
+
+
+_NUMERIC_CITATION_INSTRUCTION = (
+    "## 引用要求\n"
+    "检索内容中的每个片段使用稳定的 `[来源 N]` 编号。回答引用事实或原文时，"
+    "必须原样复用对应编号，不得改成文档名、重新编号或编造来源。"
+)
+
+_NUMERIC_CITATION_MARKER_RE = re.compile(r"\[来源\s*([1-9]\d*)\]")
+
+
+def _referenced_source_indices(answer: object) -> list[int]:
+    """Return valid numeric source markers in first-use order."""
+    if not isinstance(answer, str) or not answer:
+        return []
+    indices: list[int] = []
+    seen: set[int] = set()
+    for match in _NUMERIC_CITATION_MARKER_RE.finditer(answer):
+        index = int(match.group(1))
+        if index not in seen:
+            seen.add(index)
+            indices.append(index)
+    return indices
+
+
+def _provenance_references_for_answer(
+    scope: QueryExecutionScope,
+    answer: object | None,
+) -> list[dict]:
+    """Select request-local sources named by the final numeric citations."""
+    references = scope.provenance_sink or []
+    if answer is None:
+        return references
+
+    requested_indices = _referenced_source_indices(answer)
+    if not requested_indices:
+        return []
+
+    by_index: dict[int, dict] = {}
+    for reference in references:
+        try:
+            source_index = int(reference.get("source_index"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        by_index.setdefault(source_index, reference)
+    return [by_index[index] for index in requested_indices if index in by_index]
+
+
+def _video_segment_citations_from_references(
+    references: list[dict],
+    kb_name: str,
+) -> list[dict]:
+    """Build legacy video citations from retrieval-owned structured metadata."""
+    segments = []
+    for reference in references:
+        if not isinstance(reference, dict):
+            continue
+        document_id = str(
+            reference.get("document_id") or reference.get("full_doc_id") or ""
+        )
+        chunk_id = str(reference.get("chunk_id") or "")
+        raw_segments = reference.get("_video_segments")
+        if isinstance(raw_segments, dict):
+            raw_segments = [raw_segments]
+        if not document_id or not chunk_id or not isinstance(raw_segments, list):
+            continue
+        for raw in raw_segments:
+            if not isinstance(raw, dict):
+                continue
+            if (
+                str(raw.get("document_id") or "") != document_id
+                or str(raw.get("chunk_id") or "") != chunk_id
+            ):
+                continue
+            try:
+                start_ms = int(raw["start_ms"])
+                end_ms = int(raw["end_ms"])
+                segment_index = int(raw.get("segment_index", start_ms))
+            except (KeyError, TypeError, ValueError):
+                continue
+            segment_id = str(raw.get("segment_id") or "")
+            media_id = str(raw.get("media_id") or "")
+            if not segment_id or not media_id or start_ms < 0 or end_ms <= start_ms:
+                continue
+            segments.append({
+                "segment_id": segment_id,
+                "segment_index": segment_index,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "document_id": document_id,
+                "document_name": reference.get("document_name") or "video",
+                "media_id": media_id,
+                "media_kb": kb_name,
+            })
+    return merge_video_segment_citations(segments)
+
+
+async def _provenance_citations_from_scope(
+    scope: QueryExecutionScope,
+    kb_name: str,
+    answer: object | None = None,
+) -> list[dict]:
+    references = _provenance_references_for_answer(scope, answer)
+    if not references:
+        return []
+
+    from raganything.services.provenance import (
+        batch_get_provenance_for_references,
+        build_provenance_citation,
+    )
+
+    try:
+        persisted = await batch_get_provenance_for_references(kb_name, references)
+    except Exception:
+        # A legacy/read-unavailable store must not discard the request-local
+        # citation identity or trusted video sidecar.
+        persisted = {}
+    citations = []
+    for reference in references:
+        document_id = str(reference.get("document_id") or "")
+        chunk_id = str(reference.get("chunk_id") or "")
+        record = persisted.get((document_id, chunk_id))
+        fallback_videos = (
+            _video_segment_citations_from_references([reference], kb_name)
+            if record is None
+            else []
+        )
+        fallback_video = fallback_videos[0] if len(fallback_videos) == 1 else None
+        overrides = {
+            "document_id": document_id,
+            "document_name": reference.get("document_name"),
+            "chunk_id": chunk_id,
+            "kb_name": kb_name,
+            "locator_status": (
+                record.get("locator_status") if record else "unavailable"
+            ),
+            "legacy_status": None if record else "legacy_unavailable",
+        }
+        if fallback_video:
+            segment = fallback_video["video_segment"]
+            overrides.update({
+                "modality": "video",
+                "media_id": fallback_video["media_id"],
+                "segment_id": segment["segment_id"],
+                "start_ms": segment["start_ms"],
+                "end_ms": segment["end_ms"],
+                "locator_status": "exact",
+            })
+        citation = build_provenance_citation(
+            record or {},
+            citation_id=f"{scope.trace_id}:{reference.get('source_index')}",
+            index=reference.get("source_index"),
+            excerpt=reference.get("content") or "",
+            **{
+                key: value for key, value in overrides.items()
+                if value not in (None, "")
+            },
+        )
+        if citation:
+            if fallback_video:
+                citation["media_kb"] = kb_name
+                citation["video_segments"] = fallback_video["video_segments"]
+            citations.append(citation)
+    return citations
+
+
+async def _query_citations(
+    scope: QueryExecutionScope,
+    kb_name: str,
+    context: object,
+    answer: object | None = None,
+) -> list[dict]:
+    """Build one path-free citation list from final answer markers."""
+    try:
+        citations = await _provenance_citations_from_scope(
+            scope, kb_name, answer
+        )
+    except Exception:
+        citations = []
+
+    if answer is not None:
+        return citations
+
+    seen_media = set()
+    for citation in _video_segment_citations_from_context(context, kb_name):
+        media_id = str(citation.get("media_id") or "")
+        if media_id and media_id in seen_media:
+            continue
+        citations.append(citation)
+        if media_id:
+            seen_media.add(media_id)
+    return citations
 
 
 def _build_layered_query(
@@ -1179,7 +1375,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "role": "user", "content": req.query, "time": now,
                 })
                 await pg_add_message(agent_id, thread_id, {
-                    "role": "assistant", "content": answer, "mode": "inventory", "elapsed": elapsed, "time": now,
+                    "role": "assistant", "content": answer, "mode": "inventory",
+                    "elapsed": elapsed, "citations": [], "time": now,
                 })
                 await record_query({
                     "id": query_id,
@@ -1187,6 +1384,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "mode": "inventory",
                     "answer": answer,
                     "images": [],
+                    "citations": [],
                     "time": now,
                     "elapsed": elapsed,
                     "kb": actual_kb,
@@ -1195,7 +1393,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "user_id": current_user["id"],
                     "username": current_user["username"],
                 }, max_history=100)
-                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'inventory': inventory}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'citations': [], 'inventory': inventory}, ensure_ascii=False)}\n\n"
             except asyncio.CancelledError:
                 timing_outcome = "cancelled"
                 raise
@@ -1521,6 +1719,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 settings_fingerprint=query_scope.get("settings_fingerprint", "unknown"),
                 llm_profile_fingerprint=query_scope.get("llm_profile_fingerprint", "unknown"),
                 deadline_monotonic=retrieval_deadline,
+                provenance_sink=[],
             )
             scope_payload = ({"id": tag_scope.tag_id, "name": tag_scope.tag_name} if tag_scope else None)
             yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.get('name',''), 'icon': agent.get('icon',''), 'thread_id': thread_id, 'tag_scope': scope_payload}, ensure_ascii=False)}\n\n"
@@ -1727,6 +1926,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                                 instance, tag_scope, rewritten_query,
                                 top_k=chunk_top_k, max_total_tokens=8000,
                                 deadline_monotonic=retrieval_deadline,
+                                query_execution_scope=execution_scope,
                             )
                         except TimeoutError:
                             react_retrieval_outcome = "timeout"
@@ -1780,6 +1980,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                                 instance, tag_scope, _cot_search_query,
                                 top_k=chunk_top_k, max_total_tokens=8000,
                                 deadline_monotonic=retrieval_deadline,
+                                query_execution_scope=execution_scope,
                             )
                         else:
                             cot_context = await await_before_deadline(
@@ -1826,7 +2027,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             "role": "assistant", "content": full_answer,
                             "elapsed": elapsed, "mode": query_mode,
                             "agent_mode": agent_mode, "trace": [],
-                            "fallback": True,
+                            "fallback": True, "citations": [],
                             "time": datetime.now(timezone.utc).isoformat(),
                             **scope_metadata,
                             **_assistant_message_media([], _display_similar_images, image_description),
@@ -1835,7 +2036,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             "id": query_id, "query": req.query, "mode": query_mode,
                             "agent_mode": agent_mode, "answer": full_answer,
                             "reasoning_trace": {"steps": [], "total_steps": 0},
-                            "images": [], "time": datetime.now(timezone.utc).isoformat(),
+                            "images": [], "citations": [],
+                            "time": datetime.now(timezone.utc).isoformat(),
                             "elapsed": elapsed, "kb": actual_kb,
                             "agent_id": agent_id, "thread_id": thread_id,
                             "user_id": current_user["id"], "username": current_user["username"],
@@ -1843,7 +2045,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         }
                         await record_query(record, max_history=100)
                         timing.finish("persistence")
-                        _done_cot_empty = {'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'fallback': True}
+                        _done_cot_empty = {
+                            'type': 'done', 'id': query_id, 'elapsed': elapsed,
+                            'thread_id': thread_id, 'images': [],
+                            'citations': [], 'fallback': True,
+                        }
                         if image_description:
                             _done_cot_empty['image_description'] = image_description
                         if _display_similar_images:
@@ -1923,6 +2129,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         full_answer += _cit_block
                         yield f"data: {json.dumps({'type': 'token', 'content': _cit_block}, ensure_ascii=False)}\n\n"
 
+                citations = await _query_citations(
+                    execution_scope, actual_kb, _agent_ctx, full_answer
+                )
+
                 # 保存到对话线程
                 timing.start("persistence")
                 await pg_add_message(agent_id, thread_id, {
@@ -1934,6 +2144,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "role": "assistant", "content": full_answer,
                     "elapsed": elapsed, "mode": query_mode,
                     "agent_mode": agent_mode, "trace": client_trace_steps,
+                    "citations": citations,
                     "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                     **_assistant_message_media(agent_images, _display_similar_images, image_description),
@@ -1945,6 +2156,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "agent_mode": agent_mode, "answer": full_answer,
                     "reasoning_trace": {"steps": client_trace_steps, "total_steps": len(client_trace_steps)},
                     "images": agent_images, "time": datetime.now(timezone.utc).isoformat(),
+                    "citations": citations,
                     "elapsed": elapsed, "kb": actual_kb,
                     "agent_id": agent_id, "thread_id": thread_id,
                     "user_id": current_user["id"], "username": current_user["username"],
@@ -1960,9 +2172,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     pass
 
                 _done_agentic = {'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': agent_images}
-                video_citations = _video_segment_citations_from_context(_agent_ctx, actual_kb)
-                if video_citations:
-                    _done_agentic['citations'] = video_citations
+                _done_agentic['citations'] = citations
                 if image_description:
                     _done_agentic['image_description'] = image_description
                 if _display_similar_images:
@@ -1998,6 +2208,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         instance, tag_scope, _search_query,
                         top_k=chunk_top_k, max_total_tokens=16000,
                         deadline_monotonic=retrieval_deadline,
+                        query_execution_scope=execution_scope,
                     )
                 )
             else:
@@ -2051,7 +2262,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 source_count = ctx.count("[来源 ") if isinstance(ctx, str) else 0
                 elapsed = round(time.time() - start_time, 2)
                 yield f"data: {json.dumps({'type': 'retrieval', 'context_present': not _is_truly_empty, 'context_chars': context_chars, 'text_source_count': source_count, 'mode': query_mode}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'phase': 'retrieval', 'fallback': _is_truly_empty}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'phase': 'retrieval', 'citations': [], 'fallback': _is_truly_empty}, ensure_ascii=False)}\n\n"
                 return
 
             if _is_truly_empty:
@@ -2074,6 +2285,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "elapsed": round(time.time() - start_time, 2),
                     "mode": query_mode,
                     "fallback": True,
+                    "citations": [],
                     "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                     **_assistant_message_media(agent_images, _display_similar_images, image_description),
@@ -2086,6 +2298,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "mode": query_mode,
                     "answer": full_answer,
                     "images": agent_images,
+                    "citations": [],
                     "time": datetime.now(timezone.utc).isoformat(),
                     "elapsed": round(time.time() - start_time, 2),
                     "kb": actual_kb,
@@ -2103,7 +2316,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     'type': 'done', 'id': query_id,
                     'elapsed': round(time.time() - start_time, 2),
                     'thread_id': thread_id, 'images': agent_images,
-                    'fallback': True,
+                    'citations': [], 'fallback': True,
                 }
                 if image_description:
                     _done_data['image_description'] = image_description
@@ -2187,6 +2400,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "elapsed": round(time.time() - start_time, 2),
                     "mode": query_mode,
                     "fallback": True,
+                    "citations": [],
                     "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
                     **_assistant_message_media(agent_images, _display_similar_images, image_description),
@@ -2199,6 +2413,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "mode": query_mode,
                     "answer": full_answer,
                     "images": agent_images,
+                    "citations": [],
                     "time": datetime.now(timezone.utc).isoformat(),
                     "elapsed": round(time.time() - start_time, 2),
                     "kb": actual_kb,
@@ -2216,7 +2431,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     'type': 'done', 'id': query_id,
                     'elapsed': round(time.time() - start_time, 2),
                     'thread_id': thread_id, 'images': agent_images,
-                    'fallback': True,
+                    'citations': [], 'fallback': True,
                 }
                 if image_description:
                     _done_data['image_description'] = image_description
@@ -2236,10 +2451,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             sp = system_prompt
             # Select citation instruction based on config (same as non-agent endpoints)
             if include_references:
-                _cit_inst = (
-                    ANSWER_FORMAT_INSTRUCTION if instance.config.enforce_citation
-                    else INLINE_QUOTE_INSTRUCTION
-                )
+                _cit_inst = _NUMERIC_CITATION_INSTRUCTION
             else:
                 _cit_inst = ""
             # Detect degraded context (text chunks exist but may be thin).
@@ -2316,6 +2528,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             timing.finish("llm")
             timing.record("llm_last_token", time.perf_counter() - llm_started)
             elapsed = round(time.time() - start_time, 2)
+            citations = await _query_citations(
+                execution_scope, actual_kb, citation_context, full_answer
+            )
 
             # 保存到对话线程
             timing.start("persistence")
@@ -2331,6 +2546,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "elapsed": elapsed,
                 "mode": query_mode,
                 "fallback": is_fallback,
+                "citations": citations,
                 "time": datetime.now(timezone.utc).isoformat(),
                 **scope_metadata,
                 **_assistant_message_media(agent_images, _display_similar_images, image_description),
@@ -2343,6 +2559,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "mode": query_mode,
                 "answer": full_answer,
                 "images": agent_images,
+                "citations": citations,
                 "time": datetime.now(timezone.utc).isoformat(),
                 "elapsed": elapsed,
                 "kb": actual_kb,
@@ -2367,9 +2584,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 'type': 'done', 'id': query_id, 'elapsed': elapsed,
                 'thread_id': thread_id, 'images': agent_images,
             }
-            video_citations = _video_segment_citations_from_context(citation_context, actual_kb)
-            if video_citations:
-                _done_data['citations'] = video_citations
+            _done_data['citations'] = citations
             if is_fallback:
                 _done_data['fallback'] = True
             if image_description:

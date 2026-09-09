@@ -50,6 +50,33 @@ async def upsert_video_segment(segment: dict[str, Any]) -> None:
         segment.get("chunk_id"), segment["source_sha256"],
         segment["profile_version"], segment.get("status", "ready"),
     )
+    if segment.get("chunk_id"):
+        from raganything.services.provenance import upsert_provenance_record
+
+        await upsert_provenance_record(
+            {
+                "kb_name": segment["kb_name"],
+                "document_id": segment["document_id"],
+                "document_name": segment.get("document_name", "video"),
+                "chunk_id": segment["chunk_id"],
+                "source_sha256": segment["source_sha256"],
+                "provenance_version": "v1",
+                "modality": "video",
+                "media_id": segment["media_id"],
+                "segment_id": segment["segment_id"],
+                "start_ms": segment["start_ms"],
+                "end_ms": segment["end_ms"],
+                "frame_refs": segment.get("frame_refs", []),
+                "locator_status": "exact",
+                "excerpt": segment.get("transcript_text")
+                or segment.get("visual_summary", ""),
+                "metadata": {
+                    "segment_index": int(segment["segment_index"]),
+                    "visual_summary": segment.get("visual_summary", ""),
+                },
+            },
+            pool=pool,
+        )
 
 
 async def list_video_segments(kb_name: str, document_id: str) -> list[dict[str, Any]]:
@@ -171,26 +198,32 @@ def enrich_video_segment_citations(citations: object, kb_name: str) -> list[dict
     return passthrough + merge_video_segment_citations(segments)
 
 
-async def delete_video_segments(kb_name: str, document_id: str) -> None:
+async def delete_video_segments(
+    kb_name: str,
+    document_id: str,
+    *,
+    legacy: bool = False,
+) -> None:
     """Remove one document's video catalog without cascading to shared media.
 
     ``media_id`` is content-derived, so a shared source can keep asset/segment
     rows under another document.  Delete this document's segment rows before
     its asset row: the asset FK cascade would otherwise remove every segment
-    that references the shared ``media_id``.  A deployment without PostgreSQL
-    (unit tests / non-PG storage) skips the catalog cleanup silently.
+    that references the shared ``media_id``.
     """
     try:
         pool = get_pg_pool()
     except RuntimeError:
-        logger = __import__("logging").getLogger(__name__)
-        logger.debug("video segment catalog cleanup skipped: PG pool unavailable")
-        return
-    await pool.execute(
-        "DELETE FROM video_segments WHERE kb_name=$1 AND document_id=$2",
-        kb_name, document_id,
-    )
-    await pool.execute(
-        "DELETE FROM video_assets WHERE kb_name=$1 AND document_id=$2",
-        kb_name, document_id,
-    )
+        if legacy:
+            return
+        raise
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM video_segments WHERE kb_name=$1 AND document_id=$2",
+                kb_name, document_id,
+            )
+            await conn.execute(
+                "DELETE FROM video_assets WHERE kb_name=$1 AND document_id=$2",
+                kb_name, document_id,
+            )

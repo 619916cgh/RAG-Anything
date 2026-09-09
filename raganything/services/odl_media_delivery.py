@@ -287,6 +287,7 @@ def build_persisted_media_catalog(
                     "sha256": entry["sha256"],
                     "mime": entry["mime"],
                     "page": entry.get("page"),
+                    "element_id": entry.get("element_id") or "",
                     "caption": entry.get("caption") or "",
                     "status": "persisted",
                 })
@@ -460,6 +461,11 @@ def resolve_legacy_media_grant(kb_name: str, grant: str) -> ResolvedMedia | None
 def _media_endpoint_url(prefix: str, media_ref: str, kb_name: str) -> str:
     """Build a controlled media URL without treating a KB name as query syntax."""
     return f"{prefix}/{quote(media_ref, safe='')}?{urlencode({'kb': kb_name})}"
+
+
+def controlled_odl_media_url(media_id: str, kb_name: str) -> str:
+    """Build the authenticated, path-free URL for persisted ODL media."""
+    return _media_endpoint_url("/api/knowledge/media", media_id, kb_name)
 
 
 def catalog_media_payload(catalog: object, *, kb_name: str, path: str) -> dict[str, Any] | None:

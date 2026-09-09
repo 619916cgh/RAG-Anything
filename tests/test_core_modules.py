@@ -133,7 +133,19 @@ class TestSeparateContent:
         text, multimodal = separate_content(content)
         assert "Hello world" in text
         assert "Second paragraph" in text
+        assert "[第 1 页]" not in text
         assert multimodal == []
+
+    def test_page_marker_requires_explicit_provenance(self):
+        text, _ = separate_content([
+            {
+                "type": "text",
+                "text": "Page content",
+                "page_idx": 2,
+                "_provenance": {"source_page": 3, "page_idx": 2},
+            }
+        ])
+        assert "[第 3 页]" in text
 
     def test_multimodal_only(self):
         content = [

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Layers, Trash2, Clock, Database, FileText, CircleDot, X, Search, UserRound, Pencil } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
@@ -7,6 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import Pagination from '../components/Pagination'
 import ResourceSortControl from '../components/ResourceSortControl'
 import KnowledgeBaseEditorDrawer from '../components/KnowledgeBaseEditorDrawer'
+import { UserDialogConfirmation } from '../components/UserDialog'
 import { getKnowledgeBaseUpdateTimestamp, sortKnowledgeBases } from '../utils/kbSorting'
 import { canEditKnowledgeBase } from '../utils/knowledgeBaseEditor'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
@@ -166,40 +168,19 @@ function KBSelector({ kbs, kbStats, onSwitch, onPrefetch, onDelete, onEdit, dele
         )
       })}
 
-      {/* 删除确认 */}
-      <AnimatePresence>
-        {showDelete && deleteTarget && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
-            onClick={() => { setShowDelete(false); setDeleteTarget(null) }}
-            role="dialog"
-            aria-modal="true"
-            aria-label="确认删除知识库"
-          >
-            <div className="card p-6 max-w-sm w-full m-4" onClick={e => e.stopPropagation()}>
-              <Trash2 size={32} className="mx-auto mb-3 text-rose-500" />
-              <p className="text-ink-primary font-medium text-center mb-1">确认删除知识库</p>
-              <p className="text-sm text-ink-muted text-center mb-2">
-                「{getKnowledgeBaseDisplayName(deleteTarget)}」
-              </p>
-              <p className="text-xs text-rose-500 text-center mb-4">将清除所有文档、实体和向量数据，不可恢复</p>
-              <div className="flex gap-3 justify-center">
-                <button className="btn-secondary text-sm" onClick={() => { setShowDelete(false); setDeleteTarget(null) }}>取消</button>
-                <button
-                  className="btn-danger text-sm"
-                  disabled={deletingKB}
-                  onClick={() => onDelete(deleteTarget.name, () => { setShowDelete(false); setDeleteTarget(null) })}
-                >
-                  {deletingKB ? '删除中…' : '确认删除'}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <UserDialogConfirmation
+        isOpen={Boolean(showDelete && deleteTarget)}
+        title="确认删除知识库"
+        description={deleteTarget ? '「' + getKnowledgeBaseDisplayName(deleteTarget) + '」将清除所有文档、实体和向量数据，不可恢复。' : ''}
+        confirmLabel={deletingKB ? '删除中…' : '确认删除'}
+        cancelLabel="取消"
+        onConfirm={() => onDelete(deleteTarget.name, () => { setShowDelete(false); setDeleteTarget(null) })}
+        onCancel={() => { setShowDelete(false); setDeleteTarget(null) }}
+        danger
+        confirmDisabled={deletingKB}
+        closeDisabled={deletingKB}
+        lockScroll
+      />
     </div>
   )
 }
@@ -637,13 +618,14 @@ export default function KnowledgePage() {
       </AnimatePresence>
 
       {/* 创建知识库弹窗 */}
-      <AnimatePresence>
-        {showCreate && (
-          <motion.div
+      {createPortal(
+        <AnimatePresence>
+          {showCreate && (
+            <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
+            className="resource-modal-overlay"
             onClick={closeCreateModal}
             role="dialog"
             aria-modal="true"
@@ -693,9 +675,11 @@ export default function KnowledgePage() {
                 </div>
               </div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
 
       {/* 提示消息 */}
       <AnimatePresence>

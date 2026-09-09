@@ -112,8 +112,11 @@ def _sanitize_client_value(value):
 
 
 def _authorized_citations(value: object, kb_name: str) -> list[dict]:
-    """Expose video timing only after this route has authorized its KB."""
-    return _sanitize_client_value(enrich_video_segment_citations(value, kb_name))
+    """Return only unified, path-free citations after KB authorization."""
+    from raganything.autorepair.agent.source_tracer import normalize_citation_list
+
+    enriched = enrich_video_segment_citations(value, kb_name)
+    return _sanitize_client_value(normalize_citation_list(enriched, kb_name=kb_name))
 
 
 def _sanitize_trace(value: object) -> list[dict]:
@@ -711,17 +714,18 @@ async def ar_qa_stream(body: AutoRepairAgentQuery, kb: str = QueryParam("default
                         yield f"data: {json.dumps(img_data, ensure_ascii=False)}\n\n"
 
                     elapsed = event_data.get("elapsed_ms", (_time.time() - start_time) * 1000) / 1000
+                    citations = _authorized_citations(
+                        event_data.get("citations"), actual_kb
+                    )
                     done_data = {
                         'type': 'done',
                         'id': query_id,
                         'elapsed': round(elapsed, 2),
                         'confidence': event_data.get('confidence', 0),
-                        'citations_count': len(event_data.get('citations', [])),
+                        'citations_count': len(citations),
                         'images_count': len(safe_images),
+                        'citations': citations,
                     }
-                    citations = _authorized_citations(event_data.get("citations"), actual_kb)
-                    if citations:
-                        done_data["citations"] = citations
                     yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
         except Exception as exc:
