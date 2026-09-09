@@ -286,6 +286,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
     query_core_acquisitions = []
     search_tool_calls = []
     agentic_init = {}
+    agentic_contexts = []
 
     async def fake_openai_complete(model, prompt, **kwargs):
         openai_calls.append({"model": model, "prompt": prompt, **kwargs})
@@ -337,6 +338,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
             self.tool = tool
 
         async def run_stream(self, query):
+            agentic_contexts.append({"mode": "react", "query": query})
             await self.llm_func("react prompt")
             yield SimpleNamespace(
                 type="done",
@@ -350,6 +352,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
             )
 
         async def run_with_context(self, query, context):
+            agentic_contexts.append({"mode": "cot", "context": context})
             await self.llm_func("cot prompt")
             return SimpleNamespace(
                 answer="cot answer",
@@ -374,7 +377,12 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
         return dict(runtime_agent)
 
     async def fake_pg_get_conversation(_agent_id, thread_id):
-        return {"id": thread_id, "owner_id": 7, "messages": []}
+        return {
+            "id": thread_id,
+            "owner_id": 7,
+            "summary": "previous conversation established the PLC fault context",
+            "messages": [],
+        }
 
     async def fake_pg_add_message(*_args, **_kwargs):
         return True
@@ -440,15 +448,24 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
     if agent_mode == "none":
         assert kb_calls
         assert kb_calls[0]["mode"] == "global"
+        assert "previous conversation established the PLC fault context" in llm_call["prompt"]
     elif agent_mode == "react":
         assert agentic_init["mode"] == "react"
         assert agentic_init["system_prompt_override"] == expected_system_prompt
         assert search_tool_calls[0]["query_mode"] == "global"
+        assert any(
+            "previous conversation established the PLC fault context" in item["query"]
+            for item in agentic_contexts
+        )
     else:
         assert agentic_init["mode"] == "cot"
         assert agentic_init["system_prompt_override"] == expected_system_prompt
         assert kb_calls
         assert kb_calls[0]["mode"] == "global"
+        assert any(
+            "previous conversation established the PLC fault context" in item["context"]
+            for item in agentic_contexts
+        )
 
 
 @pytest.mark.asyncio

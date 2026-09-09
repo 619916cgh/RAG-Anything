@@ -388,6 +388,46 @@ class TestMaybeGenerateSummary:
             del os.environ["CONVERSATION_SUMMARY_ENABLED"]
             del os.environ["CONVERSATION_SUMMARY_TRIGGER_ROUNDS"]
 
+    @pytest.mark.asyncio
+    async def test_default_triggers_after_ten_round_window(self):
+        """Without explicit trigger env, the first summary waits until >20 messages."""
+        from raganything.routers.agent import _maybe_generate_summary
+
+        os.environ["CONVERSATION_SUMMARY_ENABLED"] = "true"
+        os.environ.pop("CONVERSATION_SUMMARY_TRIGGER_ROUNDS", None)
+        try:
+            with patch("raganything.routers.agent._call_summary_llm",
+                       new_callable=AsyncMock) as mock_summary:
+                with patch("raganything.routers.agent.pg_get_summary_updated_at",
+                           new_callable=AsyncMock) as mock_updated:
+                    with patch("raganything.routers.agent.pg_get_summary",
+                               new_callable=AsyncMock) as mock_get:
+                        with patch("raganything.routers.agent.pg_update_summary",
+                                   new_callable=AsyncMock) as mock_update:
+                            mock_updated.return_value = None
+                            mock_get.return_value = None
+                            mock_summary.return_value = "摘要：完成了十轮以上排查。"
+
+                            result_at_window = await _maybe_generate_summary(
+                                agent_id="test",
+                                thread_id="thread-1",
+                                conv_thread={"messages": _make_messages(20)},
+                            )
+                            assert result_at_window is None
+                            assert mock_summary.call_count == 0
+
+                            result_after_window = await _maybe_generate_summary(
+                                agent_id="test",
+                                thread_id="thread-1",
+                                conv_thread={"messages": _make_messages(22)},
+                            )
+                            assert result_after_window is not None
+                            assert mock_summary.call_count == 1
+                            assert mock_update.call_count == 1
+        finally:
+            del os.environ["CONVERSATION_SUMMARY_ENABLED"]
+            os.environ.pop("CONVERSATION_SUMMARY_TRIGGER_ROUNDS", None)
+
 
 # ═══════════════════════════════════════════════════════════════
 # Unit: Environment variable defaults
@@ -406,8 +446,8 @@ class TestEnvDefaults:
         assert val.lower() == "true"
 
     def test_summary_trigger_rounds_default(self):
-        val = int(os.getenv("CONVERSATION_SUMMARY_TRIGGER_ROUNDS", "3"))
-        assert val == 3
+        val = int(os.getenv("CONVERSATION_SUMMARY_TRIGGER_ROUNDS", "10"))
+        assert val == 10
 
     def test_compression_ratio_default(self):
         val = float(os.getenv("CONVERSATION_COMPRESSION_RATIO", "0.60"))

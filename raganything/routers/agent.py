@@ -637,7 +637,7 @@ async def _maybe_generate_summary(
     if os.getenv("CONVERSATION_SUMMARY_ENABLED", "true").lower() != "true":
         return None
 
-    trigger_rounds = int(os.getenv("CONVERSATION_SUMMARY_TRIGGER_ROUNDS", "3"))
+    trigger_rounds = int(os.getenv("CONVERSATION_SUMMARY_TRIGGER_ROUNDS", "10"))
     trigger_messages = trigger_rounds * 2
 
     messages = conv_thread.get("messages", []) if conv_thread else []
@@ -1622,6 +1622,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
 
     # ── 多轮对话上下文提取 ──
     conv_history_text = ""
+    conversation_summary_text = ""
     max_conv_rounds = int(os.getenv("CONVERSATION_MAX_ROUNDS", "10"))
     max_conv_tokens = int(os.getenv("CONVERSATION_MAX_TOKENS", "2000"))
     if not req.retrieval_only:
@@ -1633,6 +1634,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             await _release_interactive_lease()
             timing.total(outcome="error")
             raise
+        if (
+            conv_thread
+            and os.getenv("CONVERSATION_SUMMARY_ENABLED", "true").lower() == "true"
+        ):
+            conversation_summary_text = conv_thread.get("summary") or ""
     if conv_thread and conv_thread.get("messages"):
         max_msgs = max_conv_rounds * 2
         recent = conv_thread["messages"][-max_msgs:]
@@ -1917,6 +1923,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         conv_history_text=conv_history_text,
                         image_description=image_description,
                         similar_image_urls=_similar_image_urls,
+                        summary_text=conversation_summary_text,
                     )
                     if tag_scope is not None:
                         react_retrieval_outcome = "ok"
@@ -2007,6 +2014,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         timing.finish("retrieval", outcome=retrieval_outcome)
                     # Build image + history context via unified helpers
                     _img_cot_ctx = _build_image_section(image_description, _similar_image_urls)
+                    if conversation_summary_text:
+                        _img_cot_ctx = f"## 对话摘要\n{conversation_summary_text}\n\n" + _img_cot_ctx
                     if conv_history_text:
                         _img_cot_ctx += f"## 对话历史\n{conv_history_text}\n\n"
                     if _img_cot_ctx and cot_context:
@@ -2478,6 +2487,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
 
             # Use PromptBuilder for layered prompt construction
             _pb = PromptBuilder(max_total_tokens=int(os.getenv("MAX_TOKENS", "8192")))
+            if conversation_summary_text:
+                _pb.add_summary(conversation_summary_text)
             if _img_section:
                 _pb.add_context_layer(ContextLayer(
                     name="image_context", content=_img_section,
