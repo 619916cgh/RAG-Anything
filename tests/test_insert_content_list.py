@@ -5,6 +5,8 @@ import sys
 import types
 from unittest.mock import ANY
 
+import pytest
+
 
 class FakeLogger:
     def info(self, *args, **kwargs):
@@ -95,6 +97,7 @@ class FakeDocStatus:
     def __init__(self, events):
         self.records = {}
         self.events = events
+        self.payloads = []
 
     async def get_by_id(self, doc_id):
         return self.records.get(doc_id)
@@ -102,6 +105,7 @@ class FakeDocStatus:
     async def upsert(self, payload):
         for doc_id, record in payload.items():
             self.events.append(("doc_status", doc_id, record.get("status")))
+            self.payloads.append(dict(record))
             self.records[doc_id] = record
 
     async def index_done_callback(self):
@@ -239,6 +243,66 @@ def test_insert_content_list_keeps_status_for_multimodal_only_content():
     assert processor.lightrag.doc_status.records["doc-content-list"]["status"] == (
         DocStatus.PROCESSED
     )
+
+
+def test_pure_multimodal_content_preregisters_upload_task_identity(monkeypatch):
+    import raganything.processor.doc_processor as doc_processor
+
+    processor = DummyProcessor()
+    monkeypatch.setattr(
+        doc_processor,
+        "separate_content",
+        lambda content_list: ("", content_list),
+    )
+
+    asyncio.run(
+        processor.insert_content_list(
+            [{"type": "video", "video_path": "/tmp/sample.mp4"}],
+            file_path="/tmp/sample.mp4",
+            track_id="task-video",
+        )
+    )
+
+    status = processor.lightrag.doc_status.records["doc-content-list"]
+    assert status["track_id"] == "task-video"
+    assert status["metadata"]["task_id"] == "task-video"
+    first_status = processor.lightrag.doc_status.payloads[0]
+    assert first_status["status"] == DocStatus.READY
+    assert first_status["track_id"] == "task-video"
+    assert first_status["metadata"]["task_id"] == "task-video"
+    assert processor.events[1] == (
+        "doc_status", "doc-content-list", DocStatus.HANDLING,
+    )
+
+
+def test_parsed_pure_multimodal_document_preregisters_upload_task_identity(
+    monkeypatch,
+):
+    import raganything.processor.doc_processor as doc_processor
+
+    processor = DummyProcessor()
+    processor.parsed_content_list = [
+        {"type": "video", "video_path": "/tmp/sample.mp4"}
+    ]
+    monkeypatch.setattr(
+        doc_processor,
+        "separate_content",
+        lambda content_list: ("", content_list),
+    )
+
+    asyncio.run(
+        processor.process_document_complete(
+            "/tmp/sample.mp4",
+            track_id="task-video",
+        )
+    )
+
+    first_status = processor.lightrag.doc_status.payloads[0]
+    assert first_status["track_id"] == "task-video"
+    assert first_status["metadata"]["task_id"] == "task-video"
+    status = processor.lightrag.doc_status.records["doc-complete"]
+    assert status["track_id"] == "task-video"
+    assert status["metadata"]["task_id"] == "task-video"
 
 
 def test_multimodal_document_stays_handling_until_background_task_finishes():

@@ -477,10 +477,25 @@ class DocProcessorMixin:
         *,
         scheme_name: str | None = None,
         status: DocStatus = DocStatus.READY,
+        track_id: str | None = None,
     ) -> Dict[str, Any]:
         """Create a minimal doc_status entry when LightRAG has not created one yet."""
         current_doc_status = await self.lightrag.doc_status.get_by_id(doc_id)
         if current_doc_status:
+            if track_id:
+                metadata = current_doc_status.get("metadata") or {}
+                metadata_task_id = (
+                    metadata.get("task_id") if isinstance(metadata, dict) else None
+                )
+                existing_ids = {
+                    str(value)
+                    for value in (current_doc_status.get("track_id"), metadata_task_id)
+                    if value
+                }
+                if existing_ids and existing_ids != {str(track_id)}:
+                    raise CitationProvenanceError(
+                        "Required document task identity conflicts with existing status"
+                    )
             return current_doc_status
 
         timestamp = self._current_doc_status_timestamp()
@@ -498,6 +513,9 @@ class DocProcessorMixin:
         }
         if scheme_name is not None:
             doc_status_payload["scheme_name"] = scheme_name
+        if track_id:
+            doc_status_payload["track_id"] = str(track_id)
+            doc_status_payload["metadata"] = {"task_id": str(track_id)}
 
         await self.lightrag.doc_status.upsert({doc_id: doc_status_payload})
         await self.lightrag.doc_status.index_done_callback()
@@ -510,6 +528,7 @@ class DocProcessorMixin:
         *,
         scheme_name: str | None = None,
         chunking_strategy: str | None = None,
+        track_id: str | None = None,
         **updates,
     ) -> Dict[str, Any]:
         """Merge doc_status updates while preserving any existing LightRAG fields."""
@@ -517,9 +536,10 @@ class DocProcessorMixin:
             doc_id,
             file_path,
             scheme_name=scheme_name,
+            track_id=track_id,
         )
         metadata_update = updates.get("metadata")
-        if isinstance(metadata_update, dict) or chunking_strategy:
+        if isinstance(metadata_update, dict) or chunking_strategy or track_id:
             existing_metadata = current_doc_status.get("metadata") or {}
             metadata = (
                 dict(existing_metadata)
@@ -530,7 +550,11 @@ class DocProcessorMixin:
                 metadata.update(metadata_update)
             if chunking_strategy:
                 metadata["chunking_strategy"] = chunking_strategy
+            if track_id:
+                metadata["task_id"] = str(track_id)
             updates["metadata"] = metadata
+        if track_id:
+            updates["track_id"] = str(track_id)
         updated_doc_status = {
             **current_doc_status,
             **updates,
@@ -1228,6 +1252,7 @@ class DocProcessorMixin:
                 await self._upsert_doc_status(
                     doc_id,
                     file_name,
+                    track_id=track_id,
                     status=DocStatus.HANDLING,
                     error_msg="",
                     chunking_strategy=chunking_strategy,
@@ -1283,6 +1308,7 @@ class DocProcessorMixin:
                 await self._upsert_doc_status(
                     doc_id,
                     file_name,
+                    track_id=track_id,
                     status=DocStatus.HANDLING,
                     error_msg="",
                     chunking_strategy=chunking_strategy,
@@ -1816,6 +1842,7 @@ class DocProcessorMixin:
             await self._upsert_doc_status(
                 doc_id,
                 file_ref,
+                track_id=track_id,
                 status=DocStatus.HANDLING,
                 error_msg="",
                 chunking_strategy=chunking_strategy,
@@ -1870,6 +1897,7 @@ class DocProcessorMixin:
             await self._upsert_doc_status(
                 doc_id,
                 file_ref,
+                track_id=track_id,
                 status=DocStatus.HANDLING,
                 error_msg="",
                 chunking_strategy=chunking_strategy,

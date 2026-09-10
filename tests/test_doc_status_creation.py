@@ -24,6 +24,75 @@ class InMemoryJsonStorage:
         return None
 
 
+@pytest.mark.asyncio
+async def test_doc_status_upsert_persists_and_preserves_task_identity(
+    raganything_modules,
+):
+    processor_module = raganything_modules.processor
+
+    class DummyProcessor(processor_module.ProcessorMixin):
+        pass
+
+    processor = DummyProcessor()
+    processor.lightrag = types.SimpleNamespace(doc_status=InMemoryJsonStorage())
+    processor.config = types.SimpleNamespace(use_full_path=False)
+
+    created = await processor._upsert_doc_status(
+        "doc-video",
+        "sample.mp4",
+        track_id="task-video",
+        metadata={"source_sha256": "a" * 64},
+    )
+    updated = await processor._upsert_doc_status(
+        "doc-video",
+        "sample.mp4",
+        status=raganything_modules.base.DocStatus.PROCESSED,
+        metadata={"multimodal_processed": True},
+    )
+
+    assert created["track_id"] == "task-video"
+    assert created["metadata"]["task_id"] == "task-video"
+    assert updated["track_id"] == "task-video"
+    assert updated["metadata"] == {
+        "task_id": "task-video",
+        "source_sha256": "a" * 64,
+        "multimodal_processed": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_doc_status_upsert_rejects_conflicting_task_identity(
+    raganything_modules,
+):
+    processor_module = raganything_modules.processor
+    provenance_module = sys.modules["raganything.services.provenance"]
+
+    class DummyProcessor(processor_module.ProcessorMixin):
+        pass
+
+    storage = InMemoryJsonStorage()
+    storage.records["doc-video"] = {
+        "status": raganything_modules.base.DocStatus.HANDLING,
+        "track_id": "task-original",
+        "metadata": {"task_id": "task-original"},
+    }
+    processor = DummyProcessor()
+    processor.lightrag = types.SimpleNamespace(doc_status=storage)
+    processor.config = types.SimpleNamespace(use_full_path=False)
+
+    with pytest.raises(
+        provenance_module.CitationProvenanceError,
+        match="task identity conflicts",
+    ):
+        await processor._upsert_doc_status(
+            "doc-video",
+            "sample.mp4",
+            track_id="task-other",
+        )
+
+    assert storage.records["doc-video"]["track_id"] == "task-original"
+
+
 def _load_raganything_module(module_name: str, relative_path: str):
     module_path = PROJECT_ROOT / relative_path
     spec = importlib.util.spec_from_file_location(module_name, module_path)
