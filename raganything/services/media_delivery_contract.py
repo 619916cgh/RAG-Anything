@@ -81,14 +81,17 @@ async def audit_media_delivery_v2(
     provenance_rows = await selected_pool.fetch(
         "SELECT document_id,chunk_id,source_sha256,modality,media_id "
         "FROM citation_provenance WHERE kb_name=$1 AND document_id=$2 "
-        "AND chunk_id=ANY($3::text[])",
+        "AND chunk_id=ANY($3::text[]) AND provenance_version='v1' FOR SHARE",
         kb_name,
         document_id,
         sorted(declared_chunks),
     )
-    provenance_by_chunk = {
-        str(row["chunk_id"]): row for row in provenance_rows or []
-    }
+    provenance_by_chunk: dict[str, Any] = {}
+    for row in provenance_rows or []:
+        chunk_id = str(row["chunk_id"])
+        if chunk_id in provenance_by_chunk:
+            raise _failure()
+        provenance_by_chunk[chunk_id] = row
     if set(provenance_by_chunk) != declared_chunks or any(
         str(row.get("document_id") or "") != document_id
         or str(row.get("source_sha256") or "") != source_sha256
@@ -147,7 +150,7 @@ async def audit_media_delivery_v2(
     if require_video:
         assets = await selected_pool.fetch(
             "SELECT media_id,document_id,source_sha256,server_path,status "
-            "FROM video_assets WHERE kb_name=$1 AND document_id=$2",
+            "FROM video_assets WHERE kb_name=$1 AND document_id=$2 FOR SHARE",
             kb_name,
             document_id,
         )
@@ -172,10 +175,11 @@ async def audit_media_delivery_v2(
             "p.document_name,p.source_sha256,p.media_id AS provenance_media_id,"
             "p.segment_id AS provenance_segment_id,p.start_ms AS provenance_start_ms,"
             "p.end_ms AS provenance_end_ms,p.locator_status "
-            "FROM video_segments s LEFT JOIN citation_provenance p "
+            "FROM video_segments s JOIN citation_provenance p "
             "ON p.kb_name=s.kb_name AND p.document_id=s.document_id "
-            "AND p.chunk_id=s.chunk_id "
-            "WHERE s.kb_name=$1 AND s.document_id=$2 ORDER BY s.segment_index",
+            "AND p.chunk_id=s.chunk_id AND p.provenance_version='v1' "
+            "WHERE s.kb_name=$1 AND s.document_id=$2 "
+            "ORDER BY s.segment_index FOR SHARE OF s,p",
             kb_name,
             document_id,
         )
@@ -207,6 +211,8 @@ async def audit_media_delivery_v2(
             ):
                 raise _failure()
             seen_chunks.add(chunk_id)
+        if seen_chunks != declared_chunks:
+            raise _failure()
 
 
 def mark_media_delivery_v2(metadata: Mapping[str, Any] | None) -> dict[str, Any]:

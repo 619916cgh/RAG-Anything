@@ -505,28 +505,77 @@ def _worker_status_matches_task(info: dict, task_id: str) -> bool:
     return not markers or task_id in markers
 
 
-async def _get_current_task_doc_status(rag: Any, task_id: str) -> tuple[str, dict]:
-    """Resolve exactly one document through the authoritative status backend."""
-    statuses = await rag.lightrag.doc_status.get_docs_by_track_id(task_id)
-    matches = []
-    for doc_id, status in (statuses or {}).items():
-        if isinstance(status, dict):
-            payload = dict(status)
-        elif callable(getattr(status, "model_dump", None)):
-            payload = status.model_dump()
-        elif hasattr(status, "__dict__"):
-            payload = dict(vars(status))
-        else:
-            continue
-        if _worker_status_matches_task(payload, task_id):
-            matches.append((str(doc_id), payload))
-    if len(matches) != 1:
-        from raganything.services.provenance import CitationProvenanceError
+async def _commit_media_delivery_v2(
+    *, kb_name: str, task_id: str, source_sha256: str, require_video: bool,
+) -> None:
+    """Audit and mark one finalized upload through the worker-owned PG pool."""
+    from raganything.services.media_delivery_contract import audit_media_delivery_v2
+    from raganything.services.pg_state_repo import get_pg_pool
+    from raganything.services.provenance import CitationProvenanceError
 
+    try:
+        pool = get_pg_pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                rows = await connection.fetch(
+                    "SELECT id,status,chunks_list,metadata,track_id "
+                    "FROM LIGHTRAG_DOC_STATUS "
+                    "WHERE workspace=$1 AND track_id=$2 FOR UPDATE",
+                    kb_dir(kb_name),
+                    task_id,
+                )
+                if len(rows or []) != 1:
+                    raise CitationProvenanceError(
+                        "Required media delivery document context is ambiguous"
+                    )
+                row = rows[0]
+                document_id = str(row["id"] or "")
+                raw_chunks = row["chunks_list"] or []
+                raw_metadata = row["metadata"] or {}
+                if isinstance(raw_chunks, str):
+                    raw_chunks = json.loads(raw_chunks)
+                if isinstance(raw_metadata, str):
+                    raw_metadata = json.loads(raw_metadata)
+                if (
+                    not document_id
+                    or str(row["track_id"] or "") != task_id
+                    or str(row["status"] or "") != "processed"
+                    or not isinstance(raw_chunks, list)
+                    or not isinstance(raw_metadata, dict)
+                ):
+                    raise CitationProvenanceError(
+                        "Required media delivery document context is incomplete"
+                    )
+                chunks = list(raw_chunks)
+                metadata = dict(raw_metadata)
+                await audit_media_delivery_v2(
+                    kb_name=kb_name,
+                    document_id=document_id,
+                    source_sha256=source_sha256,
+                    chunk_ids=chunks,
+                    metadata=metadata,
+                    require_video=require_video,
+                    pool=connection,
+                )
+                result = await connection.execute(
+                    "UPDATE LIGHTRAG_DOC_STATUS SET metadata=jsonb_set("
+                    "COALESCE(metadata,'{}'::jsonb),"
+                    "'{media_delivery_version}','2'::jsonb,true) "
+                    "WHERE workspace=$1 AND id=$2 AND track_id=$3",
+                    kb_dir(kb_name),
+                    document_id,
+                    task_id,
+                )
+                if result != "UPDATE 1":
+                    raise CitationProvenanceError(
+                        "Required media delivery document marker was not persisted"
+                    )
+    except CitationProvenanceError:
+        raise
+    except Exception as exc:
         raise CitationProvenanceError(
-            "Required media delivery document context is ambiguous"
-        )
-    return matches[0]
+            "Required media delivery persistence is unavailable"
+        ) from exc
 
 
 # Maximum seconds to wait for background multimodal tasks before giving up.
@@ -1100,32 +1149,12 @@ async def process_file(
         # New uploads become complete only after their durable media identity,
         # ownership and locator rows pass one final cross-store audit.
         current_stage = "provenance"
-        matched_doc_id, matched_status = await _get_current_task_doc_status(
-            rag, task_id
-        )
-        from raganything.services.media_delivery_contract import (
-            audit_media_delivery_v2,
-            mark_media_delivery_v2,
-        )
-
-        await audit_media_delivery_v2(
+        await _commit_media_delivery_v2(
             kb_name=kb_name,
-            document_id=matched_doc_id,
+            task_id=task_id,
             source_sha256=source_hash,
-            chunk_ids=matched_status.get("chunks_list") or [],
-            metadata=matched_status.get("metadata"),
             require_video=enable_video and _is_video_file(file_path),
         )
-        updated_metadata = mark_media_delivery_v2(matched_status.get("metadata"))
-        await rag.lightrag.doc_status.upsert(
-            {
-                matched_doc_id: {
-                    **matched_status,
-                    "metadata": updated_metadata,
-                }
-            }
-        )
-        await rag.lightrag.doc_status.index_done_callback()
         current_stage = "finalize"
 
         print(f"[WORKER] 完成: {filename}", flush=True)

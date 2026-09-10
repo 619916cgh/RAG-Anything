@@ -94,6 +94,23 @@ def test_structured_quota_lease_failure_remains_retryable():
     assert result["retryable"] is True
 
 
+def test_media_contract_failure_uses_safe_user_message():
+    from raganything.services.kb_service import _parse_worker_error
+
+    lines = [
+        'WORKER_ERROR_JSON {"stage":"provenance",'
+        '"root_type":"CitationProvenanceError",'
+        '"failure_code":"citation_provenance_failed","retryable":false,'
+        '"message":"private SQL or connection detail","secondary":[]}',
+    ]
+
+    result = _parse_worker_error(lines, 1)
+
+    assert result["failure_code"] == "citation_provenance_failed"
+    assert result["message"] == "媒体索引信息未完整保存，请重新上传该文件"
+    assert "private" not in result["message"]
+
+
 @pytest.mark.parametrize("returncode", [3221225477, -1073741819])
 def test_native_access_violation_is_classified(returncode):
     from raganything.services.kb_service import _parse_worker_error

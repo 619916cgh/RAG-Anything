@@ -997,6 +997,11 @@ def _parse_worker_error(lines: list[str], returncode: int) -> dict[str, Any]:
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict) and payload.get("message"):
+            if payload.get("failure_code") == "citation_provenance_failed":
+                payload = {
+                    **payload,
+                    "message": "媒体索引信息未完整保存，请重新上传该文件",
+                }
             return payload
     unsigned = int(returncode) & 0xFFFFFFFF
     if unsigned == 0xC0000005:
