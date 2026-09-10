@@ -465,6 +465,7 @@ def _kb_editor_capabilities_from_metadata(kb: str, metadata: dict, current_user:
         "edit": can_edit,
         "rename": can_edit,
     }
+    return payload
 
 
 def _kb_capabilities_from_metadata(kb: str, metadata: dict, current_user: dict) -> dict[str, bool]:
