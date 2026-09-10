@@ -461,7 +461,7 @@ def _kb_editor_capabilities_from_metadata(kb: str, metadata: dict, current_user:
     role_permissions = (current_user.get("role") or {}).get("permissions") or []
     has_manage_permission = current_user.get("is_admin") or Permission.KB_MANAGE in role_permissions
     can_edit = bool(has_manage_permission)
-    return {
+    payload = {
         "edit": can_edit,
         "rename": can_edit,
     }
@@ -2224,7 +2224,10 @@ def _serialize_document_chunk(
     metadata = metadata if isinstance(metadata, dict) else {}
     is_odl_document = any(
         key in metadata
-        for key in ("odl_media_catalog", "image_media_counts", "provenance_ref")
+        for key in (
+            "odl_media_catalog", "image_media_counts", "provenance_ref",
+            "media_delivery_version",
+        )
     )
     controlled_media = _controlled_odl_chunk_media(
         status_info=status_info, kb=kb, chunk_id=chunk_id,
@@ -2275,6 +2278,9 @@ def _serialize_document_chunk(
         "media_available": media_status == "available",
         "media_status": media_status,
     }
+    if metadata.get("media_delivery_version") == 2:
+        payload.pop("legacy_grant", None)
+    return payload
 
 
 async def _attach_video_segment_metadata(kb: str, chunks: list[dict[str, Any]]) -> None:
@@ -5967,7 +5973,16 @@ async def serve_odl_media(
         # backend detail leak, and cannot grant access without the catalog row.
         asset = None
     path = _resolve_controlled_video_path(asset.get("server_path") if asset else None)
-    if asset is None or path is None:
+    if asset is None or path is None or asset.get("status") != "ready":
+        raise HTTPException(404, "media unavailable")
+    from raganything.services.media_delivery_contract import media_file_sha256
+    try:
+        digest_matches = media_file_sha256(path) == str(
+            asset.get("source_sha256") or ""
+        )
+    except OSError:
+        digest_matches = False
+    if not digest_matches:
         raise HTTPException(404, "media unavailable")
     import mimetypes
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"

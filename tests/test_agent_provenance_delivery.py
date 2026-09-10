@@ -404,11 +404,14 @@ async def test_legacy_video_sidecar_merges_into_one_numbered_citation(monkeypatc
     assert citation["media_id"] == "video-media"
     assert citation["video_segment"] == {
         "media_id": "video-media",
+        "media_kb": "kb",
         "segment_id": "segment-1",
         "start_ms": 1000,
         "end_ms": 2000,
     }
     assert citation["video_segments"] == [{
+        "media_id": "video-media",
+        "media_kb": "kb",
         "segment_id": "segment-1",
         "start_ms": 1000,
         "end_ms": 2000,

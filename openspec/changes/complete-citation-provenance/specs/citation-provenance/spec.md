@@ -23,6 +23,18 @@
 
 系统 SHALL 只保证迁移启用后新上传资料的完整 provenance，不对历史资料自动回填或猜测定位。
 
+#### Scenario: 新上传媒体完成契约
+- **WHEN** Worker 准备将新上传文档标记为完成
+- **THEN** 系统 MUST 从权威 doc-status 按 task identity 唯一解析文档
+- **AND** 全部 declared chunk MUST 具有同 document 和 source hash 的 provenance
+- **AND** 图片 catalog/counts 或视频 asset/segments/实际源文件 MUST 与 provenance 完整一致
+- **AND** 只有通过审计后才写入 `media_delivery_version=2`
+
+#### Scenario: v2 媒体不使用 legacy grant
+- **WHEN** v2 文档的媒体 catalog 未命中或绑定失效
+- **THEN** 系统 MUST fail closed
+- **AND** MUST NOT 签发、持久化或返回 `legacy_grant`、`legacy:*` 或 legacy 媒体 URL
+
 #### Scenario: 新上传写入失败闭合
 - **WHEN** 新上传 chunk 的 provenance 持久化失败
 - **THEN** Worker MUST 将对应入库流程标记为失败或可重试失败

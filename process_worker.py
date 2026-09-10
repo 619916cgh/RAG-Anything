@@ -505,6 +505,30 @@ def _worker_status_matches_task(info: dict, task_id: str) -> bool:
     return not markers or task_id in markers
 
 
+async def _get_current_task_doc_status(rag: Any, task_id: str) -> tuple[str, dict]:
+    """Resolve exactly one document through the authoritative status backend."""
+    statuses = await rag.lightrag.doc_status.get_docs_by_track_id(task_id)
+    matches = []
+    for doc_id, status in (statuses or {}).items():
+        if isinstance(status, dict):
+            payload = dict(status)
+        elif callable(getattr(status, "model_dump", None)):
+            payload = status.model_dump()
+        elif hasattr(status, "__dict__"):
+            payload = dict(vars(status))
+        else:
+            continue
+        if _worker_status_matches_task(payload, task_id):
+            matches.append((str(doc_id), payload))
+    if len(matches) != 1:
+        from raganything.services.provenance import CitationProvenanceError
+
+        raise CitationProvenanceError(
+            "Required media delivery document context is ambiguous"
+        )
+    return matches[0]
+
+
 # Maximum seconds to wait for background multimodal tasks before giving up.
 # Keep the worker-side guard aligned with the parent watchdog unless explicitly
 # overridden. A 30-minute fixed default is too short for image-heavy manuals.
@@ -1072,6 +1096,37 @@ async def process_file(
         if merge_failed:
             print(f"[WORKER] 失败 (合并阶段错误): {filename}", flush=True)
             raise RuntimeError("document processing produced zero chunks")
+
+        # New uploads become complete only after their durable media identity,
+        # ownership and locator rows pass one final cross-store audit.
+        current_stage = "provenance"
+        matched_doc_id, matched_status = await _get_current_task_doc_status(
+            rag, task_id
+        )
+        from raganything.services.media_delivery_contract import (
+            audit_media_delivery_v2,
+            mark_media_delivery_v2,
+        )
+
+        await audit_media_delivery_v2(
+            kb_name=kb_name,
+            document_id=matched_doc_id,
+            source_sha256=source_hash,
+            chunk_ids=matched_status.get("chunks_list") or [],
+            metadata=matched_status.get("metadata"),
+            require_video=enable_video and _is_video_file(file_path),
+        )
+        updated_metadata = mark_media_delivery_v2(matched_status.get("metadata"))
+        await rag.lightrag.doc_status.upsert(
+            {
+                matched_doc_id: {
+                    **matched_status,
+                    "metadata": updated_metadata,
+                }
+            }
+        )
+        await rag.lightrag.doc_status.index_done_callback()
+        current_stage = "finalize"
 
         print(f"[WORKER] 完成: {filename}", flush=True)
 

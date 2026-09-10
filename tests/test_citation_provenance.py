@@ -272,13 +272,46 @@ def test_build_video_citation_keeps_segment_identity_and_controlled_url():
     assert citation["media_url"] == "/api/knowledge/media/video%201?kb=kb-a"
     assert citation["video_segment"] == {
         "media_id": "video 1",
+        "media_kb": "kb-a",
         "segment_id": "segment-1",
         "start_ms": 12000,
         "end_ms": 36000,
         "frame_refs": [{"timestamp_ms": 12000, "index": 2}],
     }
+    assert citation["video_segments"] == [citation["video_segment"]]
+    assert citation["media_kb"] == "kb-a"
     assert citation["start_ms"] == 12000
     assert citation["end_ms"] == 36000
+
+
+def test_build_video_citation_sanitizes_and_rejects_conflicting_ranges():
+    citation = provenance.build_provenance_citation(
+        _record(
+            modality="video", media_id="video-1", segment_id="segment-2",
+            start_ms=2000, end_ms=3000, bbox=None,
+            bbox_coordinate_system=None, element_id="", figure_label="",
+        ),
+        video_segments=[
+            {
+                "media_id": "video-1", "media_kb": "kb-a",
+                "segment_id": "segment-1", "start_ms": 0, "end_ms": 1000,
+                "server_path": r"C:\\private\\video.mp4",
+                "legacy_grant": "legacy:secret",
+                "media_url": "blob:private",
+            },
+            {
+                "media_id": "other-video", "media_kb": "kb-a",
+                "segment_id": "conflict", "start_ms": 0, "end_ms": 1000,
+            },
+        ],
+    )
+
+    assert [item["segment_id"] for item in citation["video_segments"]] == [
+        "segment-1", "segment-2",
+    ]
+    serialized = json.dumps(citation, ensure_ascii=False)
+    for forbidden in ("server_path", "legacy_grant", "legacy:secret", "blob:private", "other-video"):
+        assert forbidden not in serialized
 
 
 @pytest.mark.asyncio

@@ -293,6 +293,9 @@ def normalize_citation_dto(
     if modality == "video" or has_video:
         video_segment = {
             "media_id": media_id,
+            "media_kb": _safe_identifier(
+                kb_name or merged.get("media_kb") or merged.get("kb_name")
+            ),
             "segment_id": segment_id,
             "start_ms": int(start_ms) if start_ms is not None else None,
             "end_ms": int(end_ms) if end_ms is not None else None,
@@ -364,27 +367,44 @@ def normalize_citation_dto(
     raw_ranges = merged.get("video_segments")
     if isinstance(raw_ranges, list) and video_segment:
         ranges = []
+        seen_ranges: set[tuple[str, int, int]] = set()
         for item in raw_ranges:
             if not isinstance(item, dict):
                 continue
-            normalized = normalize_citation_dto(
-                {
-                    **merged,
-                    "media_id": item.get("media_id", merged.get("media_id")),
-                    "segment_id": item.get("segment_id"),
-                    "start_ms": item.get("start_ms"),
-                    "end_ms": item.get("end_ms"),
-                    "frame_refs": item.get("frame_refs", []),
-                    "video_segment": item,
-                    "video_segments": None,
-                },
-                position=position,
-                kb_name=kb_name,
-            ).get("video_segment")
-            if normalized:
-                ranges.append(normalized)
+            item_media_id = _safe_identifier(item.get("media_id") or media_id)
+            item_media_kb = _safe_identifier(
+                item.get("media_kb") or item.get("kb") or media_kb
+            )
+            item_segment_id = _safe_identifier(
+                item.get("segment_id") or item.get("segmentId")
+            )
+            item_start = _finite_number(item.get("start_ms", item.get("start_ts")))
+            item_end = _finite_number(item.get("end_ms", item.get("end_ts")))
+            if (
+                item_media_id != media_id or item_media_kb != media_kb
+                or not item_segment_id or item_start is None or item_end is None
+                or item_start < 0 or item_end <= item_start
+            ):
+                continue
+            identity = (item_segment_id, int(item_start), int(item_end))
+            if identity in seen_ranges:
+                continue
+            seen_ranges.add(identity)
+            ranges.append({
+                "media_id": media_id,
+                "media_kb": media_kb,
+                "segment_id": item_segment_id,
+                "start_ms": int(item_start),
+                "end_ms": int(item_end),
+                "frame_refs": _normalize_frame_refs(item.get("frame_refs")),
+            })
         if ranges:
-            result["video_segments"] = ranges
+            result["video_segments"] = sorted(
+                ranges,
+                key=lambda item: (
+                    item["start_ms"], item["end_ms"], item["segment_id"]
+                ),
+            )
     return result
 
 

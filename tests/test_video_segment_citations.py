@@ -176,6 +176,8 @@ async def test_document_video_segments_are_path_free(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_controlled_video_media_supports_range_and_hides_server_path(tmp_path, monkeypatch):
+    import hashlib
+
     from raganything.routers import knowledge
     from raganything.services import video_segments
 
@@ -192,7 +194,11 @@ async def test_controlled_video_media_supports_range_and_hides_server_path(tmp_p
         return {}
 
     async def asset(_kb, _media_id):
-        return {"server_path": str(video)}
+        return {
+            "server_path": str(video),
+            "source_sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+            "status": "ready",
+        }
 
     monkeypatch.setattr(knowledge, "verify_kb_access", allow_kb)
     monkeypatch.setattr(knowledge, "_load_doc_status_json", no_odl)
@@ -273,6 +279,74 @@ def _agent_query_context_with_provenance(scope):
         "[来源 1]\n资料：battery.mp4",
         1,
     )
+
+
+@pytest.mark.asyncio
+async def test_persisted_video_provenance_keeps_matching_sidecar_ranges(monkeypatch):
+    from raganything.routers import agent as agent_router
+
+    scope = SimpleNamespace(trace_id="trace-1", provenance_sink=[])
+    _agent_query_context_with_provenance(scope)
+    record = {
+        "kb_name": "kb", "document_id": "doc-1", "document_name": "battery.mp4",
+        "chunk_id": "chunk-1", "source_sha256": "a" * 64,
+        "provenance_version": "v1", "modality": "video", "media_id": "m-1",
+        "segment_id": "seg-1", "start_ms": 0, "end_ms": 24000,
+        "locator_status": "exact",
+    }
+
+    async def persisted(*_args, **_kwargs):
+        return {("doc-1", "chunk-1"): record}
+
+    monkeypatch.setattr(
+        "raganything.services.provenance.batch_get_provenance_for_references",
+        persisted,
+    )
+    citations = await agent_router._provenance_citations_from_scope(
+        scope, "kb", "电池电压应保持在 12V。[来源 1]"
+    )
+
+    assert len(citations) == 1
+    citation = citations[0]
+    assert citation["media_id"] == "m-1"
+    assert citation["media_kb"] == "kb"
+    assert citation["locator_status"] == "exact"
+    assert [item["segment_id"] for item in citation["video_segments"]] == [
+        "seg-1", "seg-2",
+    ]
+    assert all(item["media_id"] == "m-1" for item in citation["video_segments"])
+    assert all(item["media_kb"] == "kb" for item in citation["video_segments"])
+
+
+@pytest.mark.asyncio
+async def test_persisted_video_provenance_rejects_conflicting_sidecar_media(monkeypatch):
+    from raganything.routers import agent as agent_router
+
+    scope = SimpleNamespace(trace_id="trace-1", provenance_sink=[])
+    _agent_query_context_with_provenance(scope)
+    record = {
+        "kb_name": "kb", "document_id": "doc-1", "document_name": "battery.mp4",
+        "chunk_id": "chunk-1", "source_sha256": "a" * 64,
+        "provenance_version": "v1", "modality": "video", "media_id": "db-media",
+        "segment_id": "db-segment", "start_ms": 1000, "end_ms": 2000,
+        "locator_status": "exact",
+    }
+
+    async def persisted(*_args, **_kwargs):
+        return {("doc-1", "chunk-1"): record}
+
+    monkeypatch.setattr(
+        "raganything.services.provenance.batch_get_provenance_for_references",
+        persisted,
+    )
+    citations = await agent_router._provenance_citations_from_scope(
+        scope, "kb", "电池电压应保持在 12V。[来源 1]"
+    )
+
+    assert citations[0]["media_id"] == "db-media"
+    assert citations[0]["video_segments"] == [citations[0]["video_segment"]]
+    assert citations[0]["video_segment"]["segment_id"] == "db-segment"
+    assert "m-1" not in json.dumps(citations, ensure_ascii=False)
 
 
 def _minimal_resolved_settings():
@@ -485,7 +559,7 @@ async def test_agent_sse_done_event_carries_video_segment_citations(monkeypatch)
     assert citation["media_kb"] == "kb"
     assert citation["media_url"].startswith("/api/knowledge/media/m-1?")
     assert citation["video_segment"] == {
-        "media_id": "m-1", "segment_id": "seg-1",
+        "media_id": "m-1", "media_kb": "kb", "segment_id": "seg-1",
         "start_ms": 0, "end_ms": 24000,
     }
     assert [item["segment_id"] for item in citation["video_segments"]] == ["seg-1", "seg-2"]
@@ -544,7 +618,7 @@ async def test_agent_cot_done_event_carries_video_segment_citations(monkeypatch)
     assert done["citations"][0]["media_id"] == "m-1"
     assert done["citations"][0]["media_kb"] == "kb"
     assert done["citations"][0]["video_segment"] == {
-        "media_id": "m-1", "segment_id": "seg-1",
+        "media_id": "m-1", "media_kb": "kb", "segment_id": "seg-1",
         "start_ms": 0, "end_ms": 24000,
     }
     assert [item["segment_id"] for item in done["citations"][0]["video_segments"]] == ["seg-1", "seg-2"]
@@ -603,7 +677,7 @@ async def test_autorepair_non_streaming_carries_video_segment_citations(monkeypa
     assert video["media_kb"] == "verified-kb"
     assert video["media_url"].startswith("/api/knowledge/media/m-1?")
     assert video["video_segment"] == {
-        "media_id": "m-1", "segment_id": "seg-1",
+        "media_id": "m-1", "media_kb": "verified-kb", "segment_id": "seg-1",
         "start_ms": 0, "end_ms": 24000, "frame_refs": [],
     }
     assert [item["segment_id"] for item in video["video_segments"]] == ["seg-1", "seg-2"]
@@ -657,7 +731,7 @@ async def test_autorepair_stream_done_carries_video_segment_citations(monkeypatc
     assert done["citations"][0]["media_id"] == "m-1"
     assert done["citations"][0]["media_kb"] == "verified-kb"
     assert done["citations"][0]["video_segment"] == {
-        "media_id": "m-1", "segment_id": "seg-1",
+        "media_id": "m-1", "media_kb": "verified-kb", "segment_id": "seg-1",
         "start_ms": 0, "end_ms": 24000, "frame_refs": [],
     }
     assert done["citations"][0]["media_url"].startswith("/api/knowledge/media/m-1?")

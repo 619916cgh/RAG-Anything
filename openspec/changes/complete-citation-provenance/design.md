@@ -63,6 +63,10 @@ Agent 标准、ReAct、CoT、库存、retrieval-only 和 fallback 分支的 SSE 
 
 `ProvenanceList/ProvenanceItem` 显示资料名、页码、章节、excerpt 和定位状态；登录用户通过 KB/document/chunk 路由打开现有详情，不再请求服务器用 OS 打开文件。视频复用 seek 到 `start_ms / 1000`。图片显示受控缩略图、图号/元素 ID；只有同时存在整页预览和可换算 bbox 时高亮，否则显示“页内图片”或页码级降级。
 
+### 9. 新上传媒体使用 v2 完成契约
+
+Worker 只在权威 doc-status、全部 chunk provenance、图片 catalog/counts 或视频 asset/segments 全部一致后写入 `media_delivery_version=2`。v2 文档不得回退到进程内 legacy grant；视频公共 DTO 的顶层及每个 segment 均携带稳定 `media_id + media_kb`，媒体 URL 在响应时派生。视频交付还会重新计算文件摘要，文件被替换、删除或失去当前 owner 绑定时统一返回 404。旧文档和旧会话不回填、不重签，继续按既有 legacy 降级路径读取。
+
 ## Risks / Trade-offs
 
 - **Parser 信息不完整** -> 保持 nullable 字段和显式 `unavailable`，不以展示完整度驱动伪造数据。

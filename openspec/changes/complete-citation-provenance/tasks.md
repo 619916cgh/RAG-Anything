@@ -10,6 +10,7 @@
 - [x] 2.2 Compute full source SHA-256 and persist text, image, and video provenance for new uploads only.
 - [x] 2.3 Make new provenance writes and mutation cleanup fail closed while retaining precise legacy table-missing compatibility.
 - [x] 2.4 Scope new video asset and segment identity to KB/document and cover retry and cross-owner isolation.
+- [x] 2.5 Gate new-upload completion on the media delivery v2 audit for authoritative doc status, complete chunk provenance, image catalog counts, video assets/segments, and source bytes.
 
 ## 3. Query And Delivery
 
@@ -17,6 +18,7 @@
 - [x] 3.2 Filter citations to valid source numbers actually present in the final answer, preserving first-use order and removing duplicates.
 - [x] 3.3 Return the same unified citations in Agent terminal branches, SSE done, assistant messages, query history, and conversation reload.
 - [x] 3.4 Normalize AutoRepair citations and deliver Public Demo citations through share-scoped URLs, including explicit empty terminal arrays.
+- [x] 3.5 Keep v2 media on stable IDs only, prohibit new legacy-grant fallback, and emit complete sortable video ranges with `media_id` and `media_kb` across live and persisted citations.
 
 ## 4. Frontend
 
@@ -30,4 +32,4 @@
 - [x] 5.2 Run the full relevant frontend test suite and production Vite build.
 - [x] 5.3 Validate migration fresh/upgrade/repeat/failure/recovery and provenance concurrency in an isolated PostgreSQL environment without applying 038 to the existing database.
 - [ ] 5.4 Run one real new-upload Worker + PostgreSQL + browser acceptance for PDF, image document, and video across desktop/mobile, or record exact environment blockers without upgrading weaker evidence.
-- [ ] 5.5 Strict-validate OpenSpec, update PROJECT_SUMMARY.md with evidence boundaries, and create a task-only local commit without production deployment.
+- [x] 5.5 Strict-validate OpenSpec, update PROJECT_SUMMARY.md with evidence boundaries, and create a task-only local commit without production deployment.

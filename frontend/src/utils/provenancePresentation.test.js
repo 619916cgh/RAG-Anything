@@ -90,6 +90,32 @@ test('normalizes and deduplicates legacy video_segments', () => {
   assert.equal(formatProvenanceRange(65000, 71000), '1:05 - 1:11')
 })
 
+test('propagates authenticated media identity to every persisted video segment', () => {
+  const citation = normalizeProvenanceCitation({
+    document_id: 'doc-1',
+    chunk_id: 'chunk-1',
+    document_name: '安全培训.mp4',
+    modality: 'video',
+    locator_status: 'exact',
+    media_id: 'video-1',
+    media_kb: 'training',
+    video_segment: { segment_id: 'segment-1', start_ms: 0, end_ms: 1000 },
+    video_segments: [
+      { segment_id: 'segment-1', start_ms: 0, end_ms: 1000 },
+      { segment_id: 'segment-2', start_ms: 2000, end_ms: 3000 },
+    ],
+  })
+
+  assert.equal(citation.locatorStatus, 'exact')
+  assert.deepEqual(
+    citation.videoSegments.map(item => [item.segment_id, item.media_id, item.media_kb]),
+    [
+      ['segment-1', 'video-1', 'training'],
+      ['segment-2', 'video-1', 'training'],
+    ],
+  )
+})
+
 test('retains incomplete citations with an unavailable locator', () => {
   const citation = normalizeProvenanceCitation({})
   assert.equal(citation.documentName, '')

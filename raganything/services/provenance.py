@@ -383,6 +383,56 @@ def _compact(values: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _public_video_segments(
+    values: object,
+    *,
+    media_id: str,
+    media_kb: str,
+) -> list[dict[str, Any]]:
+    """Whitelist, validate, sort, and deduplicate public video ranges."""
+    if isinstance(values, Mapping):
+        values = [values]
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        return []
+    ranges: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        value_media_id = _text(value.get("media_id") or media_id)
+        value_media_kb = _text(value.get("media_kb") or value.get("kb") or media_kb)
+        segment_id = _text(value.get("segment_id") or value.get("id"))
+        start_ms = _optional_int(
+            value.get("start_ms", value.get("start_ts")), minimum=0
+        )
+        end_ms = _optional_int(
+            value.get("end_ms", value.get("end_ts")), minimum=0
+        )
+        if (
+            not media_id or value_media_id != media_id
+            or not media_kb or value_media_kb != media_kb
+            or not segment_id or start_ms is None or end_ms is None
+            or start_ms < 0 or end_ms <= start_ms
+        ):
+            continue
+        identity = (segment_id, start_ms, end_ms)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        ranges.append(_compact({
+            "media_id": media_id,
+            "media_kb": media_kb,
+            "segment_id": segment_id,
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "frame_refs": _frame_refs(value.get("frame_refs")),
+        }))
+    return sorted(
+        ranges,
+        key=lambda item: (item["start_ms"], item["end_ms"], item["segment_id"]),
+    )
+
+
 def build_provenance_citation(
     record: Mapping[str, Any] | None,
     *,
@@ -453,18 +503,38 @@ def build_provenance_citation(
         normalized["segment_id"] or normalized["start_ms"] is not None
     )
     if is_video:
-        segment = _compact({
+        primary_segment = _compact({
             "media_id": media_id,
+            "media_kb": kb_name,
             "segment_id": normalized["segment_id"],
             "start_ms": normalized["start_ms"],
             "end_ms": normalized["end_ms"],
             "frame_refs": normalized["frame_refs"],
         })
-        if segment:
-            public["video_segment"] = segment
+        raw_segments: list[object] = []
+        if primary_segment:
+            raw_segments.append(primary_segment)
+        override_segments = safe_overrides.get(
+            "video_segments", raw.get("video_segments")
+        )
+        if isinstance(override_segments, Mapping):
+            raw_segments.append(override_segments)
+        elif isinstance(override_segments, Sequence) and not isinstance(
+            override_segments, (str, bytes)
+        ):
+            raw_segments.extend(override_segments)
+        segments = _public_video_segments(
+            raw_segments,
+            media_id=media_id,
+            media_kb=kb_name,
+        )
+        if segments:
+            public["video_segment"] = segments[0]
+            public["video_segments"] = segments
         if media_id and kb_name:
             from raganything.services.video_segments import controlled_video_media_url
 
+            public["media_kb"] = kb_name
             public["media_url"] = controlled_video_media_url(media_id, kb_name)
     elif media_id or normalized["element_id"] or normalized["bbox"] is not None:
         image = _compact({

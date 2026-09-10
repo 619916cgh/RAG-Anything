@@ -509,12 +509,14 @@ async def _provenance_citations_from_scope(
         document_id = str(reference.get("document_id") or "")
         chunk_id = str(reference.get("chunk_id") or "")
         record = persisted.get((document_id, chunk_id))
-        fallback_videos = (
-            _video_segment_citations_from_references([reference], kb_name)
-            if record is None
-            else []
+        fallback_videos = _video_segment_citations_from_references(
+            [reference], kb_name
         )
         fallback_video = fallback_videos[0] if len(fallback_videos) == 1 else None
+        if record and fallback_video and str(record.get("media_id") or "") != str(
+            fallback_video.get("media_id") or ""
+        ):
+            fallback_video = None
         overrides = {
             "document_id": document_id,
             "document_name": reference.get("document_name"),
@@ -527,14 +529,16 @@ async def _provenance_citations_from_scope(
         }
         if fallback_video:
             segment = fallback_video["video_segment"]
-            overrides.update({
-                "modality": "video",
-                "media_id": fallback_video["media_id"],
-                "segment_id": segment["segment_id"],
-                "start_ms": segment["start_ms"],
-                "end_ms": segment["end_ms"],
-                "locator_status": "exact",
-            })
+            overrides["video_segments"] = fallback_video["video_segments"]
+            if record is None:
+                overrides.update({
+                    "modality": "video",
+                    "media_id": fallback_video["media_id"],
+                    "segment_id": segment["segment_id"],
+                    "start_ms": segment["start_ms"],
+                    "end_ms": segment["end_ms"],
+                    "locator_status": "exact",
+                })
         citation = build_provenance_citation(
             record or {},
             citation_id=f"{scope.trace_id}:{reference.get('source_index')}",
@@ -546,9 +550,6 @@ async def _provenance_citations_from_scope(
             },
         )
         if citation:
-            if fallback_video:
-                citation["media_kb"] = kb_name
-                citation["video_segments"] = fallback_video["video_segments"]
             citations.append(citation)
     return citations
 

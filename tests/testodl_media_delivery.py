@@ -341,6 +341,52 @@ async def test_media_endpoint_rejects_deleted_or_misbound_catalog_chunk(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_video_media_endpoint_rejects_replaced_file(tmp_path, monkeypatch):
+    import hashlib
+
+    from raganything.routers import knowledge
+    from raganything.services import video_segments
+
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    video = uploads / "clip.mp4"
+    original = b"original-video"
+    video.write_bytes(original)
+    monkeypatch.chdir(tmp_path)
+
+    async def allow_kb(kb, _user):
+        return kb
+
+    async def no_documents(_kb):
+        return {}
+
+    async def asset(_kb, _media_id):
+        return {
+            "media_id": "video-media-1234",
+            "source_sha256": hashlib.sha256(original).hexdigest(),
+            "server_path": str(video.resolve()),
+            "status": "ready",
+        }
+
+    monkeypatch.setattr(knowledge, "verify_kb_access", allow_kb)
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", no_documents)
+    monkeypatch.setattr(video_segments, "get_video_asset", asset)
+
+    response = await knowledge.serve_odl_media(
+        "video-media-1234", kb="kb-visible", current_user={"id": 7}
+    )
+    assert response.media_type == "video/mp4"
+
+    video.write_bytes(b"replacement-video")
+    with pytest.raises(HTTPException) as replaced:
+        await knowledge.serve_odl_media(
+            "video-media-1234", kb="kb-visible", current_user={"id": 7}
+        )
+    assert replaced.value.status_code == 404
+    assert replaced.value.detail == "media unavailable"
+
+
+@pytest.mark.asyncio
 async def test_agent_sse_media_payloads_contain_no_filesystem_path(tmp_path, monkeypatch):
     from raganything.routers import agent
 

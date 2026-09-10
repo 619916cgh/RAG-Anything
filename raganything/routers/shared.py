@@ -378,6 +378,14 @@ async def resolve_controlled_media_payload(
                     for candidate in extract_image_paths(str(record.get("content") or "")):
                         if candidate != str(validated):
                             continue
+                        metadata = status.get("metadata") or {}
+                        if (
+                            isinstance(metadata, dict)
+                            and metadata.get("media_delivery_version") == 2
+                        ):
+                            # A v2 document may only resolve through its durable
+                            # catalog. Never mint a process-local legacy grant.
+                            return None
                         chunk_id = str(record.get("chunk_id") or record.get("id") or "")
                         grant = issue_owned_legacy_media_grant(
                             kb_name=kb_name,

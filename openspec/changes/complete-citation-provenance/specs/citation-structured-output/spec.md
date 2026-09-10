@@ -1,5 +1,20 @@
 ## MODIFIED Requirements
 
+### Requirement: 视频 citation 使用稳定媒体身份
+
+视频 citation SHALL 在顶层以及每个 `video_segments` 项中公开相同的 `media_id` 与 `media_kb`，并同时提供单段兼容字段 `video_segment`。范围 SHALL 按时间排序去重，DB provenance 与请求 sidecar 冲突时以 DB 身份为准。
+
+#### Scenario: 持久 provenance 命中多段视频
+- **WHEN** 最终来源命中持久视频 provenance 且请求侧具有同媒体的多个可信 segment
+- **THEN** citation MUST 保留持久记录的 document/chunk/media identity 和 exact locator
+- **AND** `video_segments` MUST 包含合法、排序、去重的同媒体范围
+- **AND** 每段 MUST 包含 `media_id`、`media_kb`、`segment_id`、`start_ms` 和 `end_ms`
+
+#### Scenario: 视频 sidecar 身份冲突
+- **WHEN** 请求侧 segment 的 media identity 与持久 provenance 不一致
+- **THEN** 系统 MUST 丢弃冲突 sidecar
+- **AND** MUST NOT 跨 document、KB 或 media 合并范围
+
 ### Requirement: LLM 引用格式指令
 
 通用 RAG 查询提示 SHALL 为请求上下文中的唯一 `(document_id, chunk_id)` 按首次出现分配数字 `[来源 N]`，并要求 LLM 只复用这些编号标注回答依据。编号映射 SHALL 保存在请求级 provenance sink，不得按文档名反查。
