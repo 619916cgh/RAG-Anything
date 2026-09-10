@@ -444,7 +444,73 @@ async def test_successful_single_delete_keeps_cached_storages_open(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_single_delete_removes_matching_persisted_processing_task(monkeypatch):
+async def test_single_delete_releases_exact_upload_task_and_keeps_same_name_task(
+    monkeypatch,
+):
+    statuses = {
+        "doc-full": {
+            "file_path": "a1b2c3d4_report.docx",
+            "track_id": "task-original",
+            "metadata": {"task_id": "task-original"},
+        }
+    }
+    lightrag = _LightRAG(statuses)
+    instance = SimpleNamespace(lightrag=lightrag, multimodal_status_cache=_Store())
+    release_upload = AsyncMock(return_value=True)
+    delete_task = AsyncMock()
+
+    monkeypatch.setattr(knowledge, "get_kb", AsyncMock(return_value=instance))
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", AsyncMock(return_value=statuses))
+    monkeypatch.setattr(knowledge, "_cleanup_document_files", lambda *args: None)
+    monkeypatch.setattr(knowledge, "add_event", AsyncMock())
+    monkeypatch.setattr(knowledge, "pg_release_upload_for_deleted_document", release_upload)
+    monkeypatch.setattr(knowledge, "delete_task", delete_task)
+    monkeypatch.setattr(knowledge, "processing_tasks", {
+        "task-original": {"kb": "demo", "file": "report.docx", "status": "completed"},
+        "task-new": {"kb": "demo", "file": "report.docx", "status": "processing"},
+    })
+    _install_query_cache(monkeypatch)
+
+    result = await knowledge.delete_document(
+        "doc", kb="demo", _perm=None, current_user={"id": 1}
+    )
+
+    assert result["status"] == "deleted"
+    assert "upload_cleanup_pending" not in result
+    release_upload.assert_awaited_once_with(
+        "demo", "a1b2c3d4_report.docx", task_id="task-original",
+    )
+    delete_task.assert_awaited_once_with("task-original")
+
+
+@pytest.mark.asyncio
+async def test_single_delete_reports_upload_cleanup_pending(monkeypatch):
+    statuses = {
+        "doc-full": {"file_path": "report.docx", "track_id": "task-original"}
+    }
+    instance = SimpleNamespace(
+        lightrag=_LightRAG(statuses), multimodal_status_cache=_Store()
+    )
+
+    monkeypatch.setattr(knowledge, "get_kb", AsyncMock(return_value=instance))
+    monkeypatch.setattr(knowledge, "_load_doc_status_json", AsyncMock(return_value=statuses))
+    monkeypatch.setattr(knowledge, "_cleanup_document_files", lambda *args: None)
+    monkeypatch.setattr(knowledge, "add_event", AsyncMock())
+    monkeypatch.setattr(
+        knowledge, "pg_release_upload_for_deleted_document", AsyncMock(return_value=False),
+    )
+    _install_query_cache(monkeypatch)
+
+    result = await knowledge.delete_document(
+        "doc", kb="demo", _perm=None, current_user={"id": 1}
+    )
+
+    assert result["status"] == "deleted"
+    assert result["upload_cleanup_pending"] is True
+
+
+@pytest.mark.asyncio
+async def test_single_delete_keeps_same_name_processing_task_without_identity(monkeypatch):
     statuses = {"doc-full": {"file_path": "a1b2c3d4_report.docx"}}
     lightrag = _LightRAG(statuses)
     instance = SimpleNamespace(lightrag=lightrag, multimodal_status_cache=_Store())
@@ -469,11 +535,11 @@ async def test_single_delete_removes_matching_persisted_processing_task(monkeypa
     )
 
     assert result["status"] == "deleted"
-    delete_task.assert_awaited_once_with(stale_task_id)
+    delete_task.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_batch_delete_removes_matching_persisted_processing_task(monkeypatch):
+async def test_batch_delete_keeps_same_name_processing_task_without_identity(monkeypatch):
     statuses = {"doc-full": {"file_path": "a1b2c3d4_report.docx"}}
     lightrag = _LightRAG(statuses)
     instance = SimpleNamespace(lightrag=lightrag, multimodal_status_cache=_Store())
@@ -501,7 +567,7 @@ async def test_batch_delete_removes_matching_persisted_processing_task(monkeypat
     )
 
     assert result["deleted"] == ["doc"]
-    delete_task.assert_awaited_once_with(stale_task_id)
+    delete_task.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -1204,6 +1204,7 @@ async def test_list_upload_tasks_merges_runtime_status(monkeypatch):
     assert result["tasks"][2]["task_id"] == "task-failed"
     assert result["tasks"][2]["status"] == "failed"
     assert result["tasks"][2]["failure_stage"] == "finalize"
+    assert result["tasks"][2]["can_delete"] is True
 
 
 @pytest.mark.asyncio
@@ -1224,6 +1225,7 @@ async def test_delete_upload_task_deletes_queued_file(monkeypatch, tmp_path):
     delete_task_mock = AsyncMock()
     add_event_mock = AsyncMock()
     unregister_calls = []
+    cancel_retries = AsyncMock()
 
     monkeypatch.setattr(
         "raganything.routers.knowledge.pg_get_upload_by_task_id",
@@ -1245,6 +1247,10 @@ async def test_delete_upload_task_deletes_queued_file(monkeypatch, tmp_path):
         "raganything.routers.knowledge._unregister_processing_file",
         lambda kb_name, file_hash: unregister_calls.append((kb_name, file_hash)),
     )
+    monkeypatch.setattr(
+        "raganything.services.upload_retry.cancel_retries_for_deleted_upload",
+        cancel_retries,
+    )
 
     result = await delete_upload_task(
         task_id="task-queued",
@@ -1263,7 +1269,130 @@ async def test_delete_upload_task_deletes_queued_file(monkeypatch, tmp_path):
         error_message="",
     )
     delete_task_mock.assert_awaited_once_with("task-queued")
+    cancel_retries.assert_awaited_once_with("task-queued")
     add_event_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_upload_task_deletes_failed_row_by_exact_task_id(
+    monkeypatch, tmp_path,
+):
+    from raganything.routers.knowledge import delete_upload_task
+
+    staged_file = tmp_path / "failed.mp4"
+    staged_file.write_bytes(b"video")
+    upload = {
+        "task_id": "task-failed",
+        "filename": "same-name.mp4",
+        "status": "failed",
+        "file_path": str(staged_file),
+        "file_hash": "hash-failed",
+    }
+    update = AsyncMock(return_value={**upload, "status": "deleted"})
+    delete_task = AsyncMock()
+
+    monkeypatch.setattr(
+        "raganything.routers.knowledge.pg_get_upload_by_task_id",
+        AsyncMock(return_value=upload),
+    )
+    monkeypatch.setattr(
+        "raganything.routers.knowledge.pg_update_upload_status_by_task_id", update,
+    )
+    monkeypatch.setattr(
+        "raganything.routers.knowledge.delete_task", delete_task,
+    )
+    monkeypatch.setattr(
+        "raganything.routers.knowledge._delete_upload_settings_snapshot", AsyncMock(),
+    )
+    cancel_retries = AsyncMock()
+    monkeypatch.setattr(
+        "raganything.services.upload_retry.cancel_retries_for_deleted_upload",
+        cancel_retries,
+    )
+    monkeypatch.setattr("raganything.routers.knowledge.add_event", AsyncMock())
+    monkeypatch.setattr(
+        "raganything.routers.knowledge._unregister_processing_file", lambda *_args: None,
+    )
+
+    result = await delete_upload_task(
+        task_id="task-failed",
+        kb="demo-kb",
+        current_user={"id": 7, "is_admin": False},
+    )
+
+    assert result["status"] == "deleted"
+    assert not staged_file.exists()
+    update.assert_awaited_once_with(
+        "task-failed", "deleted", kb_name="demo-kb",
+        expected_current_status="failed", error_message="",
+    )
+    delete_task.assert_awaited_once_with("task-failed")
+    cancel_retries.assert_awaited_once_with("task-failed")
+
+
+@pytest.mark.asyncio
+async def test_delete_failed_upload_keeps_residue_when_status_changes(
+    monkeypatch, tmp_path,
+):
+    from raganything.routers.knowledge import delete_upload_task
+
+    staged_file = tmp_path / "failed.mp4"
+    staged_file.write_bytes(b"video")
+    upload = {
+        "task_id": "task-failed", "filename": "failed.mp4",
+        "status": "failed", "file_path": str(staged_file), "file_hash": "hash-1",
+    }
+    delete_task = AsyncMock()
+    monkeypatch.setattr(
+        "raganything.routers.knowledge.pg_get_upload_by_task_id",
+        AsyncMock(return_value=upload),
+    )
+    monkeypatch.setattr(
+        "raganything.routers.knowledge.pg_update_upload_status_by_task_id",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "raganything.routers.knowledge.delete_task", delete_task,
+    )
+
+    with pytest.raises(Exception) as captured:
+        await delete_upload_task(
+            task_id="task-failed", kb="demo-kb",
+            current_user={"id": 7, "is_admin": False},
+        )
+
+    assert captured.value.status_code == 409
+    assert staged_file.exists()
+    delete_task.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_document_upload_release_uses_exact_task_and_terminal_statuses(
+    monkeypatch,
+):
+    from raganything.services import kb_service, pg_state_repo
+
+    calls = []
+
+    class Pool:
+        async def fetchrow(self, sql, *args):
+            calls.append((sql, args))
+            return {"task_id": "task-old"}
+
+    monkeypatch.setattr(pg_state_repo, "get_pg_pool", lambda: Pool())
+    monkeypatch.setattr(kb_service, "bump_kb_corpus_revision", AsyncMock())
+
+    changed = await kb_service.pg_release_upload_for_deleted_document(
+        "demo-kb", "same-name.mp4", task_id="task-old",
+    )
+
+    assert changed is True
+    sql, args = calls[0]
+    assert "task_id = $2" in sql
+    assert "status = ANY($3::text[])" in sql
+    assert args == (
+        "demo-kb", "task-old", ["completed", "failed", "deleted", "uploaded"],
+    )
 
 
 @pytest.mark.asyncio
@@ -1304,7 +1433,7 @@ async def test_list_upload_tasks_marks_retry_wait_cancellable_and_cancelling_loc
             {"task_id": "stopping", "filename": "stopping.pdf", "status": "cancelling", "created_at": "", "updated_at": ""},
         ], 2)
 
-    async def tasks():
+    async def tasks(**_kwargs):
         return [{"id": "stopping", "kb": "demo-kb", "status": "processing"}]
 
     monkeypatch.setattr("raganything.routers.knowledge.pg_list_uploads", uploads)

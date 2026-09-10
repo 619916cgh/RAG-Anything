@@ -1322,27 +1322,59 @@ async def pg_mark_upload_reusable(file_hash: str, kb_name: str) -> bool:
         return False
 
 
-async def pg_release_upload_for_deleted_document(kb_name: str, file_path: str) -> bool:
-    """Mark the upload metadata reusable after its document has been deleted."""
+async def pg_release_upload_for_deleted_document(
+    kb_name: str,
+    file_path: str = "",
+    *,
+    task_id: str | None = None,
+) -> bool:
+    """Mark exactly one terminal upload reusable after document deletion."""
     filename = os.path.basename(str(file_path or ""))
     filename = re.sub(r"^[0-9a-fA-F]{8}_", "", filename)
-    if not filename:
+    task_id = str(task_id or "").strip()
+    if not task_id and not filename:
         return False
     try:
         from raganything.services.pg_state_repo import get_pg_pool
-
-        result = await get_pg_pool().execute(
-            """
-            UPDATE uploaded_files
-            SET status = 'deleted', updated_at = NOW()
-            WHERE kb_name = $1 AND filename = $2
-              AND status = ANY($3::text[])
-            """,
-            kb_name,
-            filename,
-            ["queued", "processing", "completed", "failed", "deleted", "uploaded"],
-        )
-        changed = int(str(result).split()[-1]) > 0
+        pool = get_pg_pool()
+        terminal_statuses = ["completed", "failed", "deleted", "uploaded"]
+        if task_id:
+            row = await pool.fetchrow(
+                """
+                UPDATE uploaded_files
+                SET status = 'deleted', updated_at = NOW()
+                WHERE kb_name = $1 AND task_id = $2
+                  AND status = ANY($3::text[])
+                RETURNING task_id
+                """,
+                kb_name,
+                task_id,
+                terminal_statuses,
+            )
+            changed = row is not None
+        else:
+            row = await pool.fetchrow(
+                """
+                WITH candidate AS (
+                    SELECT MIN(task_id) AS task_id, COUNT(*) AS match_count
+                    FROM uploaded_files
+                    WHERE kb_name = $1 AND filename = $2
+                      AND status = ANY($3::text[])
+                )
+                UPDATE uploaded_files AS upload
+                SET status = 'deleted', updated_at = NOW()
+                FROM candidate
+                WHERE candidate.match_count = 1
+                  AND upload.kb_name = $1
+                  AND upload.task_id = candidate.task_id
+                  AND upload.status = ANY($3::text[])
+                RETURNING upload.task_id
+                """,
+                kb_name,
+                filename,
+                terminal_statuses,
+            )
+            changed = row is not None
         if changed:
             await bump_kb_corpus_revision(kb_name)
         return changed

@@ -1242,7 +1242,7 @@ async def list_upload_tasks(
             ),
             "created_at": upload.get("created_at", ""),
             "updated_at": runtime_task.get("updated_at") or upload.get("updated_at", ""),
-            "can_delete": status in {"queued", "processing", "retry_wait"},
+            "can_delete": status in {"queued", "processing", "retry_wait", "failed"},
         })
 
     return {"tasks": tasks, "total": len(tasks)}
@@ -1324,18 +1324,21 @@ async def delete_upload_task(
             "cancelled": True,
             "message": "正在停止处理，完成后将删除",
         })
-    if upload_status != "queued":
+    if upload_status not in {"queued", "failed"}:
         raise HTTPException(409, "仅未完成的上传任务可删除")
 
     deleted = await pg_update_upload_status_by_task_id(
         task_id,
         "deleted",
         kb_name=kb,
-        expected_current_status="queued",
+        expected_current_status=upload_status,
         error_message="",
     )
     if not deleted:
         raise HTTPException(409, "上传任务状态已变化，请刷新后重试")
+
+    from raganything.services.upload_retry import cancel_retries_for_deleted_upload
+    await cancel_retries_for_deleted_upload(task_id)
 
     staged_file = Path(upload.get("file_path") or "")
     try:
@@ -4722,7 +4725,7 @@ def _is_orphaned_post_parse_task(
 
 
 async def _remove_document_processing_tasks(
-    kb: str, doc_id: str, file_path: str,
+    kb: str, doc_id: str, file_path: str, upload_task_id: str | None = None,
 ) -> list[str]:
     """Remove task rows that would otherwise resurrect a deleted document."""
     target_file = _normalized_upload_filename(file_path)
@@ -4730,12 +4733,20 @@ async def _remove_document_processing_tasks(
     for task_id, task in list(processing_tasks.items()):
         if not isinstance(task, dict) or not _task_belongs_to_kb(task, kb):
             continue
+        if upload_task_id:
+            if str(task_id) == str(upload_task_id):
+                matching_ids.append(task_id)
+            continue
         task_doc_id = str(task.get("doc_id") or "")
         task_file = _normalized_upload_filename(
             task.get("file_path") or task.get("file") or task.get("file_name") or ""
         )
+        terminal = str(task.get("status") or "").lower() in {
+            "completed", "failed", "deleted"
+        }
         if task_id == doc_id or task_doc_id == doc_id or (
-            target_file and task_file == target_file
+            terminal and target_file and task_file == target_file
+            and not _has_active_worker_for_task(kb, task_id)
         ):
             matching_ids.append(task_id)
 
@@ -4910,6 +4921,7 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
         raise HTTPException(404, f"文档 {doc_id} 不存在（知识库: {kb}）")
 
     file_name = doc_status[full_id].get("file_path", "未知")
+    upload_task_id = _document_upload_task_id(doc_status[full_id])
 
     # 使用 LightRAG 的正式删除方法，彻底清理所有关联数据
     result = await _delete_lightrag_document(instance.lightrag, kb, full_id)
@@ -4940,8 +4952,12 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
         await delete_video_segments(kb, full_id)
         from raganything.services.provenance import delete_document_provenance
         await delete_document_provenance(kb, full_id, fail_soft=True)
-        await pg_release_upload_for_deleted_document(kb, file_name)
-        await _remove_document_processing_tasks(kb, full_id, file_name)
+        upload_released = await pg_release_upload_for_deleted_document(
+            kb, file_name, **({"task_id": upload_task_id} if upload_task_id else {}),
+        )
+        await _remove_document_processing_tasks(
+            kb, full_id, file_name, upload_task_id=upload_task_id,
+        )
         from raganything.services.document_repair import cancel_repair_jobs
         await cancel_repair_jobs(kb, [full_id])
         from raganything.services.document_tagging import cancel_document_tagging
@@ -4986,8 +5002,13 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
             await delete_video_segments(kb, full_id)
             from raganything.services.provenance import delete_document_provenance
             await delete_document_provenance(kb, full_id, fail_soft=True)
-            await pg_release_upload_for_deleted_document(kb, file_name)
-            await _remove_document_processing_tasks(kb, full_id, file_name)
+            upload_released = await pg_release_upload_for_deleted_document(
+                kb, file_name,
+                **({"task_id": upload_task_id} if upload_task_id else {}),
+            )
+            await _remove_document_processing_tasks(
+                kb, full_id, file_name, upload_task_id=upload_task_id,
+            )
             from raganything.services.document_repair import cancel_repair_jobs
             await cancel_repair_jobs(kb, [full_id])
             from raganything.services.document_tagging import cancel_document_tagging
@@ -5016,6 +5037,8 @@ async def delete_document(doc_id: str, kb: str = Depends(verify_kb_operate_acces
             )
     if cleanup_result.get("artifact_cleanup_pending"):
         _delete_response["artifact_cleanup_pending"] = True
+    if not upload_released:
+        _delete_response["upload_cleanup_pending"] = True
     return _delete_response
 
 

@@ -285,10 +285,10 @@ async def defer_task(task_id: str, error: str, *, failure_stage: str) -> None:
 
 async def delete_task(task_id: str) -> None:
     """Remove task — PG + local cache."""
-    async with _get_task_lock():
-        processing_tasks.pop(task_id, None)
     if _task_pg_ready():
         await _pg_delete_task(task_id)
+    async with _get_task_lock():
+        processing_tasks.pop(task_id, None)
 
 
 async def update_task_progress(task_id: str, progress: int, message: str = "",

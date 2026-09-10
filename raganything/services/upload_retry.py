@@ -371,6 +371,17 @@ async def cancel_retry(task_id: str) -> bool:
             return True
 
 
+async def cancel_retries_for_deleted_upload(task_id: str) -> None:
+    """Fence queued/manual retries after an upload row becomes deleted."""
+    pool = get_pg_pool()
+    await pool.execute(
+        "UPDATE upload_retry_jobs SET status='cancelled',lease_token=NULL,"
+        "lease_until=NULL,next_attempt_at=NOW(),updated_at=NOW() "
+        "WHERE task_id=$1 AND status IN ('queued','retry_wait','terminal_failed')",
+        task_id,
+    )
+
+
 async def get_retry_metadata(task_ids: list[str]) -> dict[str, dict[str, Any]]:
     if not task_ids:
         return {}

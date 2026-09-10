@@ -1,6 +1,26 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+
+
+@pytest.mark.asyncio
+async def test_delete_task_keeps_local_cache_when_pg_delete_fails(monkeypatch):
+    from raganything.services import state_service
+
+    tasks = {"task-1": {"id": "task-1", "status": "failed"}}
+    monkeypatch.setattr(state_service, "processing_tasks", tasks)
+    monkeypatch.setattr(state_service, "_task_pg_ready", lambda: True)
+    monkeypatch.setattr(
+        state_service,
+        "_pg_delete_task",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await state_service.delete_task("task-1")
+
+    assert "task-1" in tasks
 
 
 @pytest.mark.asyncio
