@@ -118,6 +118,24 @@ node_modules/
 package-lock.json
 .local-backups/
 
+# Ad-hoc DOCX rendering, extraction, and audit artifacts.
+/.tmp_docx_render/
+/_docx_fmt.json
+/_docx_qa/
+/_docx_render*/
+/_qa_font_version/
+/_tmp_docx_format_audit.*
+/docx_report.txt
+/docx_unzip/
+/inspect_defaults.py
+/inspect_docx.py
+/inspect_ooxml.py
+/ooxml_out.txt
+/render_car/
+/summarize_docx.py
+/tmp_docx_ascii.docx
+/*_字体更新临时.docx
+
 # Local fast-release connection and immutable-image configuration.
 deploy/fast-release/deploy.config.psd1
 deploy/fast-release/manifests/
