@@ -8,7 +8,7 @@
 |---|---|
 | 最后核验日期 | 2026-09-14（Asia/Shanghai） |
 | 核验分支 | `codex/paginate-large-kb-document-summaries` |
-| 基准提交 | 当前 HEAD `a39160095f040eeccaff9aa347242cfe7209cbc6`；Stage 3 离线资格 `f751e54f2e57` |
+| 基准提交 | 当前 HEAD `2c9449c0f808deecf13baabe1cd72b82578bf864`；Stage 3 离线资格 `f751e54f2e57` |
 | 工作区状态 | 2026-09-14 文档交付收口提交后应为干净；以实时 `git status` 为准 |
 | 维护上限 | 不超过 350 行、30 KB；近期任务不超过 15 条 |
 
@@ -157,6 +157,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
+| 2026-09-14 | new-server-deployment-preflight | 发布门禁 | 新服务器全新部署请求在本地资格检查停止：`deploy.ps1` 拒绝当前候选，因 Dockerfile、Compose、前端锁文件、036-038 迁移及迁移运行器等变更需要受控基础或迁移发布；未上传、未部署、未修改远端或数据 | 仅本地发布流程；无云端资源、产品运行行为、数据库或数据变更 | `git status` 干净；`deploy.ps1` exit 1；未进入远端发布；现有 SSH 密钥对新目标公钥认证失败 | 不得逐文件同步、密码登录或临时配置绕过；需先完成受控基础镜像和迁移发布，并配置合格的非交互 SSH 目标 |
 | 2026-09-14 | doc-deliverables-closeout | 文档交付收口 | 整理并提交已实现功能参数报告、字体版报告、项目详细参数、项目参数清单及生成脚本；清理 DOCX 个人元数据；渲染/解包/外部材料审计产物加入精确忽略规则 | 仅文档、生成脚本和 `.gitignore`；无产品运行行为、迁移或部署变更 | 生成脚本编译、DOCX 包/XML/文本提取、字体或页面 QA 边界、diff/status 检查 | 不构成 Provider、Worker、浏览器、迁移或生产验收；外部材料分析产物不进入仓库 |
 | 2026-09-10 | KB capability helper return regression | 修复/回归 | 恢复编辑 capability helper 的返回值，避免 `/api/kb/list` 和编辑权限检查读取 `None` | KB 列表与编辑权限投影；无数据库、迁移或 RBAC 规则变化 | 五角色 capability、KB 列表聚焦测试与编译检查 | 语法编译无法发现缺失业务返回值；媒体交付改动需覆盖共享 KB capability 回归 |
 | 2026-09-10 | new-upload-media-delivery-v2 | 实现/生命周期、身份与清理修复 | 修复 finalize 后关闭连接、纯视频缺 upload identity 导致 99% 失败，以及失败上传在文档删除后残留列表；纯多模态状态持久化 `track_id`/`metadata.task_id`，失败任务可按 task ID CAS 删除并取消待运行重试，文档删除优先强身份释放上传行，同名活动任务隔离，PG 任务删除成功后才清本地缓存 | Worker、文档状态、上传列表与删除、媒体契约、重试清理 | 媒体修复相关后端 151 passed/1 skipped 后本轮 60 passed；清理相关后端 68 passed、前端 234 passed、Vite build、compile、相关 OpenSpec strict、summary/diff 通过 | 不回填旧任务；历史无 task ID 仅唯一终态文件名回退，未命中返回 `upload_cleanup_pending`；真实重传、删除 UI、Range 206 与浏览器定位尚未验收 |
@@ -171,7 +172,6 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 | 2026-09-08 | video54-upload-task-provenance-bounded | 解码修复 | `abe803e` 在 `browser-upload-diagnosis` 因 GBK 停止；`b10c1af` 使用 UTF-8+replace，17 passed；Docker 不可用 | 验收代码 | evidence：`C:/Users/98014/AppData/Local/Temp/video54-upload-task-provenance-bounded-run-20260908-abe803e` | INCONCLUSIVE/not-releasable；Phase A/5.4/生产未通过 |
 | 2026-09-08 | kb-qa-citation-provenance-audit | 只读能力核验 | 通用问答溯源解析为 `[来源 文档名]`/`[来源 N]`，结构化字段主要是 `index`、`document_name`、`excerpt`、`file_path`；通用 Agent SSE 当前实际仅序列化视频片段 citation，带资料名、受控媒体和 `start_ms/end_ms`。页码、入库时间、图片所属文档等不是通用 citation；AutoRepair 专用链路另有 `page/section/ingested_at` 富化 | 仅源码/规格核验，无产品改动 | `raganything/citation_parser.py`、`raganything/query/pipeline.py`、`raganything/routers/agent.py`、`raganything/services/video_segments.py`、`frontend/src/pages/AgentChatPage.jsx`、`frontend/src/components/VideoSegmentPlayer.jsx` | 普通文本引用和图片元数据目前未在通用问答 UI 以细粒度定位展示；不可将 AutoRepair 或视频专用字段表述为全局能力 |
 | 2026-09-03 | video54-phase-a-batch-ui | 修复并一次正式 Phase A 重跑 | harness `d2d3593` 将 upload-progress 限定到 `#server-upload-tasks` 的 exact filename 任务行并加入脱敏 locator 诊断；`/api/upload/batch`=200、locator 唯一匹配，随后在 `browser-desktop-super_admin-video-upload-terminal` 后资源契约停止：task final/retrieval/SSE/persisted citation 未通过/未到达；结论 INCONCLUSIVE，未重试 | run-owned Compose/Browser；无产品代码改动；cleanup passed，foreign Docker unchanged | evidence `C:\Users\98014\AppData\Local\Temp\video54-phasea-locator-formal-20260903-1840\browser-stage-evidence.json`；`evidence.json`、runner/browser output、service logs、owner manifests 同目录 | 不构成 Phase B、完整 Video 5.4、真实 Provider 或生产验收 |
-| 2026-08-27 | stage3-production-readiness | v3 supply-chain 最终收口 | v3 83-file immutable bundle 的六份 Candidate/Rollback digest-bound SBOM/license/vulnerability evidence 完整通过；资格为 `offline-release-qualified` | v3 verifier/evidence、OpenSpec、handoff、总结 | read-only verifier、51 focused tests、py_compile、Node syntax、locked frontend build、无 runtime Compose render、strict、diff、summary check | 仅本地离线资格；Docker 未启动、11 个共享容器未触碰、run-owned scanner/DB/raw output 已清理；未访问云端或生产资源，未执行生产操作 |
 ## 11. 历史里程碑与资料索引
 
 - 认证与 RBAC：`migrations/001_pg_schema.sql`、`migrations/015_restore_5level_rbac.sql`、`raganything/permissions.py`、`raganything/services/pg_auth_repo.py`。
