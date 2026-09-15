@@ -524,3 +524,299 @@ async def test_retrieval_only_query_emits_metadata_without_history_or_generation
     assert '"context_present": true' in body
     assert '"type": "done"' in body
     assert "context context" not in body
+
+
+@pytest.mark.asyncio
+async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypatch):
+    import base64
+    import io
+    from PIL import Image
+
+    current_user = {"id": 7, "username": "alice", "is_admin": False}
+    agent = _make_agent(agent_mode="none")
+    saved_messages = []
+    vlm_calls = []
+    tag_queries = []
+    llm_prompts = []
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (800, 400), "red").save(image_buffer, format="PNG")
+    image_data_uri = (
+        "data:image/png;base64,"
+        + base64.b64encode(image_buffer.getvalue()).decode("ascii")
+    )
+
+    class FakeKB:
+        config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
+
+        async def vision_model_func(
+            self,
+            prompt,
+            system_prompt=None,
+            history_messages=None,
+            image_data=None,
+            image_mime_type=None,
+            **_kwargs,
+        ):
+            vlm_calls.append({
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "image_data": image_data,
+                "image_mime_type": image_mime_type,
+            })
+            return "图片中是一个纯红色矩形。"
+
+        async def finalize_storages(self):
+            return None
+
+    async def fake_get_agent(_agent_id):
+        return dict(agent)
+
+    async def fake_verify_kb_access(kb, current_user):
+        assert current_user["id"] == 7
+        return kb
+
+    async def fake_acquire_query_kb(_kb_name, **_kwargs):
+        return _query_lease(FakeKB())
+
+    async def fake_pg_get_conversation(_agent_id, thread_id):
+        return {"id": thread_id, "owner_id": 7, "messages": []}
+
+    async def fake_pg_add_message(_agent_id, _thread_id, message):
+        saved_messages.append(dict(message))
+        return True
+
+    async def fake_resolve_tag_scope(_kb_name, _tag_id):
+        return SimpleNamespace(tag_id=3, tag_name="测试标签")
+
+    async def fake_retrieve_tag_scoped_context(_instance, _tag_scope, _query, **_kwargs):
+        tag_queries.append(_query)
+        return "[来源 1]\n" + ("标签上下文 " * 40)
+
+    async def selected_llm(prompt, **_kwargs):
+        llm_prompts.append(prompt)
+        return "图片中是一个纯红色矩形。"
+
+    def discard_background_task(coro):
+        coro.close()
+        return None
+
+    from raganything.services import vision_models
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", fake_get_agent)
+    monkeypatch.setattr(agent_router, "verify_kb_access", fake_verify_kb_access)
+    monkeypatch.setattr(agent_router, "acquire_query_kb", fake_acquire_query_kb)
+    monkeypatch.setattr(agent_router, "pg_get_conversation", fake_pg_get_conversation)
+    monkeypatch.setattr(agent_router, "pg_add_message", fake_pg_add_message)
+
+    async def fake_record_query(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_router, "record_query", fake_record_query)
+    monkeypatch.setattr(agent_router, "resolve_tag_scope", fake_resolve_tag_scope)
+    monkeypatch.setattr(
+        agent_router, "retrieve_tag_scoped_context", fake_retrieve_tag_scoped_context
+    )
+    monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(agent_router.asyncio, "create_task", discard_background_task)
+    _stub_runtime_services(monkeypatch, vision_models, llm_func=selected_llm)
+    monkeypatch.setattr(vision_models, "activate_vlm_selection", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(vision_models, "reset_vlm_snapshot", lambda _token: None)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(
+            query="请描述这张图片",
+            thread_id="thread-1",
+            tag_id=3,
+            image=image_data_uri,
+        ),
+        _DummyRequest(),
+        current_user=current_user,
+        _perm=None,
+    )
+    body = await _consume_streaming_response(response)
+
+    assert len(vlm_calls) == 1, body
+    assert vlm_calls[0]["prompt"].startswith("请详细描述这张图片")
+    assert vlm_calls[0]["image_data"]
+    assert vlm_calls[0]["image_mime_type"] == "image/png"
+    assert len(tag_queries) == 1
+    assert "图片中是一个纯红色矩形" in llm_prompts[0]
+    assert '"status": "done"' in body
+
+    user_message = next(message for message in saved_messages if message["role"] == "user")
+    assert user_message["image_preview"].startswith("data:image/jpeg;base64,")
+    assert "image/" not in user_message["image_preview"].split(",", 1)[1][:20]
+
+
+@pytest.mark.asyncio
+async def test_image_query_reports_vlm_failure_instead_of_silent_done(monkeypatch):
+    import base64
+    import io
+    from PIL import Image
+
+    current_user = {"id": 7, "username": "alice", "is_admin": False}
+    saved_messages = []
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (80, 40), "blue").save(image_buffer, format="PNG")
+    image_data_uri = (
+        "data:image/png;base64,"
+        + base64.b64encode(image_buffer.getvalue()).decode("ascii")
+    )
+
+    class FakeKB:
+        config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
+
+        async def vision_model_func(self, *_args, **_kwargs):
+            raise RuntimeError("provider rejected image")
+
+        async def aquery(self, *_args, **_kwargs):
+            return "[no-context]"
+
+        async def finalize_storages(self):
+            return None
+
+    async def fake_get_agent(_agent_id):
+        return _make_agent(agent_mode="none")
+
+    async def fake_verify_kb_access(kb, current_user):
+        assert current_user["id"] == 7
+        return kb
+
+    async def fake_acquire_query_kb(_kb_name, **_kwargs):
+        return _query_lease(FakeKB())
+
+    async def fake_pg_get_conversation(_agent_id, thread_id):
+        return {"id": thread_id, "owner_id": 7, "messages": []}
+
+    async def fake_pg_add_message(_agent_id, _thread_id, message):
+        saved_messages.append(dict(message))
+        return True
+
+    from raganything.services import vision_models
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", fake_get_agent)
+    monkeypatch.setattr(agent_router, "verify_kb_access", fake_verify_kb_access)
+    monkeypatch.setattr(agent_router, "acquire_query_kb", fake_acquire_query_kb)
+    monkeypatch.setattr(agent_router, "pg_get_conversation", fake_pg_get_conversation)
+    monkeypatch.setattr(agent_router, "pg_add_message", fake_pg_add_message)
+
+    async def fake_record_query(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_router, "record_query", fake_record_query)
+    monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
+    _stub_runtime_services(monkeypatch, vision_models)
+    monkeypatch.setattr(
+        vision_models, "activate_vlm_selection", lambda *_args, **_kwargs: object()
+    )
+    monkeypatch.setattr(vision_models, "reset_vlm_snapshot", lambda _token: None)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(
+            query="这张图片里有什么？",
+            thread_id="thread-1",
+            image=image_data_uri,
+        ),
+        _DummyRequest(),
+        current_user=current_user,
+        _perm=None,
+    )
+    body = await _consume_streaming_response(response)
+
+    assert '"type": "image_analysis", "status": "error"' in body
+    assert "图片理解服务暂时不可用" in body
+    assert '"status": "done", "description_preview"' not in body
+    user_message = next(message for message in saved_messages if message["role"] == "user")
+    assert user_message["image_preview"].startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.asyncio
+async def test_image_query_answers_from_vision_when_kb_context_is_empty(monkeypatch):
+    import base64
+    import io
+    from PIL import Image
+
+    current_user = {"id": 7, "username": "alice", "is_admin": False}
+    llm_prompts = []
+    llm_system_prompts = []
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (80, 40), "green").save(image_buffer, format="PNG")
+    image_data_uri = (
+        "data:image/png;base64,"
+        + base64.b64encode(image_buffer.getvalue()).decode("ascii")
+    )
+
+    class FakeKB:
+        config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
+
+        async def vision_model_func(self, *_args, **_kwargs):
+            return "图片中是一个纯绿色矩形。"
+
+        async def aquery(self, *_args, **_kwargs):
+            return "[no-context]"
+
+        async def finalize_storages(self):
+            return None
+
+    async def fake_get_agent(_agent_id):
+        return _make_agent(agent_mode="none")
+
+    async def fake_verify_kb_access(kb, current_user):
+        assert current_user["id"] == 7
+        return kb
+
+    async def fake_acquire_query_kb(_kb_name, **_kwargs):
+        return _query_lease(FakeKB())
+
+    async def fake_pg_get_conversation(_agent_id, thread_id):
+        return {"id": thread_id, "owner_id": 7, "messages": []}
+
+    async def fake_pg_add_message(_agent_id, _thread_id, _message):
+        return True
+
+    async def selected_llm(prompt, **kwargs):
+        llm_prompts.append(prompt)
+        llm_system_prompts.append(kwargs.get("system_prompt") or "")
+        return "这是纯绿色矩形。"
+
+    async def fake_record_query(*_args, **_kwargs):
+        return None
+
+    from raganything.services import vision_models
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", fake_get_agent)
+    monkeypatch.setattr(agent_router, "verify_kb_access", fake_verify_kb_access)
+    monkeypatch.setattr(agent_router, "acquire_query_kb", fake_acquire_query_kb)
+    monkeypatch.setattr(agent_router, "pg_get_conversation", fake_pg_get_conversation)
+    monkeypatch.setattr(agent_router, "pg_add_message", fake_pg_add_message)
+    monkeypatch.setattr(agent_router, "record_query", fake_record_query)
+    monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
+    _stub_runtime_services(monkeypatch, vision_models, llm_func=selected_llm)
+    monkeypatch.setattr(
+        vision_models, "activate_vlm_selection", lambda *_args, **_kwargs: object()
+    )
+    monkeypatch.setattr(vision_models, "reset_vlm_snapshot", lambda _token: None)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(
+            query="这张图片是什么颜色？",
+            thread_id="thread-1",
+            image=image_data_uri,
+        ),
+        _DummyRequest(),
+        current_user=current_user,
+        _perm=None,
+    )
+    body = await _consume_streaming_response(response)
+
+    assert llm_prompts
+    assert "图片中是一个纯绿色矩形" in llm_prompts[0]
+    assert "视觉分析是本轮回答的直接证据" in llm_system_prompts[0]
+    assert "知识库中暂无与您问题相关的数据" not in body
+    assert '"image_description": "图片中是一个纯绿色矩形。"' in body

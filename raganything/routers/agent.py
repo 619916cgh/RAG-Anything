@@ -389,10 +389,90 @@ def _assistant_message_media(
     return payload
 
 
+def _query_image_preview_metadata(image_bytes: bytes | None) -> dict:
+    """Build a small persisted preview for a user-uploaded query image."""
+    if not image_bytes:
+        return {}
+    try:
+        import base64 as _b64_mod
+        import io as _io
+        from PIL import Image, ImageOps
+
+        with Image.open(_io.BytesIO(image_bytes)) as source:
+            source.seek(0)
+            image = ImageOps.exif_transpose(source).convert("RGBA")
+            image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            background = Image.new("RGB", image.size, "white")
+            background.paste(image, mask=image.getchannel("A"))
+            output = _io.BytesIO()
+            background.save(output, format="JPEG", quality=78, optimize=True)
+        encoded = _b64_mod.b64encode(output.getvalue()).decode("ascii")
+        return {"image_preview": f"data:image/jpeg;base64,{encoded}"}
+    except Exception:
+        lightrag_logger.debug("query image preview generation failed", exc_info=True)
+        return {}
+
+
+def _query_image_mime_type(data_uri: str | None) -> str:
+    """Read the validated data-URI media type for provider-specific handling."""
+    if not data_uri:
+        return "image/jpeg"
+    header = data_uri.split(",", 1)[0].lower()
+    if not header.startswith("data:") or ";" not in header:
+        return "image/jpeg"
+    return header[5:].split(";", 1)[0] or "image/jpeg"
+
+
+def _query_image_vlm_payload(
+    image_bytes: bytes,
+    image_mime_type: str,
+) -> tuple[str, str]:
+    """Normalize unsupported upload formats to a provider-safe PNG payload."""
+    import base64 as _b64_mod
+
+    supported = {"image/gif", "image/jpeg", "image/png", "image/webp"}
+    if image_mime_type in supported:
+        return _b64_mod.b64encode(image_bytes).decode("ascii"), image_mime_type
+
+    import io as _io
+    from PIL import Image
+
+    with Image.open(_io.BytesIO(image_bytes)) as source:
+        source.seek(0)
+        normalized = source.convert("RGB")
+        output = _io.BytesIO()
+        normalized.save(output, format="PNG", optimize=True)
+    return _b64_mod.b64encode(output.getvalue()).decode("ascii"), "image/png"
+
+
+def _agent_image_vlm_timeout() -> float:
+    """Return a finite image-understanding budget independent of retrieval."""
+    raw_value = os.getenv("AGENT_IMAGE_VLM_TIMEOUT", "45")
+    try:
+        value = float(raw_value.strip())
+    except (AttributeError, TypeError, ValueError):
+        return 45.0
+    if not math.isfinite(value):
+        return 45.0
+    return max(0.1, value)
+
+
 _NUMERIC_CITATION_INSTRUCTION = (
     "## 引用要求\n"
     "检索内容中的每个片段使用稳定的 `[来源 N]` 编号。回答引用事实或原文时，"
     "必须原样复用对应编号，不得改成文档名、重新编号或编造来源。"
+)
+
+_IMAGE_ONLY_HINT = (
+    "\n\n注意：本次没有可用的知识库文本证据。"
+    "请依据用户上传图片的视觉分析回答图片本身的问题，"
+    "不要虚构知识库内容。"
+)
+
+_IMAGE_SYSTEM_ADDENDUM = (
+    "用户上传图片的视觉分析是本轮回答的直接证据。"
+    "回答图片内容时必须优先依据该视觉分析；"
+    "知识库检索内容仅在确有关联时作为补充。"
 )
 
 _NUMERIC_CITATION_MARKER_RE = re.compile(r"\[来源\s*([1-9]\d*)\]")
@@ -931,6 +1011,18 @@ def _build_agent_system_prompt(agent: dict) -> str:
     return system_prompt
 
 
+def _image_aware_system_prompt(
+    system_prompt: str,
+    image_description: str | None,
+) -> str:
+    """Make VLM output an explicit evidence source for image questions."""
+    if not image_description:
+        return system_prompt
+    return "\n\n".join(
+        part for part in (system_prompt.strip(), _IMAGE_SYSTEM_ADDENDUM) if part
+    )
+
+
 def _build_effective_agent_runtime(agent: dict, req: AgentQueryRequest) -> dict:
     query_mode = req.mode or agent.get("query_mode") or "hybrid"
     agent_mode = req.agent_mode or agent.get("agent_mode", "none")
@@ -1344,7 +1436,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         raise
 
     inventory_type = (
-        None if req.retrieval_only else detect_knowledge_inventory_intent(req.query)
+        None if req.retrieval_only or req.image
+        else detect_knowledge_inventory_intent(req.query)
     )
     if inventory_type is not None:
         async def inventory_event_stream():
@@ -1659,7 +1752,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
     instance = None
 
     async def event_stream():
-        nonlocal lease_heartbeat_task, instance, stream_task
+        nonlocal lease_heartbeat_task, instance, retrieval_deadline, stream_task
         stream_task = asyncio.current_task()
         lease_heartbeat_task = asyncio.create_task(_heartbeat_interactive_lease())
         ctx_task: asyncio.Task | None = None
@@ -1768,16 +1861,34 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             image_description = None
             similar_images = []
             _similar_image_urls: list[dict] = []
-            if req.image and tag_scope is None:
+            query_image_metadata: dict = {}
+            image_analysis_error: str | None = None
+            if req.image:
                 yield f"data: {json.dumps({'type': 'image_analysis', 'status': 'analyzing'}, ensure_ascii=False)}\n\n"
 
                 # 0. Validate and decode the base64 image
                 image_bytes = decode_and_validate_query_image(req.image)
                 if image_bytes is None:
-                    yield f"data: {json.dumps({'type': 'image_analysis', 'status': 'error', 'error': '图片无效或大小超过限制（最大5MB）'}, ensure_ascii=False)}\n\n"
+                    image_analysis_error = "图片无效或大小超过限制（最大5MB）"
+                    yield f"data: {json.dumps({'type': 'image_analysis', 'status': 'error', 'error': image_analysis_error}, ensure_ascii=False)}\n\n"
                 else:
-                    import base64 as _b64_mod
-                    _img_b64 = _b64_mod.b64encode(image_bytes).decode("ascii")
+                    image_mime_type = _query_image_mime_type(req.image)
+                    try:
+                        _img_b64, _vlm_image_mime = _query_image_vlm_payload(
+                            image_bytes, image_mime_type
+                        )
+                    except Exception:
+                        lightrag_logger.warning(
+                            "[IMG-QUERY] query image normalization failed",
+                            exc_info=True,
+                        )
+                        image_analysis_error = "图片格式无法用于视觉分析，请换一张图片后重试。"
+                        yield f"data: {json.dumps({'type': 'image_analysis', 'status': 'error', 'error': image_analysis_error}, ensure_ascii=False)}\n\n"
+                        _img_b64 = ""
+                        _vlm_image_mime = image_mime_type
+                    query_image_metadata.update(
+                        _query_image_preview_metadata(image_bytes)
+                    )
 
                     # 1. Parallel: VLM description + Vision embedding search
                     async def _run_vlm_desc():
@@ -1785,23 +1896,31 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         try:
                             vis_func = getattr(instance, 'vision_model_func', None)
                             if vis_func is None:
-                                return None
+                                raise RuntimeError("vision model function is unavailable")
                             _prompt = f"请详细描述这张图片的内容。用户的问题是：「{req.query}」。请根据用户的问题，重点描述图片中与问题相关的元素。使用中文，100-300字。"
                             # vision_func returns a coroutine (from openai_complete_if_cache)
                             result = await vis_func(
                                 _prompt,
                                 system_prompt="你是一个视觉分析助手。请用简洁的自然语言描述图片内容，不要使用JSON格式。",
                                 image_data=_img_b64,
+                                image_mime_type=_vlm_image_mime,
                             )
                             if isinstance(result, str) and len(result.strip()) > 5:
                                 return result.strip()
-                            return None
+                            raise RuntimeError("vision model returned an empty description")
+                        except asyncio.CancelledError:
+                            raise
                         except Exception as _e:
                             lightrag_logger.warning(f"[IMG-QUERY] VLM description failed: {_e}")
-                            return None
+                            raise
 
                     async def _run_vision_search():
                         """Find similar images in the KB via vision embedding."""
+                        if tag_scope is not None:
+                            lightrag_logger.info(
+                                "[IMG-QUERY] tag scope active, skipping visual catalog search"
+                            )
+                            return []
                         if not instance.config.vision_search_enabled:
                             lightrag_logger.info("[IMG-QUERY] VISION_SEARCH_ENABLED=False, skipping vision search")
                             return []
@@ -1834,34 +1953,83 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             lightrag_logger.warning(f"[IMG-QUERY] Vision search failed: {_e}")
                             return []
 
-                    vlm_task = asyncio.create_task(_run_vlm_desc())
-                    vision_task = asyncio.create_task(_run_vision_search())
+                    if _img_b64:
+                        # Essential request work: keep it independent from optional
+                        # background tasks that tests or callers may intercept.
+                        vlm_task = asyncio.ensure_future(_run_vlm_desc())
+                    else:
+                        vlm_task = None
+                    vision_task = asyncio.ensure_future(_run_vision_search())
+                    if vlm_task is not None:
+                        try:
+                            _vlm_res = await await_before_deadline(
+                                vlm_task,
+                                time.monotonic() + _agent_image_vlm_timeout(),
+                            )
+                            image_description = _vlm_res
+                        except TimeoutError:
+                            image_analysis_error = "图片分析超时，请重试或换一张更小的图片。"
+                            lightrag_logger.warning(
+                                "[IMG-QUERY] VLM description timed out"
+                            )
+                        except asyncio.CancelledError:
+                            _cancel_and_observe_task(vision_task)
+                            raise
+                        except Exception:
+                            image_analysis_error = "图片理解服务暂时不可用，请稍后重试。"
+
                     try:
-                        _vlm_res, _vis_res = await await_before_deadline(
-                            asyncio.gather(vlm_task, vision_task, return_exceptions=True),
+                        raw_similar_images = await await_before_deadline(
+                            vision_task,
                             retrieval_deadline,
                         )
                     except TimeoutError:
-                        _cancel_and_observe_task(vlm_task)
-                        _cancel_and_observe_task(vision_task)
-                        _vlm_res, _vis_res = None, []
-
-                    image_description = _vlm_res if not isinstance(_vlm_res, Exception) else None
-                    raw_similar_images = _vis_res if not isinstance(_vis_res, Exception) else []
+                        raw_similar_images = []
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        lightrag_logger.warning(
+                            "[IMG-QUERY] vision catalog search failed",
+                            exc_info=True,
+                        )
+                        raw_similar_images = []
                     similar_images = await _controlled_similar_media(
                         actual_kb, raw_similar_images
                     )
                     _similar_image_urls = similar_images
 
-                    _status_fields = {"status": "done"}
                     if image_description:
-                        _status_fields["description_preview"] = image_description[:100]
-                    if similar_images:
-                        _status_fields["similar_count"] = len(similar_images)
+                        _status_fields = {
+                            "status": "done",
+                            "description_preview": image_description[:100],
+                        }
+                        if similar_images:
+                            _status_fields["similar_count"] = len(similar_images)
+                    else:
+                        _status_fields = {
+                            "status": "error",
+                            "error": image_analysis_error
+                            or "图片理解失败，请稍后重试。",
+                        }
                     yield f"data: {json.dumps({'type': 'image_analysis', **_status_fields}, ensure_ascii=False)}\n\n"
                     # Emit similar image URLs for frontend rendering
                     if _similar_image_urls:
                         yield f"data: {json.dumps({'type': 'image_results', 'images': _similar_image_urls}, ensure_ascii=False)}\n\n"
+
+                    # Image understanding has its own budget. Give the actual KB
+                    # retrieval phase a fresh deadline instead of inheriting a
+                    # deadline that expired while the VLM was working.
+                    retrieval_deadline = time.monotonic() + retrieval_timeout
+                    execution_scope = QueryExecutionScope(
+                        trace_id=query_id,
+                        workspace=query_scope.get("workspace", actual_kb),
+                        corpus_revision=execution_scope.corpus_revision,
+                        permission_scope=execution_scope.permission_scope,
+                        settings_fingerprint=execution_scope.settings_fingerprint,
+                        llm_profile_fingerprint=execution_scope.llm_profile_fingerprint,
+                        deadline_monotonic=retrieval_deadline,
+                        provenance_sink=[],
+                    )
             _display_similar_images = _similar_image_urls
 
             # ═══ AgenticRAG 推理路径（ReAct / CoT） ═══
@@ -1900,7 +2068,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     max_steps=int(os.getenv("AGENT_MAX_STEPS", "5")),
                     mode=agent_mode,
                     max_response_tokens=max_response_tokens,
-                    system_prompt_override=system_prompt,
+                    system_prompt_override=_image_aware_system_prompt(
+                        system_prompt, image_description
+                    ),
                 )
                 agentic.register_tool(SearchTool(
                     instance,
@@ -1949,9 +2119,30 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             timing.finish(
                                 "retrieval", outcome=react_retrieval_outcome
                             )
+                        if scoped_context:
+                            scope_context = scoped_context
+                            scope_instruction = (
+                                f"仅可依据标签“{tag_scope.tag_name}”下的内容回答。"
+                            )
+                        elif image_description:
+                            scope_context = (
+                                "标签范围内未检索到可引用的文本内容。"
+                                "可以依据用户上传图片的视觉分析回答图片本身的问题，"
+                                "但不要虚构知识库证据。"
+                            )
+                            scope_instruction = (
+                                f"标签“{tag_scope.tag_name}”未提供知识库文本证据。"
+                            )
+                        else:
+                            scope_context = (
+                                "该标签范围内没有可用内容。请明确说明无法在此范围内作答。"
+                            )
+                            scope_instruction = (
+                                f"仅可依据标签“{tag_scope.tag_name}”下的内容回答。"
+                            )
                         react_query += (
-                            f"\n\n## 硬性检索范围\n仅可依据标签“{tag_scope.tag_name}”下的内容回答。"
-                            f"\n{scoped_context or '该标签范围内没有可用内容。请明确说明无法在此范围内作答。'}"
+                            f"\n\n## 硬性检索范围\n{scope_instruction}"
+                            f"\n{scope_context}"
                         )
                     async for event in agentic.run_stream(react_query):
                         if event.type == "thinking":
@@ -2019,9 +2210,15 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         _img_cot_ctx = f"## 对话摘要\n{conversation_summary_text}\n\n" + _img_cot_ctx
                     if conv_history_text:
                         _img_cot_ctx += f"## 对话历史\n{conv_history_text}\n\n"
-                    if _img_cot_ctx and cot_context:
-                        cot_context = _img_cot_ctx + "## 检索文档\n" + cot_context
-                    if _is_empty_context(cot_context):
+                    if _img_cot_ctx:
+                        if cot_context:
+                            cot_context = _img_cot_ctx + "## 检索文档\n" + cot_context
+                        else:
+                            cot_context = (
+                                _img_cot_ctx
+                                + "## 检索文档\n未检索到可引用的知识库文本。"
+                            )
+                    if _is_empty_context(cot_context) and not image_description:
                         lightrag_logger.info("[AGENT-STREAM] CoT: no valid context, aborting")
                         full_answer = "抱歉，知识库中暂无与您问题相关的数据，无法回答此问题。请尝试上传相关文档或换个问题。"
                         yield f"data: {json.dumps({'type': 'thinking', 'content': '⚠️ 知识库中暂无相关数据'}, ensure_ascii=False)}\n\n"
@@ -2032,6 +2229,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             "role": "user", "content": req.query,
                             "time": datetime.now(timezone.utc).isoformat(),
                             **scope_metadata,
+                            **query_image_metadata,
                         })
                         await pg_add_message(agent_id, thread_id, {
                             "role": "assistant", "content": full_answer,
@@ -2149,6 +2347,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "role": "user", "content": req.query,
                     "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
+                    **query_image_metadata,
                 })
                 await pg_add_message(agent_id, thread_id, {
                     "role": "assistant", "content": full_answer,
@@ -2275,7 +2474,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'phase': 'retrieval', 'citations': [], 'fallback': _is_truly_empty}, ensure_ascii=False)}\n\n"
                 return
 
-            if _is_truly_empty:
+            if _is_truly_empty and not image_description:
                 # ── 降级路径：无有效检索上下文 → 直接告知用户 ──
                 agent_images = []
                 yield f"data: {json.dumps({'type': 'thinking', 'content': '⚠️ 知识库中暂无相关数据'}, ensure_ascii=False)}\n\n"
@@ -2288,6 +2487,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "content": req.query,
                     "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
+                    **query_image_metadata,
                 })
                 await pg_add_message(agent_id, thread_id, {
                     "role": "assistant",
@@ -2389,7 +2589,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     )
 
             # ── 最终空上下文检测（使用富化后的 ctx）──
-            is_fallback = _is_empty_context(ctx)
+            is_fallback = _is_empty_context(ctx) and not image_description
 
             if is_fallback:
                 # ── 回填后仍为空 → 降级告知用户 ──
@@ -2403,6 +2603,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "content": req.query,
                     "time": datetime.now(timezone.utc).isoformat(),
                     **scope_metadata,
+                    **query_image_metadata,
                 })
                 await pg_add_message(agent_id, thread_id, {
                     "role": "assistant",
@@ -2458,7 +2659,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             yield f"data: {json.dumps({'type': 'thinking', 'content': '💬 正在生成回答...'}, ensure_ascii=False)}\n\n"
 
             # Step 2: 使用 PromptBuilder 构造分层 prompt
-            sp = system_prompt
+            sp = _image_aware_system_prompt(system_prompt, image_description)
             # Select citation instruction based on config (same as non-agent endpoints)
             if include_references:
                 _cit_inst = _NUMERIC_CITATION_INSTRUCTION
@@ -2470,6 +2671,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 or bool(backfill_text)                                 # image backfill
                 or ('"reference_id"' in ctx and '"content"' in ctx)    # native LightRAG
             )
+            if image_description and not _has_chunks:
+                _cit_inst = ""
             if not _has_chunks and ctx.strip():
                 lightrag_logger.warning("agent_query_stream: context has no text chunks.")
 
@@ -2498,7 +2701,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             if conv_history_text:
                 _pb.add_recent_history(conv_history_text)
             _pb.retrieval_context(ctx)
-            _pb.degraded_hint("" if _has_chunks else _DEGRADED_HINT)
+            if not _has_chunks:
+                _pb.degraded_hint(
+                    _IMAGE_ONLY_HINT if image_description else _DEGRADED_HINT
+                )
             _pb.user_query(req.query, _cit_inst)
             final_prompt, _final_sp = _pb.build()
             timing.start("llm")
@@ -2551,6 +2757,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "content": req.query,
                 "time": datetime.now(timezone.utc).isoformat(),
                 **scope_metadata,
+                **query_image_metadata,
             })
             await pg_add_message(agent_id, thread_id, {
                 "role": "assistant",
@@ -2613,6 +2820,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
         except Exception as exc:
             timing_outcome = "error"
+            lightrag_logger.warning(
+                "[AGENT-STREAM] trace_id=%s outcome=error",
+                query_id,
+                exc_info=True,
+            )
             if isinstance(exc, ProviderBusyError):
                 payload = {"type": "error", "code": "provider_busy", "content": "provider is busy"}
             elif isinstance(exc, ProviderUnavailableError):

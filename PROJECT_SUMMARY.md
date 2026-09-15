@@ -6,9 +6,9 @@
 
 | 项目 | 当前值 |
 |---|---|
-| 最后核验日期 | 2026-09-14（Asia/Shanghai） |
+| 最后核验日期 | 2026-09-15（Asia/Shanghai） |
 | 核验分支 | `codex/paginate-large-kb-document-summaries` |
-| 基准提交 | 当前 HEAD `2c9449c0f808deecf13baabe1cd72b82578bf864`；Stage 3 离线资格 `f751e54f2e57` |
+| 基准提交 | 当前 HEAD `31426a4`；Stage 3 离线资格 `f751e54f2e57` |
 | 工作区状态 | 2026-09-14 文档交付收口提交后应为干净；以实时 `git status` 为准 |
 | 维护上限 | 不超过 350 行、30 KB；近期任务不超过 15 条 |
 
@@ -157,6 +157,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
+| 2026-09-15 | agent-image-query-recognition-and-preview | 修复/真实链路 | 标签范围下仍执行 VLM；图片理解独立超时并显式报错；规范化 MIME；无知识库文本时视觉描述可作为直接证据；用户消息持久化 JPEG 缩略图并在历史恢复 | Agent 路由、对话元数据、前端消息映射；无迁移或 RBAC 变更 | 后端相关 90 passed、前端 236 passed、Vite build；真实 `weaviate_pricing.png` 被识别并回答为 `Weaviate`；会话 API 返回 50,923 字符 JPEG 预览及图片描述 | 仅本地真实 Provider/API 验证；未执行浏览器 UAT、云端部署或生产验收 |
 | 2026-09-15 | new-server-controlled-full-deployment | 受控整栈部署 | 固定提交 `6eb85a69d170f7dcdf1507ebfa2c9edaf92a5b75`、本地 PostgreSQL 快照及 9,816 个持久化文件已部署到新服务器；经用户批准并在已验证云端备份后原子执行不可逆 `037_remove_dag_workflow.sql`，官方迁移器确认 `pending=0`；App、Marker、PostgreSQL、Redis、Nginx 已启动 | 新服务器整栈、数据库、知识库/上传/输出目录和云端 Compose overlay；未迁移旧服务器数据，未修改本地产品源码 | 持久化文件逐项 SHA-256 通过；镜像 ID/amd64 校验；迁移 status/plan/verify；直连与公网 `/api/live`、`/api/ready`、`/api/health` 及首页均 200；认证后 5 KB、2 Agent、抽查 6 会话；服务重启后数据仍可见且容器重启计数 0 | 已证明当前数据恢复、服务健康和认证读取；未执行真实 Provider 问答、新上传 Worker 处理、完整浏览器 UAT、TLS/域名或生产容量验收；云端保留迁移前可读备份 |
 | 2026-09-14 | new-server-deployment-preflight | 发布门禁 | 新服务器全新部署请求在本地资格检查停止：`deploy.ps1` 拒绝当前候选，因 Dockerfile、Compose、前端锁文件、036-038 迁移及迁移运行器等变更需要受控基础或迁移发布；未上传、未部署、未修改远端或数据 | 仅本地发布流程；无云端资源、产品运行行为、数据库或数据变更 | `git status` 干净；`deploy.ps1` exit 1；未进入远端发布；现有 SSH 密钥对新目标公钥认证失败 | 不得逐文件同步、密码登录或临时配置绕过；需先完成受控基础镜像和迁移发布，并配置合格的非交互 SSH 目标 |
 | 2026-09-14 | doc-deliverables-closeout | 文档交付收口 | 整理并提交已实现功能参数报告、字体版报告、项目详细参数、项目参数清单及生成脚本；清理 DOCX 个人元数据；渲染/解包/外部材料审计产物加入精确忽略规则 | 仅文档、生成脚本和 `.gitignore`；无产品运行行为、迁移或部署变更 | 生成脚本编译、DOCX 包/XML/文本提取、字体或页面 QA 边界、diff/status 检查 | 不构成 Provider、Worker、浏览器、迁移或生产验收；外部材料分析产物不进入仓库 |
@@ -170,7 +171,6 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 | 2026-09-08 | cloudflare-deployment-boundary | 只读部署核验 | 确认 Cloudflare Pages 可承载 `frontend/dist`，但当前完整应用仍需独立 Docker/Linux 运行 FastAPI、PostgreSQL、Redis、Marker/解析 Worker 与持久化存储；未发现 Wrangler/Workers 配置，未执行云端部署 | 仅部署建议；无产品代码或云资源修改 | 静态核对 `frontend/package.json`、`frontend/vite.config.js`、`docker-compose.yml`、`Dockerfile`、`nginx.conf`、`deploy/volcano-engine-docker.md`；未访问云端资源 | 前端 API 固定同源 `/api`，Pages 单独部署必须配 Worker/Pages Functions 反代或改 API 基址；不可将 Pages/Workers 单独部署结果当作完整生产验收 |
 | 2026-09-08 | video54-upload-task-provenance-audit | 严格单上传 provenance audit | clean detached `17b245af2e27db3221ada061854ca02b35cf14de`；run-owned Compose/临时 PG 由官方 runner fresh 初始化，1 KB/1 Browser upload/1 task，无 Agent/thread/query/SSE/Phase A/B；task=`completed`、progress=100、worker_consumed=true、retry=0、failure=`none`、timeline=6；document_id/full_id 缺失，uploaded_files/document provenance 未命中；mapping=`unmatched`、source=`document.provenance`、reason=`task_provenance_not_found`、diagnosis=`incomplete`，未请求 segments，runner=`not-releasable` | 只读审计；未改产品/当前 DB，未执行生产迁移/回填/数据操作 | artifacts：`C:\Users\98014\AppData\Local\Temp\video54-upload-task-provenance-audit-run-20260908-strict-111731`；foreign Docker 2/15/12 前后不变，run-owned resources/profile/fixture 已清理；Node、42 migration/provider/runner tests、5 video tests skipped、py_compile、diff、summary passed | 不构成 Phase A、Phase B、完整 Video 5.4、真实 Provider 或生产验收；仅证明单上传终态与 provenance 未命中 |
 | 2026-09-03 | video54-browser-phase-a-formal | 隔离正式 Phase A | failed：qualified image identity 后，mock run 停在 `browser-desktop-super_admin-new-video-citation-render`；`persisted_citation=0`，assistant/citation/player DOM、visibility、reload、media、Range 均 `not_reached`，Phase A 不通过 | run-owned Compose、PostgreSQL、Redis、mock provider、Browser；已清理 | schema 4 browser evidence `C:\Users\98014\AppData\Local\Temp\video54-phasea-formal-20260903-0400\browser-stage-evidence.json`；SSE/persisted conversation/assistant 已通过；aggregate runner evidence 仍 schema 2，runner output 保留但无 service log artifact | image preflight 已 qualified，但不等同 Phase A；未执行 Phase B、五角色、完整 5.4、生产或真实 Provider |
-| 2026-09-08 | video54-upload-task-provenance-bounded | 解码修复 | `abe803e` 在 `browser-upload-diagnosis` 因 GBK 停止；`b10c1af` 使用 UTF-8+replace，17 passed；Docker 不可用 | 验收代码 | evidence：`C:/Users/98014/AppData/Local/Temp/video54-upload-task-provenance-bounded-run-20260908-abe803e` | INCONCLUSIVE/not-releasable；Phase A/5.4/生产未通过 |
 | 2026-09-08 | kb-qa-citation-provenance-audit | 只读能力核验 | 通用问答溯源解析为 `[来源 文档名]`/`[来源 N]`，结构化字段主要是 `index`、`document_name`、`excerpt`、`file_path`；通用 Agent SSE 当前实际仅序列化视频片段 citation，带资料名、受控媒体和 `start_ms/end_ms`。页码、入库时间、图片所属文档等不是通用 citation；AutoRepair 专用链路另有 `page/section/ingested_at` 富化 | 仅源码/规格核验，无产品改动 | `raganything/citation_parser.py`、`raganything/query/pipeline.py`、`raganything/routers/agent.py`、`raganything/services/video_segments.py`、`frontend/src/pages/AgentChatPage.jsx`、`frontend/src/components/VideoSegmentPlayer.jsx` | 普通文本引用和图片元数据目前未在通用问答 UI 以细粒度定位展示；不可将 AutoRepair 或视频专用字段表述为全局能力 |
 ## 11. 历史里程碑与资料索引
 

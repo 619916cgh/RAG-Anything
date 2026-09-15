@@ -13,6 +13,7 @@ import { formatCompleteAgentRelationMarkdown, parseAgentRelationMarker } from '.
 import { useAuth } from '../context/AuthContext'
 import ProvenanceList from '../components/ProvenanceList'
 import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
+import { mapThreadMessages } from '../utils/agentChatMessages'
 
 // ── 模式定义 ───────────────────────────────────────────
 const RETRIEVAL_MODES = [
@@ -112,16 +113,6 @@ const DEFAULT_SUGGESTIONS = [
 function formatElapsed(ms) {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
-}
-
-function mapThreadMessages(threadId, messages = []) {
-  return messages.map((message, index) => ({
-    ...message,
-    id: `${threadId}-${index}`,
-    thinking: [],
-    thinkingDone: true,
-    done: true,
-  }))
 }
 
 async function readStreamErrorMessage(res) {
@@ -453,6 +444,14 @@ export default function AgentChatPage({ onToast }) {
         break
       case 'image_analysis':
         if (!isVisibleThread) break
+        if (event.status === 'error') {
+          const message = event.error || '图片分析失败，请重新选择图片后再试。'
+          setMessages(prev => prev.map(m =>
+            m.id === msgId ? { ...m, image_analysis_error: message } : m
+          ))
+          onToast?.(message, 'error')
+          break
+        }
         setMessages(prev => prev.map(m => {
           if (m.id !== msgId) return m
           if (event.status === 'done') {
@@ -1153,6 +1152,13 @@ export default function AgentChatPage({ onToast }) {
                           ? 'bg-cloud-50 dark:bg-sky-900/20 border border-cloud-200 dark:border-sky-800/30 text-ink-body dark:text-cloud-300'
                           : 'bg-cloud-50 dark:bg-sky-900/20 border border-cloud-200 dark:border-sky-800/30 text-ink-body dark:text-cloud-300'
                     }`}>
+                      {m.image_analysis_error && (
+                        <div className="flex items-start gap-2 mb-2 pb-2 border-b border-amber-200 dark:border-amber-800/40 text-xs text-amber-700 dark:text-amber-300">
+                          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                          <span>{m.image_analysis_error}</span>
+                        </div>
+                      )}
+
                       {/* 带重试入口的错误状态 */}
                       {m.error && (
                         <div className="flex items-center gap-2 mb-2 pb-2 border-b border-rose-200 dark:border-rose-800/30">
