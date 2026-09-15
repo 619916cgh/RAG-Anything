@@ -197,12 +197,12 @@ export default function PublicDemoPage() {
         <p className="sr-only" role="status" aria-live="polite">{streamStatus}</p>
         {loading && <div className="public-demo-loading"><span /><span /><span /></div>}
         {!loading && error && !demo && <p className="public-demo-error">{error}</p>}
-        {demo && messages.length === 0 && <div className="public-demo-welcome"><div className="public-demo-avatar"><Bot size={27} /></div><p className="public-demo-welcome-label">演示助手</p><h1>{demo.agent?.name || '知识问答助手'}</h1><p>{demo.agent?.welcome_message || '请输入问题，系统将基于云端知识库回答。'}</p><div className="public-demo-welcome-hint"><Sparkles size={15} /> 回答仅基于当前知识库内容</div></div>}
+        {demo && messages.length === 0 && <div className="public-demo-welcome"><div className="public-demo-avatar">{demo.agent?.icon ? <span className="public-demo-agent-emoji">{demo.agent.icon}</span> : <Bot size={27} />}</div><p className="public-demo-welcome-label">演示助手</p><h1>{demo.agent?.name || '知识问答助手'}</h1><p>{demo.agent?.welcome_message || '请输入问题，系统将基于云端知识库回答。'}</p><div className="public-demo-welcome-hint"><Sparkles size={15} /> 回答仅基于当前知识库内容</div></div>}
         {messages.map((message, index) => {
           const evidence = getDemoEvidence(message)
           return <article className={`public-demo-message ${message.role}`} key={`${message.role}-${index}`}>
           {message.role === 'user' && <div className="public-demo-message-label user-label"><span className="public-demo-message-avatar user-avatar">你</span>你的问题</div>}
-          {message.role === 'assistant' && <div className="public-demo-message-label"><span className="public-demo-message-avatar"><Bot size={15} /></span>{demo?.agent?.name || '知识问答助手'}</div>}
+          {message.role === 'assistant' && <div className="public-demo-message-label"><span className="public-demo-message-avatar">{demo?.agent?.icon ? <span className="public-demo-agent-emoji-small">{demo.agent.icon}</span> : <Bot size={15} />}</span>{demo?.agent?.name || '知识问答助手'}</div>}
           <div className="public-demo-bubble">{message.content
             ? <ReactMarkdown components={demoMarkdown}>{formatPublicDemoMarkdown(message.content)}</ReactMarkdown>
             : (sending && index === messages.length - 1 ? <span className="public-demo-answering"><i /><i /><i /> 正在整理知识库内容</span> : '')}</div>

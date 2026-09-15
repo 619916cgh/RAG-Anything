@@ -11,11 +11,11 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from lightrag.llm.openai import openai_complete_if_cache
 from lightrag.utils import logger as lightrag_logger
@@ -65,6 +65,10 @@ from raganything.services.pg_agent_repo import (
 )
 from raganything.services.prompt_builder import PromptBuilder, ContextLayer
 from raganything.query.tag_scoped_retriever import resolve_tag_scope, retrieve_tag_scoped_context
+from raganything.query.output_sanitizer import (
+    ReferenceOutputFilter,
+    strip_reference_markers,
+)
 from raganything.services.kb_service import (
     acquire_query_kb,
     _load_doc_status_json,
@@ -155,14 +159,22 @@ def _cancel_and_observe_task(task: asyncio.Task | None) -> None:
     task.add_done_callback(_consume_background_task_result)
 
 
-def _sanitize_client_trace_step(step: dict) -> dict:
+def _sanitize_client_trace_step(
+    step: dict,
+    *,
+    include_references: bool = True,
+) -> dict:
     """Keep internal retrieval observations out of SSE and durable history."""
     safe: dict = {}
     for key, value in step.items():
         if key == "observation":
             safe[key] = ""
         elif isinstance(value, str):
-            text = value
+            text = (
+                value
+                if include_references
+                else strip_reference_markers(value)
+            )
             for pattern in _SENSITIVE_MEDIA_REFERENCE_PATTERNS:
                 text = pattern.sub("[redacted-media-reference]", text)
             safe[key] = text
@@ -914,16 +926,21 @@ async def _call_summary_llm(
 # Pydantic Models
 # ═══════════════════════════════════════════════════════════════
 
+AgentQueryMode = Literal["rrf", "hybrid", "graph", "local", "global", "naive"]
+AgentMode = Literal["none", "react", "cot"]
+AgentQueryModeOverride = Literal["", "rrf", "hybrid", "graph", "local", "global", "naive"]
+
+
 class AgentCreateRequest(BaseModel):
     name: str = "新智能体"
     icon: str = "🤖"
     description: str = ""
     kb_name: str = "default"
-    llm_model: str = "qwen-plus"
+    llm_model: str = Field(default="qwen-plus", min_length=1, max_length=100)
     temperature: float = 0.0
     max_response_tokens: int = 4096
-    query_mode: str = "hybrid"
-    agent_mode: str = "none"  # "none" | "react" | "cot"
+    query_mode: AgentQueryMode = "hybrid"
+    agent_mode: AgentMode = "none"
     retrieval_top_k: int = 40
     chunk_top_k: int = 20
     enable_rerank: bool = False
@@ -933,17 +950,27 @@ class AgentCreateRequest(BaseModel):
     welcome_message: Optional[str] = None
     template_id: str = ""
 
+    @field_validator("llm_model")
+    @classmethod
+    def _validate_llm_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > 100 or any(
+            ord(char) < 32 or ord(char) == 127 for char in value
+        ):
+            raise ValueError("llm_model must be a bounded printable string")
+        return value
+
 
 class AgentUpdateRequest(BaseModel):
     name: Optional[str] = None
     icon: Optional[str] = None
     description: Optional[str] = None
     kb_name: Optional[str] = None
-    llm_model: Optional[str] = None
+    llm_model: Optional[str] = Field(default=None, min_length=1, max_length=100)
     temperature: Optional[float] = None
     max_response_tokens: Optional[int] = None
-    query_mode: Optional[str] = None
-    agent_mode: Optional[str] = None  # "none" | "react" | "cot"
+    query_mode: Optional[AgentQueryMode] = None
+    agent_mode: Optional[AgentMode] = None
     retrieval_top_k: Optional[int] = None
     chunk_top_k: Optional[int] = None
     enable_rerank: Optional[bool] = None
@@ -953,12 +980,24 @@ class AgentUpdateRequest(BaseModel):
     welcome_message: Optional[str] = None
     template_id: Optional[str] = None
 
+    @field_validator("llm_model")
+    @classmethod
+    def _validate_llm_model(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value or len(value) > 100 or any(
+            ord(char) < 32 or ord(char) == 127 for char in value
+        ):
+            raise ValueError("llm_model must be a bounded printable string")
+        return value
+
 
 class AgentQueryRequest(BaseModel):
     query: str
     thread_id: str = ""  # 关联的对话线程 ID
-    mode: str = ""  # 空则使用智能体默认模式
-    agent_mode: Optional[str] = None  # 空则使用智能体默认的 agent_mode
+    mode: AgentQueryModeOverride = ""  # 空则使用智能体默认模式
+    agent_mode: Optional[AgentMode] = None
     vlm_enhanced: bool = False
     image: Optional[str] = None  # base64 data URI of user-uploaded query image (e.g. data:image/jpeg;base64,...)
     tag_id: Optional[int] = None
@@ -982,6 +1021,8 @@ _AGENT_BOOL_DEFAULTS = {
     "include_references": True,
     "use_default_prompt": True,
 }
+_AGENT_QUERY_MODES = {"rrf", "hybrid", "graph", "local", "global", "naive"}
+_AGENT_REASONING_MODES = {"none", "react", "cot"}
 
 _AGENT_SYSTEM_PROMPT_WITHOUT_REFERENCES = (
     "基于检索内容回答。对话历史可用作理解用户上下文和指代关系，"
@@ -1030,6 +1071,16 @@ def _agent_runtime_config(agent: dict) -> dict:
     })
 
 
+def _normalise_query_mode(value: object, *, default: str = "hybrid") -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in _AGENT_QUERY_MODES else default
+
+
+def _normalise_agent_mode(value: object, *, default: str = "none") -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in _AGENT_REASONING_MODES else default
+
+
 def _build_agent_system_prompt(
     agent: dict,
     *,
@@ -1060,8 +1111,8 @@ def _image_aware_system_prompt(
 
 
 def _build_effective_agent_runtime(agent: dict, req: AgentQueryRequest) -> dict:
-    query_mode = req.mode or agent.get("query_mode") or "hybrid"
-    agent_mode = req.agent_mode or agent.get("agent_mode", "none")
+    query_mode = _normalise_query_mode(req.mode or agent.get("query_mode"))
+    agent_mode = _normalise_agent_mode(req.agent_mode or agent.get("agent_mode"))
     runtime_config = _agent_runtime_config(agent)
     runtime_config.update({
         "llm_model": agent.get("llm_model") or LLM_MODEL,
@@ -1073,7 +1124,7 @@ def _build_effective_agent_runtime(agent: dict, req: AgentQueryRequest) -> dict:
         "query_mode": query_mode,
         "agent_mode": agent_mode,
         # Agentic paths should honor the saved/default retrieval mode when available.
-        "agentic_query_mode": req.mode or agent.get("query_mode") or "rrf",
+        "agentic_query_mode": query_mode,
     })
     return runtime_config
 
@@ -1500,7 +1551,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 inventory = await get_knowledge_inventory(actual_kb)
                 answer = format_knowledge_inventory_answer(inventory, inventory_type)
                 timing.finish("settings_quota")
-                yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.get('name', ''), 'icon': agent.get('icon', ''), 'thread_id': thread_id}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'agent_info', 'agent': agent.get('name', ''), 'icon': agent.get('icon', ''), 'thread_id': thread_id, 'fixed_path': 'knowledge_inventory', 'config_applied': False}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'token', 'content': answer}, ensure_ascii=False)}\n\n"
                 elapsed = 0.0
                 now = datetime.now(timezone.utc).isoformat()
@@ -1509,7 +1560,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 })
                 await pg_add_message(agent_id, thread_id, {
                     "role": "assistant", "content": answer, "mode": "inventory",
-                    "elapsed": elapsed, "citations": [], "time": now,
+                    "elapsed": elapsed, "citations": [],
+                    "fixed_path": "knowledge_inventory", "config_applied": False,
+                    "time": now,
                 })
                 await record_query({
                     "id": query_id,
@@ -1525,8 +1578,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     "thread_id": thread_id,
                     "user_id": current_user["id"],
                     "username": current_user["username"],
+                    "fixed_path": "knowledge_inventory",
+                    "config_applied": False,
                 }, max_history=100)
-                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'citations': [], 'inventory': inventory}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'id': query_id, 'elapsed': elapsed, 'thread_id': thread_id, 'images': [], 'citations': [], 'inventory': inventory, 'fixed_path': 'knowledge_inventory', 'config_applied': False}, ensure_ascii=False)}\n\n"
             except asyncio.CancelledError:
                 timing_outcome = "cancelled"
                 raise
@@ -1587,21 +1642,18 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             if req.image
             else None
         )
-        llm_snapshot = vision_models.require_available(
-            resolved_settings.models.llm_profile_id, "llm"
+        llm_entry = vision_models.resolve_llm_entry(
+            resolved_settings.models.llm_profile_id,
+            agent.get("llm_model") or LLM_MODEL,
         )
         query_scope = await _query_cache_scope(
             actual_kb,
             int(current_user["id"]),
             resolved_settings.fingerprint,
-            llm_snapshot.fingerprint,
+            llm_entry.fingerprint,
         )
-        selected_llm = vision_models.build_llm_callable(
-            resolved_settings.models.llm_profile_id,
-            cache_scope=json.dumps(
-                query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            ),
-            timeout=resolved_settings.runtime.llm_timeout,
+        llm_cache_scope = json.dumps(
+            query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         )
     except (KeyError, RuntimeError, ValueError) as exc:
         timing.total(outcome="error")
@@ -1615,6 +1667,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             raise HTTPException(422, "Selected tag scope is no longer available")
     scope_metadata = {"tag_scope": {"id": tag_scope.tag_id, "name": tag_scope.tag_name}} if tag_scope else {}
     runtime_config = _build_effective_agent_runtime(agent, req)
+    runtime_config["llm_model"] = llm_entry.profile.model
     if req.retrieval_only and runtime_config["agent_mode"] != "none":
         timing.total(outcome="error")
         raise HTTPException(
@@ -1671,19 +1724,33 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
     # The request may have waited for a quota lease while the corpus changed.
     # Refresh the authoritative revision before selecting a query core or cache key.
     try:
+        llm_entry = vision_models.resolve_llm_entry(
+            resolved_settings.models.llm_profile_id,
+            agent.get("llm_model") or LLM_MODEL,
+        )
         query_scope = await _query_cache_scope(
             actual_kb,
             int(current_user["id"]),
             resolved_settings.fingerprint,
-            llm_snapshot.fingerprint,
+            llm_entry.fingerprint,
+        )
+        llm_cache_scope = json.dumps(
+            query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         )
         selected_llm = vision_models.build_llm_callable(
             resolved_settings.models.llm_profile_id,
-            cache_scope=json.dumps(
-                query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            ),
+            cache_scope=llm_cache_scope,
             timeout=resolved_settings.runtime.llm_timeout,
+            model_override=llm_entry.profile.model,
         )
+        selected_llm_fingerprint = getattr(
+            selected_llm, "model_profile_fingerprint", None
+        )
+        if (
+            selected_llm_fingerprint is not None
+            and selected_llm_fingerprint != llm_entry.fingerprint
+        ):
+            raise RuntimeError("selected LLM profile configuration changed")
     except (KeyError, RuntimeError, ValueError) as exc:
         await release_quota_lease(lease_id, lease_owner)
         timing.total(outcome="error")
@@ -1804,8 +1871,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             else None
         )
         llm_context_token = vision_models.activate_llm_selection(
-            llm_snapshot,
-            cache_scope=json.dumps(query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+            llm_entry,
+            cache_scope=llm_cache_scope,
             timeout=resolved_settings.runtime.llm_timeout,
             profile_id=resolved_settings.models.llm_profile_id,
         )
@@ -2042,7 +2109,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             "status": "done",
                             "description_preview": image_description[:100],
                         }
-                        if similar_images:
+                        if include_references and similar_images:
                             _status_fields["similar_count"] = len(similar_images)
                     else:
                         _status_fields = {
@@ -2052,7 +2119,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         }
                     yield f"data: {json.dumps({'type': 'image_analysis', **_status_fields}, ensure_ascii=False)}\n\n"
                     # Emit similar image URLs for frontend rendering
-                    if _similar_image_urls:
+                    if include_references and _similar_image_urls:
                         yield f"data: {json.dumps({'type': 'image_results', 'images': _similar_image_urls}, ensure_ascii=False)}\n\n"
 
                     # Image understanding has its own budget. Give the actual KB
@@ -2069,7 +2136,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         deadline_monotonic=retrieval_deadline,
                         provenance_sink=[],
                     )
-            _display_similar_images = _similar_image_urls
+            _display_similar_images = (
+                _similar_image_urls if include_references else []
+            )
 
             # ═══ AgenticRAG 推理路径（ReAct / CoT） ═══
             if agent_mode in ("react", "cot"):
@@ -2128,6 +2197,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 trace_steps = []
 
                 if agent_mode == "react":
+                    answer_filter = ReferenceOutputFilter(
+                        enabled=not include_references
+                    )
                     # ReAct 流式路径 — 通过 PromptBuilder 注入分层上下文
                     react_query = _build_layered_query(
                         rewritten_query,
@@ -2142,7 +2214,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         try:
                             scoped_context = await retrieve_tag_scoped_context(
                                 instance, tag_scope, rewritten_query,
-                                top_k=chunk_top_k, max_total_tokens=8000,
+                                top_k=chunk_top_k,
+                                retrieval_top_k=retrieval_top_k,
+                                enable_rerank=enable_rerank,
+                                max_total_tokens=8000,
                                 deadline_monotonic=retrieval_deadline,
                                 query_execution_scope=execution_scope,
                                 include_references=include_references,
@@ -2185,7 +2260,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                             f"\n\n## 硬性检索范围\n{scope_instruction}"
                             f"\n{scope_context}"
                         )
+                    last_event = None
                     async for event in agentic.run_stream(react_query):
+                        last_event = event
                         if event.type == "thinking":
                             sd = {
                                 "step": event.step or 0,
@@ -2195,15 +2272,37 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                                 "elapsed_ms": event.elapsed_ms,
                             }
                             trace_steps.append(sd)
-                            safe_sd = _sanitize_client_trace_step(sd)
+                            safe_sd = _sanitize_client_trace_step(
+                                sd,
+                                include_references=include_references,
+                            )
                             yield f"data: {json.dumps({'type': 'thinking', **safe_sd}, ensure_ascii=False)}\n\n"
                         elif event.type == "token":
-                            full_answer += (event.content or "")
-                            yield f"data: {json.dumps({'type': 'token', 'content': event.content or ''}, ensure_ascii=False)}\n\n"
+                            visible = answer_filter.feed(event.content or "")
+                            if visible:
+                                full_answer += visible
+                                yield f"data: {json.dumps({'type': 'token', 'content': visible}, ensure_ascii=False)}\n\n"
                         elif event.type == "done":
-                            if event.answer and len(event.answer) > len(full_answer):
+                            if (
+                                include_references
+                                and event.answer
+                                and len(event.answer) > len(full_answer)
+                            ):
                                 full_answer = event.answer
                             break
+                    visible_tail = answer_filter.finish()
+                    if visible_tail:
+                        full_answer += visible_tail
+                        yield f"data: {json.dumps({'type': 'token', 'content': visible_tail}, ensure_ascii=False)}\n\n"
+                    if (
+                        not include_references
+                        and not full_answer
+                        and last_event is not None
+                        and last_event.answer
+                    ):
+                        full_answer = strip_reference_markers(last_event.answer)
+                        if full_answer:
+                            yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
                     citation_context = react_query
                 else:
                     # CoT 路径：先 RRF 检索获取上下文，再注入 CoT 推理
@@ -2218,7 +2317,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         if tag_scope is not None:
                             cot_context = await retrieve_tag_scoped_context(
                                 instance, tag_scope, _cot_search_query,
-                                top_k=chunk_top_k, max_total_tokens=8000,
+                                top_k=chunk_top_k,
+                                retrieval_top_k=retrieval_top_k,
+                                enable_rerank=enable_rerank,
+                                max_total_tokens=8000,
                                 deadline_monotonic=retrieval_deadline,
                                 query_execution_scope=execution_scope,
                                 include_references=include_references,
@@ -2315,20 +2417,34 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     # 对话历史已在 line 527-530 注入到 _img_cot_ctx，此处不重复注入
                     agent_result = await agentic.run_with_context(rewritten_query, cot_context)
                     citation_context = cot_context
-                    full_answer = agent_result.answer
+                    full_answer = (
+                        agent_result.answer
+                        if include_references
+                        else strip_reference_markers(agent_result.answer)
+                    )
                     for s in agent_result.trace:
                         trace_steps.append({
                             "step": s.step_number,
                             "thought": s.thought,
                             "elapsed_ms": s.elapsed_ms,
                         })
-                        safe_step = _sanitize_client_trace_step(trace_steps[-1])
+                        safe_step = _sanitize_client_trace_step(
+                            trace_steps[-1],
+                            include_references=include_references,
+                        )
                         yield f"data: {json.dumps({'type': 'thinking', **safe_step}, ensure_ascii=False)}\n\n"
-                    yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
+                    if full_answer:
+                        yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
 
                 elapsed = round(time.time() - start_time, 2)
                 lightrag_logger.info(f"[AGENT-STREAM] mode={agent_mode} steps={len(trace_steps)} elapsed={elapsed}s")
-                client_trace_steps = [_sanitize_client_trace_step(step) for step in trace_steps]
+                client_trace_steps = [
+                    _sanitize_client_trace_step(
+                        step,
+                        include_references=include_references,
+                    )
+                    for step in trace_steps
+                ]
 
                 # ── 图片匹配（图谱发现 + bigram 兜底）──
                 # 从 ReAct search observation 和 CoT 检索上下文中提取图片路径
@@ -2365,6 +2481,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         "media",
                         outcome="timeout" if media_timed_out else "ok",
                     )
+                if not include_references:
+                    agent_images = []
                 if _backfill_text_react:
                     all_retrieved_text += "\n" + _backfill_text_react
 
@@ -2465,7 +2583,10 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 ctx_task = asyncio.ensure_future(
                     retrieve_tag_scoped_context(
                         instance, tag_scope, _search_query,
-                        top_k=chunk_top_k, max_total_tokens=16000,
+                        top_k=chunk_top_k,
+                        retrieval_top_k=retrieval_top_k,
+                        enable_rerank=enable_rerank,
+                        max_total_tokens=16000,
                         deadline_monotonic=retrieval_deadline,
                         query_execution_scope=execution_scope,
                         include_references=include_references,
@@ -2616,6 +2737,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
 
             # ── 截断 + 文件存在性校验（安全网）──
             agent_images = agent_images[:3]
+            if not include_references:
+                agent_images = []
 
             # ── 视觉相似图片上下文注入 ──
             # 将视觉搜索找到的相似图片描述注入 LLM 上下文。
@@ -2774,6 +2897,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 temperature=runtime_config["temperature"],
                 stream=True,
             )
+            answer_filter = ReferenceOutputFilter(
+                enabled=not include_references
+            )
 
             if llm_response is None:
                 timing.finish("llm", outcome="error")
@@ -2781,18 +2907,24 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 yield f"data: {json.dumps({'type': 'error', 'content': '模型返回空'}, ensure_ascii=False)}\n\n"
                 return
             if isinstance(llm_response, str):
-                full_answer = llm_response
+                full_answer = (
+                    answer_filter.feed(llm_response)
+                    + answer_filter.finish()
+                )
                 timing.record("llm_first_token", time.perf_counter() - llm_started)
-                yield f"data: {json.dumps({'type': 'token', 'content': llm_response}, ensure_ascii=False)}\n\n"
+                if full_answer:
+                    yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
             else:
                 _stream_tokens = []
                 try:
                     async for token in llm_response:
                         if not _stream_tokens:
                             timing.record("llm_first_token", time.perf_counter() - llm_started)
-                        _stream_tokens.append(token)
-                        full_answer += token
-                        yield f"data: {json.dumps({'type': 'token', 'content': token}, ensure_ascii=False)}\n\n"
+                        visible = answer_filter.feed(token)
+                        if visible:
+                            _stream_tokens.append(visible)
+                            full_answer += visible
+                            yield f"data: {json.dumps({'type': 'token', 'content': visible}, ensure_ascii=False)}\n\n"
                 except Exception as _stream_err:
                     lightrag_logger.warning(
                         f"LLM stream interrupted after {len(_stream_tokens)} tokens: {_stream_err}"
@@ -2800,6 +2932,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     if not _stream_tokens:
                         raise
                     yield f"data: {json.dumps({'type': 'warning', 'content': '⚠️ 模型响应被截断，以下回答可能不完整'}, ensure_ascii=False)}\n\n"
+                visible_tail = answer_filter.finish()
+                if visible_tail:
+                    _stream_tokens.append(visible_tail)
+                    full_answer += visible_tail
+                    yield f"data: {json.dumps({'type': 'token', 'content': visible_tail}, ensure_ascii=False)}\n\n"
 
             timing.finish("llm")
             timing.record("llm_last_token", time.perf_counter() - llm_started)

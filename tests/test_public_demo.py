@@ -289,7 +289,7 @@ async def test_demo_stream_uses_fixed_scope_and_never_persists_conversation(monk
     monkeypatch.setattr(demo, "get_active_demo_share", lambda _share_id: _async_value(_share()))
     monkeypatch.setattr(demo, "PromptBuilder", FakePromptBuilder)
     monkeypatch.setattr(agent, "_normalise_agent_config_values", lambda value: value)
-    monkeypatch.setattr(agent, "_build_agent_system_prompt", lambda _agent: "system")
+    monkeypatch.setattr(agent, "_build_agent_system_prompt", lambda _agent, **_kwargs: "system")
     monkeypatch.setattr(agent, "_build_agent_llm", lambda _runtime: fake_llm)
     monkeypatch.setattr(agent, "_recall_controlled_media_with_budget", fake_recall)
     monkeypatch.setattr(
@@ -348,7 +348,7 @@ async def test_demo_empty_context_done_keeps_success_payload_shape(monkeypatch):
     monkeypatch.setattr(demo, "acquire_query_kb", lambda *_args, **_kwargs: _async_value(Lease()))
     monkeypatch.setattr(demo, "release_demo_query", lambda _share_id: _async_none())
     monkeypatch.setattr(agent, "_normalise_agent_config_values", lambda value: value)
-    monkeypatch.setattr(agent, "_build_agent_system_prompt", lambda _agent: "system")
+    monkeypatch.setattr(agent, "_build_agent_system_prompt", lambda _agent, **_kwargs: "system")
 
     agent_value = {
         "id": "demo-agent", "llm_model": "model", "query_mode": "hybrid",
@@ -408,7 +408,7 @@ async def test_demo_stream_stops_before_nonstreaming_answer_after_revocation(mon
     monkeypatch.setattr(demo, "get_active_demo_share", revoked_share)
     monkeypatch.setattr(demo, "PromptBuilder", FakePromptBuilder)
     monkeypatch.setattr(agent, "_normalise_agent_config_values", lambda value: value)
-    monkeypatch.setattr(agent, "_build_agent_system_prompt", lambda _agent: "system")
+    monkeypatch.setattr(agent, "_build_agent_system_prompt", lambda _agent, **_kwargs: "system")
     monkeypatch.setattr(agent, "_build_agent_llm", lambda _runtime: fake_llm)
 
     agent_value = {
@@ -420,6 +420,203 @@ async def test_demo_stream_stops_before_nonstreaming_answer_after_revocation(mon
     decoded = [json.loads(line[6:]) for line in events]
     assert not any(event.get("content") == "should not be exposed" for event in decoded)
     assert decoded[-1]["type"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_demo_react_honors_saved_config_and_filters_references(monkeypatch):
+    calls = {
+        "search_tool": None,
+        "agentic": None,
+        "system_prompt": None,
+        "recall": 0,
+    }
+
+    class Instance:
+        config = SimpleNamespace(enforce_citation=False)
+
+        async def finalize_storages(self):
+            return None
+
+    class Lease:
+        instance = Instance()
+
+        async def release(self):
+            return None
+
+    class FakeSearchTool:
+        def __init__(self, instance, **kwargs):
+            calls["search_tool"] = {"instance": instance, **kwargs}
+
+    class FakeAgenticRAG:
+        def __init__(self, **kwargs):
+            calls["agentic"] = kwargs
+
+        def register_tool(self, tool):
+            self.tool = tool
+
+        async def run_stream(self, query):
+            assert query == "question"
+            yield SimpleNamespace(
+                type="token", content="电池 ", answer=None, observation=None
+            )
+            yield SimpleNamespace(
+                type="token", content="[来", answer=None, observation=None
+            )
+            yield SimpleNamespace(
+                type="token", content="源 1]", answer=None, observation=None
+            )
+            yield SimpleNamespace(
+                type="thinking", content=None, answer=None, observation="raw source"
+            )
+            yield SimpleNamespace(
+                type="token", content="正常", answer=None, observation=None
+            )
+            yield SimpleNamespace(
+                type="done",
+                content=None,
+                answer="电池 [来源 1]正常",
+                observation=None,
+            )
+
+    def build_system_prompt(_agent, **kwargs):
+        calls["system_prompt"] = kwargs
+        return "system"
+
+    async def fake_recall(*_args):
+        calls["recall"] += 1
+        return [], "", "none", False
+
+    async def unexpected_citation(*_args, **_kwargs):
+        raise AssertionError("disabled references must not construct citations")
+
+    from raganything.routers import agent as agent_router
+    import raganything.agentic_rag as agentic_module
+
+    monkeypatch.setattr(demo, "load_kb_meta", lambda: _async_value({"cloud-kb": {}}))
+    monkeypatch.setattr(demo, "acquire_query_kb", lambda *_args, **_kwargs: _async_value(Lease()))
+    monkeypatch.setattr(demo, "release_demo_query", lambda _share_id: _async_none())
+    monkeypatch.setattr(demo, "get_active_demo_share", lambda _share_id: _async_value(_share()))
+    monkeypatch.setattr(agent_router, "_build_agent_system_prompt", build_system_prompt)
+    monkeypatch.setattr(agent_router, "_build_agent_llm", lambda _runtime: object())
+    monkeypatch.setattr(agent_router, "_recall_controlled_media_with_budget", fake_recall)
+    monkeypatch.setattr(agent_router, "_provenance_citations_from_scope", unexpected_citation)
+    monkeypatch.setattr(agentic_module, "AgenticRAG", FakeAgenticRAG)
+    monkeypatch.setattr(agentic_module, "SearchTool", FakeSearchTool)
+
+    agent_value = {
+        "id": "demo-agent", "name": "demo", "kb_name": "cloud-kb",
+        "llm_model": "qwen-max", "query_mode": "graph", "agent_mode": "react",
+        "enable_rerank": True, "chunk_top_k": 3, "retrieval_top_k": 7,
+        "include_references": False, "max_response_tokens": 1024,
+        "temperature": 0.2, "system_prompt": "", "use_default_prompt": False,
+    }
+    events = [
+        event async for event in demo._demo_events(
+            _share(), agent_value, "question", object()
+        )
+    ]
+    decoded = [json.loads(line[6:]) for line in events]
+    token_text = "".join(
+        event.get("content", "")
+        for event in decoded
+        if event["type"] == "token"
+    )
+
+    assert token_text == "电池 正常"
+    assert calls["system_prompt"] == {"include_references": False}
+    assert calls["search_tool"]["query_mode"] == "graph"
+    assert calls["search_tool"]["top_k"] == 7
+    assert calls["search_tool"]["chunk_top_k"] == 3
+    assert calls["search_tool"]["enable_rerank"] is True
+    assert calls["search_tool"]["include_references"] is False
+    assert calls["agentic"]["mode"] == "react"
+    assert calls["agentic"]["max_response_tokens"] == 1024
+    assert decoded[-1]["citations"] == []
+    assert decoded[-1]["sources"] == []
+    assert decoded[-1]["images"] == []
+    assert calls["recall"] == 0
+    assert "raw source" not in json.dumps(decoded, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_demo_cot_uses_retrieved_context_and_filters_references(monkeypatch):
+    calls = {"aquery": None, "agentic": None, "recall": 0}
+
+    class Instance:
+        async def aquery(self, query, **kwargs):
+            calls["aquery"] = {"query": query, **kwargs}
+            return "[来源 1]\n资料：manual.pdf\n电池电压是 12V。" * 20
+
+        async def finalize_storages(self):
+            return None
+
+    class Lease:
+        instance = Instance()
+
+        async def release(self):
+            return None
+
+    class FakeAgenticRAG:
+        def __init__(self, **kwargs):
+            calls["agentic"] = kwargs
+
+        async def run_with_context(self, query, context):
+            assert query == "question"
+            assert "[来源 1]" in context
+            return SimpleNamespace(
+                answer="电池电压是 12V。[来源 1]\n\n📚 参考来源\n[来源 1] — 原文",
+                trace=[],
+            )
+
+    async def fake_recall(*_args):
+        calls["recall"] += 1
+        return [], "", "none", False
+
+    async def unexpected_citation(*_args, **_kwargs):
+        raise AssertionError("disabled references must not construct citations")
+
+    from raganything.routers import agent as agent_router
+    import raganything.agentic_rag as agentic_module
+
+    monkeypatch.setattr(demo, "load_kb_meta", lambda: _async_value({"cloud-kb": {}}))
+    monkeypatch.setattr(demo, "acquire_query_kb", lambda *_args, **_kwargs: _async_value(Lease()))
+    monkeypatch.setattr(demo, "release_demo_query", lambda _share_id: _async_none())
+    monkeypatch.setattr(demo, "get_active_demo_share", lambda _share_id: _async_value(_share()))
+    monkeypatch.setattr(agent_router, "_build_agent_system_prompt", lambda *_args, **_kwargs: "system")
+    monkeypatch.setattr(agent_router, "_build_agent_llm", lambda _runtime: object())
+    monkeypatch.setattr(agent_router, "_recall_controlled_media_with_budget", fake_recall)
+    monkeypatch.setattr(agent_router, "_provenance_citations_from_scope", unexpected_citation)
+    monkeypatch.setattr(agentic_module, "AgenticRAG", FakeAgenticRAG)
+
+    agent_value = {
+        "id": "demo-agent", "name": "demo", "kb_name": "cloud-kb",
+        "llm_model": "qwen-max", "query_mode": "local", "agent_mode": "cot",
+        "enable_rerank": False, "chunk_top_k": 4, "retrieval_top_k": 9,
+        "include_references": False, "max_response_tokens": 2048,
+        "temperature": 0.0, "system_prompt": "", "use_default_prompt": False,
+    }
+    events = [
+        event async for event in demo._demo_events(
+            _share(), agent_value, "question", object()
+        )
+    ]
+    decoded = [json.loads(line[6:]) for line in events]
+    token_text = "".join(
+        event.get("content", "")
+        for event in decoded
+        if event["type"] == "token"
+    )
+
+    assert token_text == "电池电压是 12V。\n\n"
+    assert calls["aquery"]["mode"] == "local"
+    assert calls["aquery"]["top_k"] == 9
+    assert calls["aquery"]["chunk_top_k"] == 4
+    assert calls["aquery"]["enable_rerank"] is False
+    assert calls["agentic"]["mode"] == "cot"
+    assert decoded[-1]["citations"] == []
+    assert decoded[-1]["sources"] == []
+    assert decoded[-1]["images"] == []
+    assert calls["recall"] == 0
 
 
 async def _async_none():

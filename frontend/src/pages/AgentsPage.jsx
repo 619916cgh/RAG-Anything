@@ -15,7 +15,7 @@ import { sortAgents } from '../utils/agentSorting'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
 import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
 
-const MODE_LABELS = { rrf: '融合', hybrid: '混合', local: '精确', global: '全局', naive: '快速' }
+const MODE_LABELS = { rrf: '混合（兼容）', hybrid: '混合', graph: '图谱', local: '精确', global: '全局', naive: '快速' }
 const AGENT_MODE_LABELS = { none: '普通', react: 'ReAct', cot: 'CoT' }
 const AGENT_MODE_ICONS = { none: MessageSquare, react: Brain, cot: Layers }
 const AGENT_GRID_ROWS = 2
@@ -221,7 +221,8 @@ export default function AgentsPage({ onToast }) {
       name: agent.name, icon: agent.icon || '', description: agent.description || '',
       kb_name: agent.kb_name, llm_model: agent.llm_model, temperature: agent.temperature || 0,
       max_response_tokens: clampAgentNumber('max_response_tokens', agent.max_response_tokens),
-      query_mode: agent.query_mode, agent_mode: agent.agent_mode || 'none',
+      query_mode: agent.query_mode,
+      agent_mode: agent.agent_mode || 'none',
       retrieval_top_k: clampAgentNumber('retrieval_top_k', agent.retrieval_top_k),
       chunk_top_k: clampAgentNumber('chunk_top_k', agent.chunk_top_k),
       enable_rerank: Boolean(agent.enable_rerank), include_references: agent.include_references !== false,
@@ -368,6 +369,7 @@ export default function AgentsPage({ onToast }) {
   const activeAnswerStyle = ANSWER_STYLE_PRESETS.find(
     preset => normalizePrompt(preset.prompt) === normalizePrompt(form.system_prompt)
   )
+  const editingTemplate = templates.find(tpl => tpl.id === form.template_id) || null
   const nameError = nameTouched && !form.name.trim() ? '请输入智能体名称' : ''
   return (
     <div className="resource-page resource-page-agents">
@@ -579,6 +581,39 @@ export default function AgentsPage({ onToast }) {
                         </button>
                       ))}
                     </div>
+                    {!editingAgent && form.template_id && (
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, template_id: '' })}
+                        className="mt-2 text-2xs text-sky-600 transition-colors hover:text-sky-700"
+                      >
+                        清除模板来源
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {editingAgent && (
+                  <div className="rounded-xl border border-cloud-300 bg-cloud-50/70 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-ink-muted">来源模板</p>
+                        <p className="mt-0.5 truncate text-xs text-ink-body">
+                          {editingTemplate
+                            ? `${editingTemplate.icon || ''} ${editingTemplate.name}`.trim()
+                            : form.template_id || '自定义配置（无模板来源）'}
+                        </p>
+                      </div>
+                      {form.template_id && (
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, template_id: '' })}
+                          className="shrink-0 text-2xs text-sky-600 transition-colors hover:text-sky-700"
+                        >
+                          清除模板来源
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -641,8 +676,11 @@ export default function AgentsPage({ onToast }) {
                   <label className="text-xs text-ink-muted mb-1 block">默认查询模式</label>
                   <select className="input-field" value={form.query_mode}
                     onChange={e => setForm({ ...form, query_mode: e.target.value })}>
-                    <option value="rrf">融合检索 RRF</option>
+                    {form.query_mode === 'rrf' && (
+                      <option value="rrf">混合检索（兼容旧 RRF）</option>
+                    )}
                     <option value="hybrid">混合检索（推荐）</option>
+                    <option value="graph">知识图谱检索</option>
                     <option value="local">精确检索</option>
                     <option value="global">全局检索</option>
                     <option value="naive">快速检索</option>

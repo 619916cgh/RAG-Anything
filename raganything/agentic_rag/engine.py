@@ -148,17 +148,20 @@ class AgenticRAG:
             if action.upper() == "FINISH":
                 elapsed = (time.time() - step_start) * 1000
                 answer = action_input.get("answer", thought) if action_input else thought
-                # 若 2048 token 不足以产出答案（JSON 截断），补一次大 token 调用
-                if not action_input or not action_input.get("answer"):
-                    try:
-                        response_full = await self._call_llm_with_retry(
-                            system_prompt, user_prompt, messages,
-                            is_final_step=True,
-                        )
-                        _, _, ai_full = self._parse_action(response_full)
-                        answer = (ai_full.get("answer", thought) if ai_full else thought)
-                    except Exception:
-                        pass
+                # FINISH is the user-visible answer, so always regenerate it
+                # with the configured final-response budget instead of the
+                # smaller Thought/Action probe budget.
+                try:
+                    response_full = await self._call_llm_with_retry(
+                        system_prompt, user_prompt, messages,
+                        is_final_step=True,
+                    )
+                    _, _, ai_full = self._parse_action(response_full)
+                    if ai_full and ai_full.get("answer"):
+                        answer = ai_full["answer"]
+                        action_input = ai_full
+                except Exception:
+                    pass
 
                 trace.append(ReasoningStep(
                     step_number=step_num,
@@ -225,6 +228,7 @@ class AgenticRAG:
                         system_prompt,
                         f"已达到最大步数限制({self.max_steps}步)。请基于已收集的信息给出最终回答。\n\n用户问题: {query}",
                         [],
+                        is_final_step=True,
                     )
                     full = final_response.strip() if isinstance(final_response, str) else str(final_response)
                 except Exception:
@@ -259,7 +263,7 @@ class AgenticRAG:
 
         role_identity = (
             self.system_prompt_override
-            if self.system_prompt_override
+            if self.system_prompt_override is not None
             else "你是一个具备多步推理能力的 AI 助手。你可以使用工具来获取信息，然后逐步推理得出最终答案。"
         )
         citation_rules = (
@@ -313,7 +317,7 @@ Action Input: <JSON 格式的工具参数 或 最终答案>
         """
         role_identity = (
             self.system_prompt_override
-            if self.system_prompt_override
+            if self.system_prompt_override is not None
             else "你是一个具备逐步推理能力的 AI 助手。"
         )
         answer_structure = (
@@ -488,18 +492,19 @@ Action Input: <JSON 格式的工具参数 或 最终答案>
             # ── 检查是否 FINISH ──
             if action.upper() == "FINISH":
                 answer = action_input.get("answer", thought) if action_input else thought
-                # 若 2048 token 仍不足以产出答案（JSON 截断），补一次大 token 调用
-                if not action_input or not action_input.get("answer"):
-                    try:
-                        response_full = await self._call_llm_with_retry(
-                            system_prompt, user_prompt, messages,
-                            is_final_step=True,
-                        )
-                        _, _, ai_full = self._parse_action(response_full)
-                        if ai_full and ai_full.get("answer"):
-                            answer = ai_full["answer"]
-                    except Exception:
-                        pass
+                # Match the streaming path: the user-visible FINISH answer
+                # always receives the configured final-response budget.
+                try:
+                    response_full = await self._call_llm_with_retry(
+                        system_prompt, user_prompt, messages,
+                        is_final_step=True,
+                    )
+                    _, _, ai_full = self._parse_action(response_full)
+                    if ai_full and ai_full.get("answer"):
+                        answer = ai_full["answer"]
+                        action_input = ai_full
+                except Exception:
+                    pass
                 trace.append(ReasoningStep(
                     step_number=step_num,
                     thought=thought,

@@ -83,6 +83,25 @@ def _scope_provenance_sink(
     return sink if isinstance(sink, list) else None
 
 
+def _bounded_rrf_context_chunks(
+    chunks: list[Any],
+    *,
+    limit: int,
+    max_total_tokens: int,
+) -> list[Any]:
+    """Apply the final chunk-count and token budgets before provenance."""
+    selected: list[Any] = []
+    used_tokens = 0
+    for chunk in chunks[:limit]:
+        content = _chunk_value(chunk, "content") or ""
+        estimated_tokens = max(1, len(str(content)) // 2)
+        if selected and used_tokens + estimated_tokens > max_total_tokens:
+            break
+        selected.append(chunk)
+        used_tokens += estimated_tokens
+    return selected
+
+
 def _chunk_value(chunk: object, *names: str) -> Any:
     for name in names:
         if isinstance(chunk, dict):
@@ -719,6 +738,16 @@ class QueryMixin:
         try:
             # Stage 1: Retrieve chunks via RRF fusion
             top_k = kwargs.get("top_k", 100)
+            try:
+                context_limit = int(kwargs.get("chunk_top_k", 15))
+            except (TypeError, ValueError):
+                context_limit = 15
+            context_limit = max(1, min(100, context_limit))
+            try:
+                max_total_tokens = int(kwargs.get("max_total_tokens", 8000))
+            except (TypeError, ValueError):
+                max_total_tokens = 8000
+            max_total_tokens = max(1000, min(64000, max_total_tokens))
             query_execution_scope = query_execution_scope or {}
             if retrieval_options is not None:
                 # The settings service owns the public immutable shape, while
@@ -776,7 +805,7 @@ class QueryMixin:
 
             # Stage 1.5: Rerank chunks (optional, enabled by RERANK_ENABLED=true)
             enable_rerank = kwargs.pop("enable_rerank", False)
-            rerank_top_n = 15
+            rerank_top_n = context_limit
             if enable_rerank:
                 import os as _os
                 rerank_model = _os.getenv("RERANK_MODEL", "qwen3-rerank")
@@ -832,12 +861,18 @@ class QueryMixin:
                 else:
                     self.logger.warning("Rerank enabled but no API key found")
 
+            context_chunks = _bounded_rrf_context_chunks(
+                chunks,
+                limit=context_limit,
+                max_total_tokens=max_total_tokens,
+            )
+
             # Agent retrieval first requests context-only data for its own
             # request-scoped generation step. It does not use entity annotations,
             # so avoid the full graph scan and debug-only tokenization below.
             # Source lookup remains bounded because it supplies citation labels.
             if only_need_context:
-                chunk_ids = [c.chunk_id for c in chunks[:15]]
+                chunk_ids = [c.chunk_id for c in context_chunks]
                 try:
                     source_infos = await await_before_deadline(
                         self.batch_get_doc_source_info_async(chunk_ids),
@@ -859,7 +894,7 @@ class QueryMixin:
                 if provenance_sink is not None:
                     references = await _prepare_provenance_references(
                         self,
-                        list(chunks[:15]),
+                        list(context_chunks),
                         source_infos=source_infos,
                         deadline_monotonic=post_retrieval_deadline,
                         hydrate_storage=True,
@@ -904,7 +939,7 @@ class QueryMixin:
                     )
                 else:
                     doc_name_counts: dict[str, int] = {}
-                    for chunk in chunks[:15]:
+                    for chunk in context_chunks:
                         info = source_infos.get(chunk.chunk_id, {})
                         document_name = chunk.document_name or info.get("document_name")
                         source_name = display_document_name(
@@ -972,7 +1007,7 @@ class QueryMixin:
             all_entity_names = set(entity_data.keys())
 
             # Enrich chunks with source document info for citation tracing
-            chunk_ids = [c.chunk_id for c in chunks[:15]]
+            chunk_ids = [c.chunk_id for c in context_chunks]
             try:
                 source_infos = await await_before_deadline(
                     self.batch_get_doc_source_info_async(chunk_ids),
@@ -980,7 +1015,7 @@ class QueryMixin:
                 )
             except Exception:
                 source_infos = {}
-            for chunk in chunks[:15]:
+            for chunk in context_chunks:
                 info = source_infos.get(chunk.chunk_id, {})
                 chunk.file_path = chunk.file_path or info.get("file_path")
                 chunk.document_name = chunk.document_name or info.get("document_name")
@@ -988,7 +1023,7 @@ class QueryMixin:
             if provenance_sink is not None:
                 references = await _prepare_provenance_references(
                     self,
-                    list(chunks[:15]),
+                    list(context_chunks),
                     source_infos=source_infos,
                     deadline_monotonic=post_retrieval_deadline,
                     hydrate_storage=True,
@@ -999,7 +1034,7 @@ class QueryMixin:
             else:
                 registered = []
                 doc_name_counts: dict[str, int] = {}
-                for chunk in chunks[:15]:
+                for chunk in context_chunks:
                     document_name = display_document_name(
                         chunk.document_name,
                         default=f"未知文档-{chunk.chunk_id[:8]}",
@@ -1019,7 +1054,7 @@ class QueryMixin:
                         }
                     )
             context_parts = []
-            for chunk, reference in zip(chunks[:15], registered):
+            for chunk, reference in zip(context_chunks, registered):
                 # Annotate chunks with relevant entity names using word-boundary matching
                 matched_relevant = []   # entities with relevant types (模块/功能/组件/系统)
                 matched_other = []      # other entities (fallback)
@@ -1101,7 +1136,10 @@ class QueryMixin:
                         f"RRF doc-{i+1} 关联实体: {names}"
                     )
             if not any("[关联实体" in p for p in context_parts):
-                self.logger.info("RRF entity-annotation: NONE in top-15 context")
+                self.logger.info(
+                    "RRF entity-annotation: NONE in top-%d context",
+                    len(context_chunks),
+                )
 
             # Stage 3: Generate answer via LLM
             citation_instruction = ""

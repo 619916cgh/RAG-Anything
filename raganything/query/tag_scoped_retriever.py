@@ -14,8 +14,6 @@ from raganything.services.kb_tag_repo import get_tag_assignments
 from raganything.services.query_execution import await_before_deadline
 from raganything.utils import display_document_name
 
-_SEMANTIC_CANDIDATE_LIMIT = int(os.getenv("TAG_SCOPE_SEMANTIC_CANDIDATES", "48"))
-
 
 @dataclass(frozen=True)
 class TagScope:
@@ -42,6 +40,8 @@ async def retrieve_tag_scoped_context(
     query: str,
     *,
     top_k: int = 20,
+    retrieval_top_k: int | None = None,
+    enable_rerank: bool = False,
     max_total_tokens: int = 8000,
     deadline_monotonic: float | None = None,
     query_execution_scope: Any = None,
@@ -55,7 +55,10 @@ async def retrieve_tag_scoped_context(
                 scope,
                 query,
                 top_k=top_k,
+                retrieval_top_k=retrieval_top_k,
+                enable_rerank=enable_rerank,
                 max_total_tokens=max_total_tokens,
+                deadline_monotonic=deadline_monotonic,
                 query_execution_scope=query_execution_scope,
                 include_references=include_references,
             ),
@@ -71,7 +74,10 @@ async def _retrieve_tag_scoped_context_unbounded(
     query: str,
     *,
     top_k: int = 20,
+    retrieval_top_k: int | None = None,
+    enable_rerank: bool = False,
     max_total_tokens: int = 8000,
+    deadline_monotonic: float | None = None,
     query_execution_scope: Any = None,
     include_references: bool = True,
 ) -> str:
@@ -90,7 +96,21 @@ async def _retrieve_tag_scoped_context_unbounded(
     if not chunks:
         return ""
 
-    ranked = await _rank_chunks(instance, chunks, query, max(1, min(int(top_k or 20), 100)))
+    final_limit = max(1, min(int(top_k or 20), 100))
+    candidate_limit = (
+        final_limit
+        if retrieval_top_k is None
+        else max(final_limit, min(int(retrieval_top_k), 200))
+    )
+    ranked = await _rank_chunks(
+        instance,
+        chunks,
+        query,
+        top_k=final_limit,
+        retrieval_top_k=candidate_limit,
+        enable_rerank=enable_rerank,
+        deadline_monotonic=deadline_monotonic,
+    )
     token_budget = max(1000, int(max_total_tokens or 8000))
     used_tokens = 0
     sections = [f"[检索范围仅限标签：{scope.tag_name}]" ]
@@ -140,11 +160,23 @@ async def _retrieve_tag_scoped_context_unbounded(
     return "\n\n".join(sections) if len(sections) > 1 else ""
 
 
-async def _rank_chunks(instance: Any, chunks: list[dict[str, Any]], query: str, top_k: int) -> list[dict[str, Any]]:
+async def _rank_chunks(
+    instance: Any,
+    chunks: list[dict[str, Any]],
+    query: str,
+    *,
+    top_k: int,
+    retrieval_top_k: int,
+    enable_rerank: bool,
+    deadline_monotonic: float | None,
+) -> list[dict[str, Any]]:
     lexical_scores = _lexical_scores(query, chunks)
     ranked_indices = sorted(range(len(chunks)), key=lambda index: lexical_scores[index], reverse=True)
-    semantic_limit = max(top_k, min(len(chunks), _SEMANTIC_CANDIDATE_LIMIT))
-    candidate_indices = ranked_indices[:semantic_limit]
+    candidate_limit = min(len(chunks), max(top_k, retrieval_top_k, 1))
+    candidate_indices = ranked_indices[:candidate_limit]
+    if not enable_rerank:
+        return [chunks[index] for index in candidate_indices[:top_k]]
+
     semantic_scores = await _semantic_scores(instance, query, [chunks[index] for index in candidate_indices])
 
     lexical_max = max((lexical_scores[index] for index in candidate_indices), default=0.0)
@@ -157,7 +189,46 @@ async def _rank_chunks(instance: Any, chunks: list[dict[str, Any]], query: str, 
         score = (0.65 * semantic + 0.35 * lexical) if semantic_scores else lexical
         combined.append((score, index))
     combined.sort(key=lambda value: value[0], reverse=True)
-    return [chunks[index] for _, index in combined[:top_k]]
+    locally_ranked = [chunks[index] for _, index in combined]
+
+    rerank_api_key = os.getenv(
+        "LLM_BINDING_API_KEY",
+        os.getenv("RERANK_BINDING_API_KEY", ""),
+    ).strip()
+    if not rerank_api_key:
+        return locally_ranked[:top_k]
+
+    try:
+        from raganything.query.utils import rerank_chunks
+
+        ranked = await await_before_deadline(
+            rerank_chunks(
+                query,
+                [str(chunk.get("content") or "") for chunk in locally_ranked],
+                api_key=rerank_api_key,
+                model=os.getenv("RERANK_MODEL", "qwen3-rerank"),
+                top_n=top_k,
+            ),
+            deadline_monotonic,
+        )
+    except Exception:
+        return locally_ranked[:top_k]
+
+    reranked: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, _content in ranked:
+        if isinstance(index, int) and 0 <= index < len(locally_ranked):
+            chunk = locally_ranked[index]
+            chunk_id = str(chunk.get("chunk_id") or id(chunk))
+            if chunk_id not in seen:
+                seen.add(chunk_id)
+                reranked.append(chunk)
+    for chunk in locally_ranked:
+        chunk_id = str(chunk.get("chunk_id") or id(chunk))
+        if chunk_id not in seen:
+            seen.add(chunk_id)
+            reranked.append(chunk)
+    return reranked[:top_k]
 
 
 def _lexical_scores(query: str, chunks: list[dict[str, Any]]) -> list[float]:

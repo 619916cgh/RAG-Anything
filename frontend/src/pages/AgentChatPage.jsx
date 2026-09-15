@@ -19,7 +19,6 @@ import { mapThreadMessages, shouldShowAgentProvenance } from '../utils/agentChat
 const RETRIEVAL_MODES = [
   { key: 'hybrid', icon: Layers, label: '智能混合', desc: '图谱+向量融合检索' },
   { key: 'graph', icon: GitGraph, label: '知识图谱', desc: '基于实体关系检索' },
-  { key: 'rrf', icon: Brain, label: '融合排序', desc: 'RRF 多路召回融合' },
   { key: 'local', icon: Zap, label: '精确匹配', desc: '局部上下文精确检索' },
   { key: 'global', icon: Search, label: '全局摘要', desc: '全库摘要式检索' },
   { key: 'naive', icon: MessageSquare, label: '快速问答', desc: '直接向量检索' },
@@ -161,6 +160,7 @@ export default function AgentChatPage({ onToast }) {
   const fileInputRef = useRef(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [tagOptions, setTagOptions] = useState([])
+  const [tagOptionsLoaded, setTagOptionsLoaded] = useState(false)
 
   // ── 消息编辑状态 ────────────────────────────────────
   const [editingMsgId, setEditingMsgId] = useState(null)  // msg.msg_id currently being edited
@@ -170,10 +170,13 @@ export default function AgentChatPage({ onToast }) {
   const blobUrlsRef = useRef(new Set())
   const prevMessagesRef = useRef([])
   const canAdjustModes = hasPermission('agent:read')
-  const effectiveMode = modeOverride ?? agent?.query_mode ?? 'hybrid'
+  const configuredMode = agent?.query_mode ?? 'hybrid'
+  const effectiveMode = modeOverride ?? configuredMode
   const effectiveAgentMode = agentModeOverride ?? agent?.agent_mode ?? 'none'
   const selectedTagId = searchParams.get('tag') || ''
   const selectedTag = tagOptions.find(tag => String(tag.id) === selectedTagId) || null
+  const tagScopePending = Boolean(selectedTagId && !tagOptionsLoaded)
+  const tagScopeInvalid = Boolean(selectedTagId && tagOptionsLoaded && !selectedTag)
 
   const trackBlobUrl = useCallback((url) => {
     if (url && url.startsWith('blob:')) {
@@ -255,12 +258,15 @@ export default function AgentChatPage({ onToast }) {
   useEffect(() => {
     if (!agent?.kb_name) {
       setTagOptions([])
+      setTagOptionsLoaded(false)
       return undefined
     }
     const controller = new AbortController()
+    setTagOptionsLoaded(false)
     api.listAllKnowledgeTags({ kb: agent.kb_name, signal: controller.signal })
       .then(result => setTagOptions(Array.isArray(result.tags) ? result.tags : []))
       .catch(() => setTagOptions([]))
+      .finally(() => setTagOptionsLoaded(true))
     return () => controller.abort()
   }, [agent?.kb_name])
 
@@ -551,7 +557,7 @@ export default function AgentChatPage({ onToast }) {
     try {
       const body = { query, thread_id: threadId }
       if (selectedTag) body.tag_id = selectedTag.id
-      if (modeOverride !== null) {
+      if (modeOverride !== null && !selectedTag) {
         body.mode = effectiveMode
       }
       if (agentModeOverride !== null) {
@@ -596,7 +602,7 @@ export default function AgentChatPage({ onToast }) {
 
   // ── 发送消息 ─────────────────────────────────────────────
   const send = async () => {
-    if ((!input.trim() && !selectedImage) || loading) return
+    if ((!input.trim() && !selectedImage) || loading || tagScopePending || tagScopeInvalid) return
     // 如果没有活动会话线程，则先创建一个
     if (!activeThreadId) {
       const newThreadId = await createThread()
@@ -754,7 +760,9 @@ export default function AgentChatPage({ onToast }) {
   )
 
   // ── 获取当前模式标签 ───────────────────────────────────
-  const currentRetrievalLabel = RETRIEVAL_MODES.find(m => m.key === effectiveMode)?.label || '智能混合'
+  const currentRetrievalLabel = effectiveMode === 'rrf'
+    ? '智能混合（兼容旧 RRF）'
+    : (RETRIEVAL_MODES.find(m => m.key === effectiveMode)?.label || '智能混合')
   const currentReasoningLabel = REASONING_MODES.find(m => m.key === effectiveAgentMode)?.label || '直接回答'
 
   return (
@@ -780,7 +788,7 @@ export default function AgentChatPage({ onToast }) {
                 <ArrowLeft size={12} /> 返回列表
               </button>
               <div className="flex items-center gap-2.5">
-                <span className="text-2xl shrink-0">{agent.icon}</span>
+                <span className="text-2xl shrink-0">{agent?.icon || '🤖'}</span>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-ink-primary dark:text-cloud-200 truncate">{agent.name}</p>
                   <p className="text-2xs text-ink-muted dark:text-cloud-500 truncate">{getKnowledgeBaseDisplayName(agent)}</p>
@@ -890,7 +898,7 @@ export default function AgentChatPage({ onToast }) {
           </button>
 
           {/* 智能体身份信息 */}
-          <span className="text-xl shrink-0">{agent.icon}</span>
+          <span className="text-xl shrink-0">{agent?.icon || '🤖'}</span>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-ink-primary dark:text-cloud-200 truncate">{agent.name}</h2>
           </div>
@@ -900,12 +908,16 @@ export default function AgentChatPage({ onToast }) {
             <div className="flex items-center gap-1.5">
               {/* 检索模式下拉框 */}
               <div className="relative group">
-                <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-2xs font-medium text-ink-body dark:text-cloud-300 bg-cloud-50 dark:bg-sky-900/30 border border-cloud-200 dark:border-sky-800/30 hover:border-sky-300 dark:hover:border-sky-700 transition-colors">
+                <button
+                  type="button"
+                  disabled={Boolean(selectedTag)}
+                  title={selectedTag ? '标签范围固定使用受限混合检索' : undefined}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-2xs font-medium text-ink-body dark:text-cloud-300 bg-cloud-50 dark:bg-sky-900/30 border border-cloud-200 dark:border-sky-800/30 hover:border-sky-300 dark:hover:border-sky-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60">
                   <Search size={11} className="text-sky-500 dark:text-sky-400" />
-                  {currentRetrievalLabel}
+                  {selectedTag ? '标签受限混合' : currentRetrievalLabel}
                   <ChevronDown size={10} className="text-ink-muted dark:text-cloud-500" />
                 </button>
-                <div className="absolute right-0 top-full mt-1 w-52 card p-1.5 shadow-cloud-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-30">
+                <div className={`absolute right-0 top-full mt-1 w-52 card p-1.5 shadow-cloud-md transition-all duration-150 z-30 ${selectedTag ? 'hidden' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'}`}>
                   {RETRIEVAL_MODES.map(({ key, icon: Icon, label, desc }) => (
                     <button
                       key={key}
@@ -977,7 +989,7 @@ export default function AgentChatPage({ onToast }) {
               animate={{ opacity: 1, y: 0 }}
               className="flex flex-col items-center justify-center h-full max-w-md mx-auto text-center"
             >
-              <span className="text-5xl mb-4">{agent.icon}</span>
+              <span className="text-5xl mb-4">{agent?.icon || '🤖'}</span>
               <h3 className="text-lg font-semibold text-ink-primary dark:text-cloud-200 mb-1.5">
                 {agent.welcome_message || '你好！有什么可以帮你的？'}
               </h3>
@@ -1060,7 +1072,7 @@ export default function AgentChatPage({ onToast }) {
                   className="flex gap-3 group"
                 >
                   {/* 智能体头像 */}
-                  <span className="text-xl shrink-0 mt-0.5 select-none">{agent.icon}</span>
+                  <span className="text-xl shrink-0 mt-0.5 select-none">{agent?.icon || '🤖'}</span>
 
                   <div className="max-w-[80%] min-w-[40%] space-y-2">
                     {m.tag_scope ? <span className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-2xs text-sky-700 dark:border-sky-800/50 dark:bg-sky-900/30 dark:text-sky-300"><Tag size={11} />仅检索标签：{m.tag_scope.name}</span> : null}
@@ -1258,8 +1270,8 @@ export default function AgentChatPage({ onToast }) {
                       <ProvenanceList
                         citations={shouldShowAgentProvenance(agent) ? m.citations : []}
                         sources={shouldShowAgentProvenance(agent) ? m.sources : []}
-                        images={m.images}
-                        similarImages={m.similar_images}
+                        images={shouldShowAgentProvenance(agent) ? m.images : []}
+                        similarImages={shouldShowAgentProvenance(agent) ? m.similar_images : []}
                         kbName={agent?.kb_name || ''}
                       />
 
@@ -1291,7 +1303,7 @@ export default function AgentChatPage({ onToast }) {
               animate={{ opacity: 1, y: 0 }}
               className="flex gap-3"
             >
-              <span className="text-xl select-none">{agent.icon}</span>
+              <span className="text-xl select-none">{agent?.icon || '🤖'}</span>
               <div className="bg-cloud-50 dark:bg-sky-900/20 rounded-2xl rounded-tl-md px-4 py-3 border border-cloud-200 dark:border-sky-800/30">
                 <div className="flex items-center gap-2 text-xs text-ink-muted dark:text-cloud-500">
                   <span className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
@@ -1351,7 +1363,9 @@ export default function AgentChatPage({ onToast }) {
               <option value="">全部资料</option>
               {tagOptions.map(tag => <option key={tag.id} value={tag.id}>标签：{tag.name}（{tag.chunk_count || 0} 个切块）</option>)}
             </select>
-            {selectedTag ? <span className="text-2xs text-sky-600 dark:text-sky-400">仅检索该标签切块</span> : null}
+            {selectedTag ? <span className="text-2xs text-sky-600 dark:text-sky-400">仅检索该标签切块；固定使用受限混合排序，检索模式切换不适用</span> : null}
+            {tagScopePending ? <span className="text-2xs text-ink-muted dark:text-cloud-500">正在校验标签范围…</span> : null}
+            {tagScopeInvalid ? <span className="text-2xs text-rose-500">标签范围已失效，请重新选择问答范围</span> : null}
           </div>
 
           <div className="flex gap-2 items-end">
@@ -1415,7 +1429,7 @@ export default function AgentChatPage({ onToast }) {
               <button
                 className="btn-primary flex items-center gap-1.5 px-4 py-2.5 text-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={send}
-                disabled={!input.trim() && !selectedImage}
+                disabled={(!input.trim() && !selectedImage) || tagScopePending || tagScopeInvalid}
               >
                 <Send size={14} />
                 发送

@@ -161,7 +161,10 @@ async def test_disabled_references_omit_citations_from_stream_history_and_prompt
 
     async def answer_with_citation(prompt, **kwargs):
         llm_calls.append({"prompt": prompt, **kwargs})
-        return "电池电压应保持在 12V。[来源 1]"
+        return (
+            "电池电压应保持在 12V。[来源 1]\n\n"
+            "📚 参考来源\n[来源 1] — 原文：电池电压应保持在 12V。"
+        )
 
     async def save_message(_agent_id, _thread_id, message):
         persisted_messages.append(message)
@@ -172,6 +175,14 @@ async def test_disabled_references_omit_citations_from_stream_history_and_prompt
     async def unexpected_citation_build(*_args, **_kwargs):
         raise AssertionError("disabled references must not build citation DTOs")
 
+    async def recalled_media(*_args, **_kwargs):
+        return (
+            [{"media_id": "image-1", "url": "/api/files/image?path=private"}],
+            "",
+            "test",
+            False,
+        )
+
     monkeypatch.setattr(agent_router, "pg_get_agent", get_agent_without_references)
     monkeypatch.setattr(
         agent_router.vision_models,
@@ -181,6 +192,9 @@ async def test_disabled_references_omit_citations_from_stream_history_and_prompt
     monkeypatch.setattr(agent_router, "pg_add_message", save_message)
     monkeypatch.setattr(agent_router, "record_query", save_history)
     monkeypatch.setattr(agent_router, "_query_citations", unexpected_citation_build)
+    monkeypatch.setattr(
+        agent_router, "_recall_controlled_media_with_budget", recalled_media
+    )
 
     response = await agent_router.agent_query_stream(
         "agent-1",
@@ -199,14 +213,110 @@ async def test_disabled_references_omit_citations_from_stream_history_and_prompt
         message for message in persisted_messages
         if message.get("role") == "assistant"
     )
+    token_text = "".join(
+        event.get("content", "")
+        for event in events
+        if event["type"] == "token"
+    )
 
     assert retrieval_calls[0]["include_references"] is False
     assert "[来源" not in llm_calls[0]["prompt"]
     assert "本次检索未能获取到关联的文档文本内容" not in llm_calls[0]["prompt"]
     assert "不要输出来源标记" in llm_calls[0]["system_prompt"]
     assert done["citations"] == []
+    assert done["images"] == []
     assert assistant["citations"] == []
+    assert assistant.get("images", []) == []
     assert history_records[0]["citations"] == []
+    assert history_records[0]["images"] == []
+    assert token_text == assistant["content"] == history_records[0]["answer"]
+    assert "[来源" not in token_text
+    assert "参考来源" not in token_text
+
+
+@pytest.mark.asyncio
+async def test_disabled_references_filter_split_stream_before_sse_and_persistence(monkeypatch):
+    from raganything.routers import agent as agent_router
+
+    persisted_messages = []
+    history_records = []
+
+    class KB:
+        config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
+
+        async def aquery(self, *_args, **_kwargs):
+            return "电池电压应保持在 12V。" * 30
+
+        async def finalize_storages(self):
+            return None
+
+    _wire_agent_stream_prerequisites(
+        monkeypatch, agent_mode="none", kb_instance=KB()
+    )
+
+    async def get_agent_without_references(_agent_id):
+        return {
+            "id": "agent-1", "name": "agent", "kb_name": "kb", "owner_id": 7,
+            "query_mode": "hybrid", "agent_mode": "none", "retrieval_top_k": 20,
+            "chunk_top_k": 5, "enable_rerank": False, "include_references": False,
+            "max_response_tokens": 512, "temperature": 0.0, "system_prompt": "",
+            "use_default_prompt": True,
+        }
+
+    async def answer_stream(*_args, **_kwargs):
+        async def stream():
+            for token in ("电池电压 ", "12V。[来", "源 1]\n", "继续检查。"):
+                yield token
+
+        return stream()
+
+    async def save_message(_agent_id, _thread_id, message):
+        persisted_messages.append(message)
+
+    async def save_history(record, max_history=100):
+        history_records.append(record)
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", get_agent_without_references)
+    monkeypatch.setattr(
+        agent_router.vision_models,
+        "build_llm_callable",
+        lambda *_args, **_kwargs: answer_stream,
+    )
+    monkeypatch.setattr(agent_router, "pg_add_message", save_message)
+    monkeypatch.setattr(agent_router, "record_query", save_history)
+    monkeypatch.setattr(
+        agent_router,
+        "_query_citations",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("disabled references must not build citation DTOs")
+        ),
+    )
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(query="检查电池", thread_id="thread-1"),
+        _Request(),
+        current_user={"id": 7, "username": "user", "is_admin": True},
+        _perm=None,
+    )
+    body = await _body(response)
+    events = [
+        json.loads(line[6:]) for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    token_text = "".join(
+        event.get("content", "")
+        for event in events
+        if event["type"] == "token"
+    )
+    assistant = next(
+        message for message in persisted_messages
+        if message.get("role") == "assistant"
+    )
+
+    assert token_text == assistant["content"] == history_records[0]["answer"]
+    assert token_text == "电池电压 12V。\n继续检查。"
+    assert "[来源" not in token_text
 
 
 @pytest.mark.asyncio

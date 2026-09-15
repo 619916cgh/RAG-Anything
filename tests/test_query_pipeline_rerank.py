@@ -148,6 +148,46 @@ async def test_rerank_proceeds_without_deadline(monkeypatch):
     assert context.index("second chunk content") < context.index("first chunk content")
 
 
+@pytest.mark.asyncio
+async def test_rrf_chunk_top_k_controls_context_and_source_registration():
+    chunks = [
+        ScoredChunk(
+            chunk_id=f"c{index}",
+            content=f"chunk-{index} content",
+            score=1.0 / index,
+            sources=["bm25"],
+        )
+        for index in range(1, 31)
+    ]
+    pipeline = _make_pipeline(chunks)
+
+    context = await QueryMixin._aquery_rrf(
+        pipeline,
+        "test query",
+        only_need_context=True,
+        top_k=40,
+        chunk_top_k=20,
+        max_total_tokens=64000,
+    )
+
+    assert context.count("chunk-") == 20
+    assert "chunk-20 content" in context
+    assert "chunk-21 content" not in context
+
+    small_context = await QueryMixin._aquery_rrf(
+        pipeline,
+        "test query",
+        only_need_context=True,
+        top_k=40,
+        chunk_top_k=2,
+        max_total_tokens=64000,
+    )
+    assert small_context.count("chunk-") == 2
+    assert small_context.index("chunk-1 content") < small_context.index(
+        "chunk-2 content"
+    )
+
+
 def test_module_import_tolerates_invalid_budget_env(monkeypatch):
     """The budget constant must parse safely at import time: a garbage env
     value must fall back to the 1.5s default instead of crashing the module."""

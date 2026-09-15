@@ -42,6 +42,10 @@ from raganything.services.pg_agent_repo import pg_list_agents
 from raganything.utils.kb_display_name import get_knowledge_base_display_name
 from raganything.services.prompt_builder import PromptBuilder
 from raganything.services.query_execution import QueryExecutionScope, await_before_deadline
+from raganything.query.output_sanitizer import (
+    ReferenceOutputFilter,
+    strip_reference_markers,
+)
 from raganything.utils.security import validate_query_input
 from raganything.utils import display_document_name
 from raganything.utils.media import is_supported_video_file
@@ -395,7 +399,15 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
         from raganything.routers import agent as agent_router
 
         runtime = agent_router._normalise_agent_config_values(dict(agent))
-        runtime["system_prompt"] = agent_router._build_agent_system_prompt(agent)
+        include_references = runtime["include_references"]
+        agent_mode = agent_router._normalise_agent_mode(
+            runtime.get("agent_mode")
+        )
+        runtime["agent_mode"] = agent_mode
+        runtime["system_prompt"] = agent_router._build_agent_system_prompt(
+            agent,
+            include_references=include_references,
+        )
         deadline = time.monotonic() + _DEMO_QUERY_TIMEOUT
         metadata = (await load_kb_meta()).get(share.kb_name, {})
         revision = str(metadata.get("updated_at") or metadata.get("created_at") or "unknown")
@@ -411,16 +423,88 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
         )
         instance = lease.instance
         yield _sse({"type": "agent_info", "agent": agent.get("name", "演示助手"), "icon": agent.get("icon", ""), "demo": True})
-        yield _sse({"type": "thinking", "content": "正在检索云端知识库..."})
-        context = await await_before_deadline(
-            instance.aquery(
-                query, mode=runtime["query_mode"], only_need_context=True, vlm_enhanced=False,
-                enable_rerank=runtime["enable_rerank"], chunk_top_k=runtime["chunk_top_k"],
-                top_k=runtime["retrieval_top_k"], include_references=runtime["include_references"],
+        yield _sse({"type": "thinking", "content": "正在处理问题..."})
+
+        context = ""
+        answer = ""
+        answer_filter = ReferenceOutputFilter(enabled=not include_references)
+
+        if agent_mode == "react":
+            from raganything.agentic_rag import AgenticRAG, SearchTool
+
+            llm = agent_router._build_agent_llm(runtime)
+
+            async def bounded_llm(prompt, **kwargs):
+                return await await_before_deadline(
+                    llm(prompt, **kwargs),
+                    deadline,
+                )
+
+            agentic = AgenticRAG(
+                llm_func=bounded_llm,
+                max_steps=int(os.getenv("AGENT_MAX_STEPS", "5")),
+                mode="react",
+                max_response_tokens=runtime["max_response_tokens"],
+                system_prompt_override=runtime["system_prompt"],
+                include_references=include_references,
+            )
+            agentic.register_tool(SearchTool(
+                instance,
+                query_mode=runtime["query_mode"],
+                top_k=runtime["retrieval_top_k"],
+                chunk_top_k=runtime["chunk_top_k"],
+                enable_rerank=runtime["enable_rerank"],
+                include_references=include_references,
                 query_execution_scope=scope,
-            ), deadline,
-        )
-        if not isinstance(context, str) or not context.strip() or "[no-context]" in context:
+            ))
+            context_parts: list[str] = []
+            last_event = None
+            async for event in agentic.run_stream(query):
+                last_event = event
+                if event.type == "thinking" and event.observation:
+                    context_parts.append(event.observation)
+                elif event.type == "token":
+                    visible = answer_filter.feed(event.content or "")
+                    if visible:
+                        answer += visible
+                        yield _sse({"type": "token", "content": visible})
+                elif event.type == "done":
+                    if (
+                        include_references
+                        and event.answer
+                        and len(event.answer) > len(answer)
+                    ):
+                        answer = event.answer
+                    break
+            visible_tail = answer_filter.finish()
+            if visible_tail:
+                answer += visible_tail
+                yield _sse({"type": "token", "content": visible_tail})
+            if (
+                not include_references
+                and not answer
+                and last_event is not None
+                and last_event.answer
+            ):
+                answer = strip_reference_markers(last_event.answer)
+                if answer:
+                    yield _sse({"type": "token", "content": answer})
+            context = "\n".join(context_parts)
+        else:
+            context = await await_before_deadline(
+                instance.aquery(
+                    query, mode=runtime["query_mode"], only_need_context=True, vlm_enhanced=False,
+                    enable_rerank=runtime["enable_rerank"], chunk_top_k=runtime["chunk_top_k"],
+                    top_k=runtime["retrieval_top_k"], include_references=include_references,
+                    query_execution_scope=scope,
+                ), deadline,
+            )
+
+        if agent_mode != "react" and (
+            not isinstance(context, str)
+            or not context.strip()
+            or "[no-context]" in context
+        ):
             answer = "抱歉，知识库中暂无与您问题相关的数据，无法回答此问题。"
             yield _sse({"type": "token", "content": answer})
             yield _sse({
@@ -429,58 +513,113 @@ async def _demo_events(share: DemoShare, agent: dict, query: str, request: Reque
             })
             return
 
-        prompt = PromptBuilder(max_total_tokens=int(os.getenv("MAX_TOKENS", "8192")))
-        prompt.retrieval_context(context)
-        prompt.user_query(
-            query,
-            "请基于检索内容作答；引用时必须原样复用对应的 `[来源 N]` 编号，"
-            "不得改号或编造；信息不足时明确说明。",
-        )
-        final_prompt, _system = prompt.build()
         llm = agent_router._build_agent_llm(runtime)
-        yield _sse({"type": "thinking", "content": "正在生成回答..."})
-        response = await llm(final_prompt, system_prompt=runtime["system_prompt"], stream=True)
-        answer = ""
-        if isinstance(response, str):
-            if await get_active_demo_share(share.share_id) is None:
-                yield _sse({"type": "error", "content": "演示链接已失效"})
-                return
-            answer = response
-            yield _sse({"type": "token", "content": response})
-        else:
-            async for token in response:
+        if agent_mode == "cot":
+            from raganything.agentic_rag import AgenticRAG
+
+            async def bounded_llm(prompt, **kwargs):
+                return await await_before_deadline(
+                    llm(prompt, **kwargs),
+                    deadline,
+                )
+
+            agentic = AgenticRAG(
+                llm_func=bounded_llm,
+                max_steps=int(os.getenv("AGENT_MAX_STEPS", "5")),
+                mode="cot",
+                max_response_tokens=runtime["max_response_tokens"],
+                system_prompt_override=runtime["system_prompt"],
+                include_references=include_references,
+            )
+            result = await await_before_deadline(
+                agentic.run_with_context(query, context),
+                deadline,
+            )
+            answer = (
+                result.answer
+                if include_references
+                else strip_reference_markers(result.answer)
+            )
+            if answer:
+                yield _sse({"type": "token", "content": answer})
+        elif agent_mode == "none":
+            yield _sse({"type": "thinking", "content": "正在生成回答..."})
+            citation_instruction = (
+                "请基于检索内容作答；引用时必须原样复用对应的 `[来源 N]` 编号，"
+                "不得改号或编造；信息不足时明确说明。"
+                if include_references
+                else "请基于检索内容作答，不要输出来源标记、参考来源块或引用列表；"
+                "信息不足时明确说明。"
+            )
+            prompt = PromptBuilder(max_total_tokens=int(os.getenv("MAX_TOKENS", "8192")))
+            prompt.retrieval_context(context)
+            prompt.user_query(query, citation_instruction)
+            final_prompt, _system = prompt.build()
+            response = await await_before_deadline(
+                llm(
+                    final_prompt,
+                    system_prompt=runtime["system_prompt"],
+                    stream=True,
+                ),
+                deadline,
+            )
+            if isinstance(response, str):
                 if await get_active_demo_share(share.share_id) is None:
                     yield _sse({"type": "error", "content": "演示链接已失效"})
                     return
-                answer += str(token)
-                yield _sse({"type": "token", "content": str(token)})
+                answer = answer_filter.feed(response) + answer_filter.finish()
+                if answer:
+                    yield _sse({"type": "token", "content": answer})
+            else:
+                async for token in response:
+                    if await get_active_demo_share(share.share_id) is None:
+                        yield _sse({"type": "error", "content": "演示链接已失效"})
+                        return
+                    visible = answer_filter.feed(str(token))
+                    if visible:
+                        answer += visible
+                        yield _sse({"type": "token", "content": visible})
+                visible_tail = answer_filter.finish()
+                if visible_tail:
+                    answer += visible_tail
+                    yield _sse({"type": "token", "content": visible_tail})
 
         if await get_active_demo_share(share.share_id) is None:
             yield _sse({"type": "error", "content": "演示链接已失效"})
             return
-        recalled, _backfill, _source, _timed_out = await agent_router._recall_controlled_media_with_budget(
-            instance, query, share.kb_name, f"{context}\n{answer}",
-        )
-        media = [item for item in (_safe_demo_media_payload(share, value) for value in recalled) if item]
-        citations = await agent_router._provenance_citations_from_scope(
-            scope, share.kb_name, answer
-        )
-        citations = [
-            safe for citation in citations
-            if (safe := _safe_demo_citation(share, citation)) is not None
-        ]
+        media = []
+        if include_references:
+            recalled, _backfill, _source, _timed_out = await agent_router._recall_controlled_media_with_budget(
+                instance, query, share.kb_name, f"{context}\n{answer}",
+            )
+            media = [
+                item for item in (
+                    _safe_demo_media_payload(share, value) for value in recalled
+                ) if item
+            ]
+        citations = []
         sources = []
-        seen_sources = set()
-        for citation in citations:
-            name = display_document_name(citation.get("document_name"))
-            if name and name not in seen_sources:
-                seen_sources.add(name)
-                sources.append({"name": name})
+        if include_references:
+            citations = await agent_router._provenance_citations_from_scope(
+                scope, share.kb_name, answer
+            )
+            citations = [
+                safe for citation in citations
+                if (safe := _safe_demo_citation(share, citation)) is not None
+            ]
+            seen_sources = set()
+            for citation in citations:
+                name = display_document_name(citation.get("document_name"))
+                if name and name not in seen_sources:
+                    seen_sources.add(name)
+                    sources.append({"name": name})
+            if not sources:
+                sources = _safe_demo_sources(context)
         yield _sse({
             "type": "done",
             "demo": True,
             "images": media,
-            "sources": sources or _safe_demo_sources(context),
+            "sources": sources,
             "citations": citations,
         })
     except asyncio.CancelledError:

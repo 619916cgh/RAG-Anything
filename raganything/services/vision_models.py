@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import uuid
+from copy import copy
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from pathlib import Path
@@ -318,7 +319,9 @@ _ACTIVE_VLM_SNAPSHOT: ContextVar[tuple[str, str, str] | None] = ContextVar(
     "active_vision_vlm_snapshot", default=None
 )
 _VLM_CALLABLES: dict[tuple[str, str, int], Any] = {}
-_ACTIVE_LLM_SNAPSHOT: ContextVar[tuple[str, str, str, float | None] | None] = ContextVar(
+_ACTIVE_LLM_SNAPSHOT: ContextVar[
+    tuple[str, str, str, float | None, str] | None
+] = ContextVar(
     "active_text_llm_snapshot", default=None
 )
 _LLM_CALLABLES: dict[tuple[str, str, str, float | None, int], Any] = {}
@@ -610,6 +613,62 @@ def require_available(profile_id: str, kind: ModelKind) -> _CatalogEntry:
     return entry
 
 
+def _allowed_agent_llm_models(base_entry: _CatalogEntry) -> set[str]:
+    base_profile = getattr(base_entry, "profile", None)
+    allowed = {
+        str(getattr(base_profile, "model", "") or ""),
+        "qwen-plus",
+        "qwen-turbo",
+        "qwen-max",
+        "qwen3-32b",
+    }
+    for entry in load_catalog().values():
+        if (
+            entry.profile.kind == "llm"
+            and entry.profile.provider == getattr(base_profile, "provider", None)
+            and entry.base_url == getattr(base_entry, "base_url", None)
+        ):
+            allowed.add(entry.profile.model)
+    configured = os.getenv("AGENT_ALLOWED_LLM_MODELS", "")
+    allowed.update(item.strip() for item in configured.split(",") if item.strip())
+    return {model for model in allowed if model}
+
+
+def resolve_llm_entry(
+    profile_id: str,
+    model_override: str | None = None,
+) -> _CatalogEntry:
+    base_entry = require_available(profile_id, "llm")
+    base_profile = base_entry.profile
+    if model_override is None:
+        return base_entry
+    model = str(model_override).strip()
+    if not model:
+        raise ValueError("agent LLM model cannot be empty")
+    if len(model) > 100 or any(ord(char) < 32 or ord(char) == 127 for char in model):
+        raise ValueError("agent LLM model must be a bounded printable string")
+    if model not in _allowed_agent_llm_models(base_entry):
+        raise ValueError("agent LLM model is not permitted")
+    if model == getattr(base_profile, "model", None):
+        return base_entry
+    if hasattr(base_profile, "model_copy"):
+        updated_profile = base_profile.model_copy(update={"model": model})
+    else:
+        updated_profile = copy(base_profile)
+        updated_profile.model = model
+        if not hasattr(updated_profile, "provider"):
+            updated_profile.provider = "openai_compatible"
+        if not hasattr(updated_profile, "embedding_dim"):
+            updated_profile.embedding_dim = None
+    return _CatalogEntry(
+        profile=updated_profile,
+        base_url=getattr(base_entry, "base_url", None),
+        api_key_env=getattr(base_entry, "api_key_env", None),
+        timeout=float(getattr(base_entry, "timeout", 60.0)),
+        concurrency=max(1, int(getattr(base_entry, "concurrency", 4))),
+    )
+
+
 def build_vlm_callable(
     profile_id: str,
     *,
@@ -701,9 +760,11 @@ def build_llm_callable(
     cache_scope: str | None = None,
     timeout: float | None = None,
     provider_priority: ProviderPriority = ProviderPriority.QUERY,
+    model_override: str | None = None,
 ):
     """Build a secret-bearing server-only text callable for a catalog profile."""
-    entry = require_available(profile_id, "llm")
+    base_entry = require_available(profile_id, "llm")
+    entry = resolve_llm_entry(profile_id, model_override)
     if entry.profile.provider != "openai_compatible":
         raise RuntimeError("selected LLM provider adapter is unavailable")
     api_key = os.getenv(entry.api_key_env or "", "").strip()
@@ -729,7 +790,7 @@ def build_llm_callable(
                 base_url=base_url, **kwargs,
             )
 
-        if not _is_qwen_profile(entry):
+        if not _is_qwen_profile(base_entry):
             return await outbound()
         policy = _qwen_policy(entry, "llm")
         if kwargs.get("stream"):
@@ -738,6 +799,7 @@ def build_llm_callable(
 
     llm_func.model_profile_id = profile_id
     llm_func.model_profile_fingerprint = entry.fingerprint
+    llm_func.model_name = model
     return llm_func
 
 
@@ -754,7 +816,15 @@ def activate_llm_selection(
     selected_profile_id = profile_id or getattr(entry.profile, "id", None)
     if not selected_profile_id:
         raise RuntimeError("LLM context is missing a profile id")
-    return _ACTIVE_LLM_SNAPSHOT.set((selected_profile_id, entry.fingerprint, cache_scope, timeout))
+    return _ACTIVE_LLM_SNAPSHOT.set(
+        (
+            selected_profile_id,
+            entry.fingerprint,
+            cache_scope,
+            timeout,
+            entry.profile.model,
+        )
+    )
 
 
 def reset_llm_snapshot(token: Token) -> None:
@@ -763,7 +833,7 @@ def reset_llm_snapshot(token: Token) -> None:
 
 def build_contextual_llm_callable(default_profile_id: str, *, completion_func=None):
     """Return a shared-instance-safe LLM proxy resolved from request context."""
-    default_entry = get_entry(default_profile_id, "llm")
+    default_entry = require_available(default_profile_id, "llm")
 
     async def contextual_llm(*args, **kwargs):
         active = _ACTIVE_LLM_SNAPSHOT.get()
@@ -772,9 +842,10 @@ def build_contextual_llm_callable(default_profile_id: str, *, completion_func=No
             fingerprint = default_entry.fingerprint
             cache_scope = ""
             timeout = None
+            model_override = None
         else:
-            profile_id, fingerprint, cache_scope, timeout = active
-        entry = require_available(profile_id, "llm")
+            profile_id, fingerprint, cache_scope, timeout, model_override = active
+        entry = resolve_llm_entry(profile_id, model_override)
         if entry.fingerprint != fingerprint:
             raise RuntimeError("selected LLM profile configuration changed")
         key = (profile_id, fingerprint, cache_scope, timeout, id(completion_func))
@@ -785,6 +856,7 @@ def build_contextual_llm_callable(default_profile_id: str, *, completion_func=No
                 completion_func=completion_func,
                 cache_scope=cache_scope,
                 timeout=timeout,
+                model_override=model_override,
             )
             _LLM_CALLABLES[key] = provider
         return await provider(*args, **kwargs)
@@ -1810,6 +1882,7 @@ async def resume_reindex_jobs() -> None:
 __all__ = [
     "VisionModelProfile", "ModelProfile", "VisionLanguageProvider", "VisionEmbeddingProvider",
     "load_catalog", "reset_catalog_cache", "list_profiles", "list_model_profiles", "get_entry",
+    "resolve_llm_entry",
     "require_available", "register_provider", "get_platform_defaults", "build_llm_callable",
     "effective_qwen_fanout", "govern_openai_compatible_call",
     "build_contextual_llm_callable", "activate_llm_selection", "reset_llm_snapshot",

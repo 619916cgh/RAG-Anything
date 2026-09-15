@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from raganything.routers import agent as agent_router
 from raganything.services import pg_agent_repo, user_settings
@@ -477,6 +478,81 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
             "previous conversation established the PLC fault context" in item["context"]
             for item in agentic_contexts
         )
+
+
+@pytest.mark.asyncio
+async def test_llm_model_override_uses_agent_model_and_profile_transport(monkeypatch):
+    from raganything.services import vision_models
+
+    calls = []
+
+    async def completion(model, prompt, **kwargs):
+        calls.append({"model": model, "prompt": prompt, **kwargs})
+        return "ok"
+
+    entry = vision_models._CatalogEntry(
+        profile=vision_models.VisionModelProfile(
+            id="llm-profile",
+            kind="llm",
+            display_name="Profile model",
+            provider="openai_compatible",
+            model="profile-model",
+            available=True,
+        ),
+        base_url="https://provider.example/v1",
+        api_key_env="TEST_AGENT_LLM_KEY",
+        timeout=17,
+        concurrency=3,
+    )
+    monkeypatch.setenv("TEST_AGENT_LLM_KEY", "test-secret")
+    monkeypatch.setattr(
+        vision_models, "require_available", lambda *_args, **_kwargs: entry
+    )
+    monkeypatch.setattr(vision_models, "_is_qwen_profile", lambda _entry: False)
+
+    selected = vision_models.build_llm_callable(
+        "llm-profile",
+        completion_func=completion,
+        cache_scope="agent-model-override",
+        model_override="qwen-max",
+    )
+    await selected("direct prompt")
+    resolved = vision_models.resolve_llm_entry("llm-profile", "qwen-max")
+    token = vision_models.activate_llm_selection(
+        resolved,
+        cache_scope="agent-model-override",
+        timeout=17,
+        profile_id="llm-profile",
+    )
+    try:
+        context_callable = vision_models.build_contextual_llm_callable(
+            "llm-profile",
+            completion_func=completion,
+        )
+        await context_callable("context prompt")
+    finally:
+        vision_models.reset_llm_snapshot(token)
+
+    assert selected.model_name == "qwen-max"
+    assert selected.model_profile_fingerprint == resolved.fingerprint
+    assert calls[0]["model"] == "qwen-max"
+    assert calls[0]["api_key"] == "test-secret"
+    assert calls[0]["base_url"] == "https://provider.example/v1"
+    assert calls[0]["timeout"] == 17
+    assert calls[1]["model"] == "qwen-max"
+
+
+def test_agent_api_rejects_invalid_modes_and_model_names():
+    with pytest.raises(ValidationError):
+        agent_router.AgentCreateRequest(query_mode="unknown")
+    with pytest.raises(ValidationError):
+        agent_router.AgentCreateRequest(agent_mode="unknown")
+    with pytest.raises(ValidationError):
+        agent_router.AgentCreateRequest(llm_model=" ")
+    with pytest.raises(ValidationError):
+        agent_router.AgentCreateRequest(llm_model="bad\nmodel")
+    with pytest.raises(ValidationError):
+        agent_router.AgentQueryRequest(query="question", mode="unknown")
 
 
 @pytest.mark.asyncio

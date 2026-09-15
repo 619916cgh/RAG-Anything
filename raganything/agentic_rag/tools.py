@@ -106,6 +106,8 @@ class SearchTool(Tool):
                     self.tag_scope,
                     query,
                     top_k=self.chunk_top_k,
+                    retrieval_top_k=self.top_k,
+                    enable_rerank=self.enable_rerank,
                     max_total_tokens=8000,
                     deadline_monotonic=self._deadline(),
                     query_execution_scope=self.query_execution_scope,

@@ -45,6 +45,24 @@ class TestAgenticRAGReasoning:
         sp, _ = agent._build_react_prompt("测试")
         assert "具备多步推理能力的 AI 助手" in sp
 
+    def test_agentic_rag_empty_override_does_not_restore_builtin_role(self):
+        from raganything.agentic_rag import AgenticRAG
+
+        async def dummy_llm(prompt, system_prompt=None, history_messages=None, **kw):
+            return "Action: FINISH"
+
+        agent = AgenticRAG(
+            llm_func=dummy_llm,
+            max_steps=2,
+            mode="react",
+            system_prompt_override="",
+        )
+        react_prompt, _ = agent._build_react_prompt("测试")
+        cot_prompt, _ = agent._build_cot_prompt("测试", context="检索内容")
+
+        assert "具备多步推理能力的 AI 助手" not in react_prompt
+        assert "具备逐步推理能力的 AI 助手" not in cot_prompt
+
     def test_agentic_rag_can_disable_reference_requirements(self):
         from raganything.agentic_rag import AgenticRAG
 
@@ -178,6 +196,56 @@ class TestAgenticRAGReasoning:
         await agent._cot_loop("question", context="context")
 
         assert calls == [2048, 8192, 8192, 8192]
+
+    @pytest.mark.asyncio
+    async def test_react_finish_regenerates_with_full_response_budget(self):
+        from raganything.agentic_rag import AgenticRAG
+
+        calls = []
+
+        async def dummy_llm(prompt, system_prompt=None, history_messages=None, **kw):
+            calls.append(kw.get("max_tokens"))
+            if len(calls) == 1:
+                return (
+                    "Thought: probe\nAction: FINISH\n"
+                    'Action Input: {"answer": "short"}'
+                )
+            return (
+                "Thought: final\nAction: FINISH\n"
+                'Action Input: {"answer": "完整最终回答"}'
+            )
+
+        agent = AgenticRAG(dummy_llm, max_response_tokens=8192)
+        result = await agent.run("question")
+
+        assert calls == [2048, 8192]
+        assert result.answer == "完整最终回答"
+
+    @pytest.mark.asyncio
+    async def test_react_stream_finish_regenerates_with_full_response_budget(self):
+        from raganything.agentic_rag import AgenticRAG
+
+        calls = []
+
+        async def dummy_llm(prompt, system_prompt=None, history_messages=None, **kw):
+            calls.append(kw.get("max_tokens"))
+            if len(calls) == 1:
+                return (
+                    "Thought: probe\nAction: FINISH\n"
+                    'Action Input: {"answer": "short"}'
+                )
+            return (
+                "Thought: final\nAction: FINISH\n"
+                'Action Input: {"answer": "完整流式回答"}'
+            )
+
+        agent = AgenticRAG(dummy_llm, max_response_tokens=8192)
+        events = [event async for event in agent.run_stream("question")]
+
+        assert calls == [2048, 8192]
+        assert "".join(
+            event.content or "" for event in events if event.type == "token"
+        ) == "完整流式回答"
 
     @pytest.mark.asyncio
     async def test_search_tool_passes_retrieval_runtime_parameters(self):

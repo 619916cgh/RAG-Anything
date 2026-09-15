@@ -78,13 +78,20 @@ async def test_inventory_answer_streams_and_persists_without_retrieval_or_llm(mo
 
     assert [event["type"] for event in events] == ["accepted", "agent_info", "token", "done"]
     token_event = next(event for event in events if event["type"] == "token")
+    agent_info_event = next(event for event in events if event["type"] == "agent_info")
     done_event = next(event for event in events if event["type"] == "done")
     assert "知识库文件库存：总数 6" in token_event["content"]
     assert "视频 6" in token_event["content"]
     assert done_event["inventory"]["all"]["total"] == 6
     assert done_event["inventory"]["types"]["video"]["total"] == 6
     assert done_event["citations"] == []
+    assert agent_info_event["fixed_path"] == "knowledge_inventory"
+    assert agent_info_event["config_applied"] is False
+    assert done_event["fixed_path"] == "knowledge_inventory"
+    assert done_event["config_applied"] is False
     assert [message["role"] for message in calls["messages"]] == ["user", "assistant"]
+    assert calls["messages"][1]["fixed_path"] == "knowledge_inventory"
+    assert calls["messages"][1]["config_applied"] is False
     assert calls["record"] == 1
 
 

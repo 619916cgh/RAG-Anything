@@ -105,3 +105,68 @@ async def test_tag_scope_omits_source_labels_when_references_are_disabled():
     assert "课程设计包括需求分析" in context
     assert "[来源" not in context
     assert "资料：" not in context
+
+
+@pytest.mark.asyncio
+async def test_tag_scope_retrieval_pool_and_rerank_toggle_are_effective(monkeypatch):
+    import raganything.query.tag_scoped_retriever as retriever
+
+    class Store:
+        async def get_by_ids(self, ids):
+            return [
+                {
+                    "chunk_id": item_id,
+                    "content": f"{item_id} content",
+                    "tokens": 4,
+                    "file_path": f"{item_id}.pdf",
+                }
+                for item_id in ids
+            ]
+
+    instance = SimpleNamespace(
+        lightrag=SimpleNamespace(text_chunks=Store()),
+        embedding_func=object(),
+    )
+    scope = TagScope(
+        tag_id=3,
+        tag_name="范围",
+        chunk_ids=("c1", "c2", "c3", "c4"),
+    )
+    monkeypatch.setattr(
+        retriever,
+        "_lexical_scores",
+        lambda _query, _chunks: [4.0, 3.0, 2.0, 1.0],
+    )
+    semantic_calls = {"count": 0}
+
+    async def semantic(_instance, _query, chunks):
+        semantic_calls["count"] += 1
+        assert [chunk["chunk_id"] for chunk in chunks] == ["c1", "c2", "c3"]
+        return [0.1, 0.2, 0.9]
+
+    monkeypatch.setattr(retriever, "_semantic_scores", semantic)
+    monkeypatch.delenv("LLM_BINDING_API_KEY", raising=False)
+    monkeypatch.delenv("RERANK_BINDING_API_KEY", raising=False)
+
+    reranked = await retriever.retrieve_tag_scoped_context(
+        instance,
+        scope,
+        "query",
+        top_k=1,
+        retrieval_top_k=3,
+        enable_rerank=True,
+    )
+    lexical = await retriever.retrieve_tag_scoped_context(
+        instance,
+        scope,
+        "query",
+        top_k=1,
+        retrieval_top_k=1,
+        enable_rerank=False,
+    )
+
+    assert "c3 content" in reranked
+    assert "c1 content" not in reranked
+    assert "c1 content" in lexical
+    assert "c3 content" not in lexical
+    assert semantic_calls["count"] == 1

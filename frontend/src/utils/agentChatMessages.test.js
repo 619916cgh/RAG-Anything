@@ -43,6 +43,6 @@ test('agent chat filters citation data through the reference setting', () => {
 
   assert.match(page, /citations=\{shouldShowAgentProvenance\(agent\) \? m\.citations : \[\]\}/)
   assert.match(page, /sources=\{shouldShowAgentProvenance\(agent\) \? m\.sources : \[\]\}/)
-  assert.match(page, /images=\{m\.images\}/)
-  assert.match(page, /similarImages=\{m\.similar_images\}/)
+  assert.match(page, /images=\{shouldShowAgentProvenance\(agent\) \? m\.images : \[\]\}/)
+  assert.match(page, /similarImages=\{shouldShowAgentProvenance\(agent\) \? m\.similar_images : \[\]\}/)
 })
