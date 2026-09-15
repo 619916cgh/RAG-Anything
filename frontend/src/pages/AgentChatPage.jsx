@@ -13,7 +13,7 @@ import { formatCompleteAgentRelationMarkdown, parseAgentRelationMarker } from '.
 import { useAuth } from '../context/AuthContext'
 import ProvenanceList from '../components/ProvenanceList'
 import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
-import { mapThreadMessages } from '../utils/agentChatMessages'
+import { mapThreadMessages, shouldShowAgentProvenance } from '../utils/agentChatMessages'
 
 // ── 模式定义 ───────────────────────────────────────────
 const RETRIEVAL_MODES = [
@@ -1256,8 +1256,8 @@ export default function AgentChatPage({ onToast }) {
                       {/* ── 来源引用 ──────────────────── */}
                       {/* 结构化来源、图片和视频时间统一展示 */}
                       <ProvenanceList
-                        citations={m.citations}
-                        sources={m.sources}
+                        citations={shouldShowAgentProvenance(agent) ? m.citations : []}
+                        sources={shouldShowAgentProvenance(agent) ? m.sources : []}
                         images={m.images}
                         similarImages={m.similar_images}
                         kbName={agent?.kb_name || ''}

@@ -45,6 +45,27 @@ class TestAgenticRAGReasoning:
         sp, _ = agent._build_react_prompt("测试")
         assert "具备多步推理能力的 AI 助手" in sp
 
+    def test_agentic_rag_can_disable_reference_requirements(self):
+        from raganything.agentic_rag import AgenticRAG
+
+        async def dummy_llm(prompt, system_prompt=None, history_messages=None, **kw):
+            return 'Action: FINISH\nAction Input: {"answer": "test"}'
+
+        agent = AgenticRAG(
+            llm_func=dummy_llm,
+            max_steps=2,
+            mode="react",
+            include_references=False,
+        )
+
+        react_prompt, _ = agent._build_react_prompt("测试")
+        cot_prompt, _ = agent._build_cot_prompt("测试", context="检索内容")
+
+        assert "引用来源块" not in react_prompt
+        assert "不得输出来源标记" in react_prompt
+        assert "必须包含以下三个部分" not in cot_prompt
+        assert "禁止来源标注" in cot_prompt
+
     @pytest.mark.asyncio
     async def test_react_loop_finish_immediately(self):
         """验证 ReAct 循环在 LLM 直接 FINISH 时的行为。"""

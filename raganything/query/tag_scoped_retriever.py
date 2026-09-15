@@ -45,6 +45,7 @@ async def retrieve_tag_scoped_context(
     max_total_tokens: int = 8000,
     deadline_monotonic: float | None = None,
     query_execution_scope: Any = None,
+    include_references: bool = True,
 ) -> str:
     """Retrieve tagged context without exceeding the request-wide deadline."""
     try:
@@ -56,6 +57,7 @@ async def retrieve_tag_scoped_context(
                 top_k=top_k,
                 max_total_tokens=max_total_tokens,
                 query_execution_scope=query_execution_scope,
+                include_references=include_references,
             ),
             deadline_monotonic,
         )
@@ -71,6 +73,7 @@ async def _retrieve_tag_scoped_context_unbounded(
     top_k: int = 20,
     max_total_tokens: int = 8000,
     query_execution_scope: Any = None,
+    include_references: bool = True,
 ) -> str:
     """Rank only tagged chunks, then build citation-friendly RAG context.
 
@@ -117,7 +120,12 @@ async def _retrieve_tag_scoped_context_unbounded(
         registered = _register_provenance_references(
             query_execution_scope, references
         )
-        sections.append(_format_provenance_context(registered))
+        sections.append(
+            _format_provenance_context(
+                registered,
+                include_references=include_references,
+            )
+        )
         return "\n\n".join(sections)
 
     for chunk in selected:
@@ -125,7 +133,10 @@ async def _retrieve_tag_scoped_context_unbounded(
         filename = display_document_name(chunk.get("file_path"), default="未命名文档")
         order = chunk.get("chunk_order_index")
         position = f"，切块 {int(order) + 1}" if isinstance(order, int) or str(order).isdigit() else ""
-        sections.append(f"[来源：{filename}{position}]\n{content}")
+        if include_references:
+            sections.append(f"[来源：{filename}{position}]\n{content}")
+        else:
+            sections.append(content)
     return "\n\n".join(sections) if len(sections) > 1 else ""
 
 

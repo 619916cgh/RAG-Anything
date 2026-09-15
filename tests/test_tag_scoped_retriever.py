@@ -78,3 +78,30 @@ async def test_tag_scope_populates_numeric_provenance_in_ranked_order():
     assert {
         (item["document_id"], item["chunk_id"]) for item in sink
     } == {("doc-a", "tagged-a"), ("doc-b", "tagged-b")}
+
+
+@pytest.mark.asyncio
+async def test_tag_scope_omits_source_labels_when_references_are_disabled():
+    store = _Store()
+    instance = SimpleNamespace(
+        lightrag=SimpleNamespace(text_chunks=store), embedding_func=None
+    )
+    scope = TagScope(
+        tag_id=9,
+        tag_name="课程设计",
+        chunk_ids=("tagged-a", "tagged-b"),
+    )
+
+    context = await retrieve_tag_scoped_context(
+        instance,
+        scope,
+        "课程设计如何评分",
+        top_k=2,
+        query_execution_scope={"provenance_sink": []},
+        include_references=False,
+    )
+
+    assert "检索范围仅限标签：课程设计" in context
+    assert "课程设计包括需求分析" in context
+    assert "[来源" not in context
+    assert "资料：" not in context

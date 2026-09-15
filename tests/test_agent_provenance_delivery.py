@@ -10,6 +10,23 @@ from tests.test_video_segment_citations import (
 )
 
 
+def test_empty_context_detects_retrieval_failures_without_source_labels():
+    from raganything.routers.agent import _is_empty_context
+
+    assert _is_empty_context(
+        "No relevant documents found for your query.",
+        include_references=False,
+    )
+    assert _is_empty_context(
+        "Graph query unavailable - knowledge graph is empty.",
+        include_references=False,
+    )
+    assert not _is_empty_context(
+        "电池电压应保持在 12V。",
+        include_references=False,
+    )
+
+
 @pytest.mark.asyncio
 async def test_standard_agent_reuses_citations_for_done_message_and_history(monkeypatch):
     from raganything.routers import agent as agent_router
@@ -98,6 +115,98 @@ async def test_standard_agent_reuses_citations_for_done_message_and_history(monk
     assert done["citations"] == history_records[0]["citations"]
     assert done["citations"][0]["page"] == 4
     assert "C:\\private" not in json.dumps(done, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_disabled_references_omit_citations_from_stream_history_and_prompt(monkeypatch):
+    from raganything.routers import agent as agent_router
+
+    persisted_messages = []
+    history_records = []
+    retrieval_calls = []
+    llm_calls = []
+    retrieved_context = "电池电压应保持在 12V。" * 30
+
+    class KB:
+        config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
+
+        async def aquery(self, *_args, **kwargs):
+            retrieval_calls.append(kwargs)
+            kwargs["query_execution_scope"].provenance_sink.append({
+                "source_index": 1,
+                "citation_label": "[来源 1]",
+                "chunk_id": "chunk-1",
+                "document_id": "doc-1",
+                "full_doc_id": "doc-1",
+                "document_name": "manual.pdf",
+                "content": "电池电压应保持在 12V。",
+            })
+            return retrieved_context
+
+        async def finalize_storages(self):
+            return None
+
+    _wire_agent_stream_prerequisites(
+        monkeypatch, agent_mode="none", kb_instance=KB()
+    )
+
+    async def get_agent_without_references(_agent_id):
+        return {
+            "id": "agent-1", "name": "agent", "kb_name": "kb", "owner_id": 7,
+            "query_mode": "hybrid", "agent_mode": "none", "retrieval_top_k": 20,
+            "chunk_top_k": 5, "enable_rerank": False, "include_references": False,
+            "max_response_tokens": 512, "temperature": 0.0, "system_prompt": "",
+            "use_default_prompt": True,
+        }
+
+    async def answer_with_citation(prompt, **kwargs):
+        llm_calls.append({"prompt": prompt, **kwargs})
+        return "电池电压应保持在 12V。[来源 1]"
+
+    async def save_message(_agent_id, _thread_id, message):
+        persisted_messages.append(message)
+
+    async def save_history(record, max_history=100):
+        history_records.append(record)
+
+    async def unexpected_citation_build(*_args, **_kwargs):
+        raise AssertionError("disabled references must not build citation DTOs")
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", get_agent_without_references)
+    monkeypatch.setattr(
+        agent_router.vision_models,
+        "build_llm_callable",
+        lambda *_args, **_kwargs: answer_with_citation,
+    )
+    monkeypatch.setattr(agent_router, "pg_add_message", save_message)
+    monkeypatch.setattr(agent_router, "record_query", save_history)
+    monkeypatch.setattr(agent_router, "_query_citations", unexpected_citation_build)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(query="检查电池", thread_id="thread-1"),
+        _Request(),
+        current_user={"id": 7, "username": "user", "is_admin": True},
+        _perm=None,
+    )
+    body = await _body(response)
+    events = [
+        json.loads(line[6:]) for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    done = next(event for event in events if event["type"] == "done")
+    assistant = next(
+        message for message in persisted_messages
+        if message.get("role") == "assistant"
+    )
+
+    assert retrieval_calls[0]["include_references"] is False
+    assert "[来源" not in llm_calls[0]["prompt"]
+    assert "本次检索未能获取到关联的文档文本内容" not in llm_calls[0]["prompt"]
+    assert "不要输出来源标记" in llm_calls[0]["system_prompt"]
+    assert done["citations"] == []
+    assert assistant["citations"] == []
+    assert history_records[0]["citations"] == []
 
 
 @pytest.mark.asyncio

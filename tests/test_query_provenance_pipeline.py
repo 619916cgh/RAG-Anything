@@ -268,6 +268,90 @@ async def test_rrf_context_labels_follow_sink_order_and_document_chunk_identity(
 
 
 @pytest.mark.asyncio
+async def test_rrf_context_omits_source_labels_when_references_are_disabled():
+    chunk = ScoredChunk(
+        "chunk-1", "电池电压应保持在 12V。", 1.0, ["vector"],
+        document_name="manual.pdf",
+    )
+    chunk.full_doc_id = "doc-1"
+
+    class Engine:
+        _lightrag = SimpleNamespace(chunk_entity_relation_graph=None)
+
+        async def search(self, *_args, **_kwargs):
+            return [chunk]
+
+    query = object.__new__(QueryMixin)
+    query.hybrid_search_engine = Engine()
+    query.callback_manager = None
+    query.logger = logging.getLogger("test.query-provenance.rrf-disabled")
+
+    async def source_info(_chunk_ids):
+        return {}
+
+    query.batch_get_doc_source_info_async = source_info
+
+    context = await query._aquery_rrf(
+        "question",
+        only_need_context=True,
+        query_execution_scope={"provenance_sink": []},
+        include_references=False,
+    )
+
+    assert context == "电池电压应保持在 12V。"
+    assert "[来源" not in context
+    assert "资料：" not in context
+
+
+@pytest.mark.asyncio
+async def test_rrf_disabled_references_skip_citation_enforcement():
+    retrieved_text = "电池电压应保持在 12V。" * 30
+    chunk = ScoredChunk(
+        "chunk-1", retrieved_text, 1.0, ["vector"],
+        document_name="manual.pdf",
+    )
+    chunk.full_doc_id = "doc-1"
+
+    class Engine:
+        _lightrag = SimpleNamespace(chunk_entity_relation_graph=None)
+
+        async def search(self, *_args, **_kwargs):
+            return [chunk]
+
+    query = object.__new__(QueryMixin)
+    query.hybrid_search_engine = Engine()
+    query.callback_manager = None
+    query.logger = logging.getLogger("test.query-provenance.rrf-disabled")
+    query.config = SimpleNamespace(enforce_citation=True)
+    prompts = []
+
+    async def source_info(_chunk_ids):
+        return {}
+
+    async def answer(prompt, system_prompt=None):
+        prompts.append({"prompt": prompt, "system_prompt": system_prompt})
+        return "电压应保持在 12V。"
+
+    async def unexpected_citation_repair(*_args, **_kwargs):
+        raise AssertionError("disabled references must not trigger citation repair")
+
+    query.batch_get_doc_source_info_async = source_info
+    query.llm_model_func = answer
+    query._ensure_citations = unexpected_citation_repair
+
+    result = await query._aquery_rrf(
+        "question",
+        query_execution_scope={"provenance_sink": []},
+        include_references=False,
+    )
+
+    assert result == "电压应保持在 12V。"
+    assert len(prompts) == 1
+    assert "[来源" not in prompts[0]["prompt"]
+    assert "本次检索未能获取到关联的文档文本内容" not in prompts[0]["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_graph_context_registers_numeric_chunk_references():
     chunk = ScoredChunk(
         "chunk-graph", "graph content", 0.75, ["graph"],

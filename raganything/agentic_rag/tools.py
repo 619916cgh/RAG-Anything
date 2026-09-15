@@ -109,6 +109,7 @@ class SearchTool(Tool):
                     max_total_tokens=8000,
                     deadline_monotonic=self._deadline(),
                     query_execution_scope=self.query_execution_scope,
+                    include_references=self.include_references,
                 )
                 if not result:
                     return f"标签“{self.tag_scope.tag_name}”范围内没有与问题相关的内容"

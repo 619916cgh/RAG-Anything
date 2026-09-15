@@ -197,7 +197,11 @@ class LogCaptureHandler(logging.Handler):
 # Empty context detection
 # ═══════════════════════════════════════════════════════════
 
-def _is_empty_context(ctx: str | None) -> bool:
+def _is_empty_context(
+    ctx: str | None,
+    *,
+    include_references: bool = True,
+) -> bool:
     """Detect if retrieval context is effectively empty.
 
     Returns True when:
@@ -207,9 +211,14 @@ def _is_empty_context(ctx: str | None) -> bool:
     """
     if not ctx or not ctx.strip():
         return True
-    if "[no-context]" in ctx:
+    context_lower = ctx.casefold()
+    if any(marker in context_lower for marker in (
+        "[no-context]",
+        "no relevant documents found for your query",
+        "graph query unavailable",
+    )):
         return True
-    if "[来源 " not in ctx and len(ctx.strip()) <= 200:
+    if include_references and "[来源 " not in ctx and len(ctx.strip()) <= 200:
         return True
     return False
 
@@ -974,6 +983,12 @@ _AGENT_BOOL_DEFAULTS = {
     "use_default_prompt": True,
 }
 
+_AGENT_SYSTEM_PROMPT_WITHOUT_REFERENCES = (
+    "基于检索内容回答。对话历史可用作理解用户上下文和指代关系，"
+    "但事实性回答必须基于检索内容中的具体信息，不得编造。"
+    "不要输出来源标记、参考来源块或引用列表。"
+)
+
 
 def _bounded_agent_int(field: str, value: object) -> int:
     minimum, maximum, default = _AGENT_INT_BOUNDS[field]
@@ -1015,10 +1030,19 @@ def _agent_runtime_config(agent: dict) -> dict:
     })
 
 
-def _build_agent_system_prompt(agent: dict) -> str:
+def _build_agent_system_prompt(
+    agent: dict,
+    *,
+    include_references: bool = True,
+) -> str:
     system_prompt = (agent.get("system_prompt") or "").strip()
     if agent.get("use_default_prompt", True):
-        parts = [part for part in (system_prompt, QUERY_SYSTEM_PROMPT) if part]
+        default_prompt = (
+            QUERY_SYSTEM_PROMPT
+            if include_references
+            else _AGENT_SYSTEM_PROMPT_WITHOUT_REFERENCES
+        )
+        parts = [part for part in (system_prompt, default_prompt) if part]
         return "\n\n".join(parts).strip()
     return system_prompt
 
@@ -1042,7 +1066,10 @@ def _build_effective_agent_runtime(agent: dict, req: AgentQueryRequest) -> dict:
     runtime_config.update({
         "llm_model": agent.get("llm_model") or LLM_MODEL,
         "temperature": float(agent.get("temperature", 0.0) or 0.0),
-        "system_prompt": _build_agent_system_prompt(agent),
+        "system_prompt": _build_agent_system_prompt(
+            agent,
+            include_references=runtime_config["include_references"],
+        ),
         "query_mode": query_mode,
         "agent_mode": agent_mode,
         # Agentic paths should honor the saved/default retrieval mode when available.
@@ -2083,6 +2110,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     system_prompt_override=_image_aware_system_prompt(
                         system_prompt, image_description
                     ),
+                    include_references=include_references,
                 )
                 agentic.register_tool(SearchTool(
                     instance,
@@ -2117,6 +2145,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                                 top_k=chunk_top_k, max_total_tokens=8000,
                                 deadline_monotonic=retrieval_deadline,
                                 query_execution_scope=execution_scope,
+                                include_references=include_references,
                             )
                         except TimeoutError:
                             react_retrieval_outcome = "timeout"
@@ -2192,6 +2221,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                                 top_k=chunk_top_k, max_total_tokens=8000,
                                 deadline_monotonic=retrieval_deadline,
                                 query_execution_scope=execution_scope,
+                                include_references=include_references,
                             )
                         else:
                             cot_context = await await_before_deadline(
@@ -2230,7 +2260,13 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                                 _img_cot_ctx
                                 + "## 检索文档\n未检索到可引用的知识库文本。"
                             )
-                    if _is_empty_context(cot_context) and not image_description:
+                    if (
+                        _is_empty_context(
+                            cot_context,
+                            include_references=include_references,
+                        )
+                        and not image_description
+                    ):
                         lightrag_logger.info("[AGENT-STREAM] CoT: no valid context, aborting")
                         full_answer = "抱歉，知识库中暂无与您问题相关的数据，无法回答此问题。请尝试上传相关文档或换个问题。"
                         yield f"data: {json.dumps({'type': 'thinking', 'content': '⚠️ 知识库中暂无相关数据'}, ensure_ascii=False)}\n\n"
@@ -2349,9 +2385,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         full_answer += _cit_block
                         yield f"data: {json.dumps({'type': 'token', 'content': _cit_block}, ensure_ascii=False)}\n\n"
 
-                citations = await _query_citations(
-                    execution_scope, actual_kb, _agent_ctx, full_answer
-                )
+                citations = []
+                if include_references:
+                    citations = await _query_citations(
+                        execution_scope, actual_kb, _agent_ctx, full_answer
+                    )
 
                 # 保存到对话线程
                 timing.start("persistence")
@@ -2430,6 +2468,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         top_k=chunk_top_k, max_total_tokens=16000,
                         deadline_monotonic=retrieval_deadline,
                         query_execution_scope=execution_scope,
+                        include_references=include_references,
                     )
                 )
             else:
@@ -2601,7 +2640,13 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     )
 
             # ── 最终空上下文检测（使用富化后的 ctx）──
-            is_fallback = _is_empty_context(ctx) and not image_description
+            is_fallback = (
+                _is_empty_context(
+                    ctx,
+                    include_references=include_references,
+                )
+                and not image_description
+            )
 
             if is_fallback:
                 # ── 回填后仍为空 → 降级告知用户 ──
@@ -2680,6 +2725,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             # Detect degraded context (text chunks exist but may be thin).
             _has_chunks = (
                 ("[来源 " in ctx and len(ctx.strip()) > 200)          # RRF pipeline
+                or (not include_references and len(ctx.strip()) > 200)
                 or bool(backfill_text)                                 # image backfill
                 or ('"reference_id"' in ctx and '"content"' in ctx)    # native LightRAG
             )
@@ -2758,9 +2804,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             timing.finish("llm")
             timing.record("llm_last_token", time.perf_counter() - llm_started)
             elapsed = round(time.time() - start_time, 2)
-            citations = await _query_citations(
-                execution_scope, actual_kb, citation_context, full_answer
-            )
+            citations = []
+            if include_references:
+                citations = await _query_citations(
+                    execution_scope, actual_kb, citation_context, full_answer
+                )
 
             # 保存到对话线程
             timing.start("persistence")

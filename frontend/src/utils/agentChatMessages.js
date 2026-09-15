@@ -8,3 +8,7 @@ export function mapThreadMessages(threadId, messages = []) {
     imageUrl: message.imageUrl || message.image_preview || '',
   }))
 }
+
+export function shouldShowAgentProvenance(agent) {
+  return agent?.include_references !== false
+}

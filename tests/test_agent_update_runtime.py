@@ -322,7 +322,15 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
             )
 
     class FakeAgenticRAG:
-        def __init__(self, llm_func, max_steps, mode, max_response_tokens, system_prompt_override):
+        def __init__(
+            self,
+            llm_func,
+            max_steps,
+            mode,
+            max_response_tokens,
+            system_prompt_override,
+            include_references=True,
+        ):
             self.llm_func = llm_func
             self.mode = mode
             agentic_init.update(
@@ -331,6 +339,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
                     "mode": mode,
                     "max_response_tokens": max_response_tokens,
                     "system_prompt_override": system_prompt_override,
+                    "include_references": include_references,
                 }
             )
 
@@ -452,6 +461,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
     elif agent_mode == "react":
         assert agentic_init["mode"] == "react"
         assert agentic_init["system_prompt_override"] == expected_system_prompt
+        assert agentic_init["include_references"] is True
         assert search_tool_calls[0]["query_mode"] == "global"
         assert any(
             "previous conversation established the PLC fault context" in item["query"]
@@ -460,6 +470,7 @@ async def test_agent_query_stream_uses_latest_agent_runtime_config_in_all_modes(
     else:
         assert agentic_init["mode"] == "cot"
         assert agentic_init["system_prompt_override"] == expected_system_prompt
+        assert agentic_init["include_references"] is True
         assert kb_calls
         assert kb_calls[0]["mode"] == "global"
         assert any(

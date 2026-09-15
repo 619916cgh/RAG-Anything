@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { mapThreadMessages } from './agentChatMessages.js'
+import { mapThreadMessages, shouldShowAgentProvenance } from './agentChatMessages.js'
 
 test('restores a persisted query image preview as the message image URL', () => {
   const messages = [{
@@ -28,4 +29,20 @@ test('preserves an existing image URL over the persisted preview', () => {
   }])
 
   assert.equal(mapped[0].imageUrl, 'blob:existing-preview')
+})
+
+test('hides provenance only when the agent explicitly disables references', () => {
+  assert.equal(shouldShowAgentProvenance(undefined), true)
+  assert.equal(shouldShowAgentProvenance({}), true)
+  assert.equal(shouldShowAgentProvenance({ include_references: true }), true)
+  assert.equal(shouldShowAgentProvenance({ include_references: false }), false)
+})
+
+test('agent chat filters citation data through the reference setting', () => {
+  const page = readFileSync(new URL('../pages/AgentChatPage.jsx', import.meta.url), 'utf8')
+
+  assert.match(page, /citations=\{shouldShowAgentProvenance\(agent\) \? m\.citations : \[\]\}/)
+  assert.match(page, /sources=\{shouldShowAgentProvenance\(agent\) \? m\.sources : \[\]\}/)
+  assert.match(page, /images=\{m\.images\}/)
+  assert.match(page, /similarImages=\{m\.similar_images\}/)
 })

@@ -254,6 +254,8 @@ def _register_provenance_references(
 
 def _format_provenance_context(
     references: list[dict[str, Any]],
+    *,
+    include_references: bool = True,
 ) -> str:
     parts = []
     for reference in references:
@@ -262,11 +264,15 @@ def _format_provenance_context(
             reference.get("file_path"),
             default=f"未知文档-{str(chunk_id)[:8]}",
         )
-        parts.append(
-            f"{reference['citation_label']}\n"
-            f"资料：{document_name}\n"
-            f"{reference.get('content') or ''}"
-        )
+        content = reference.get("content") or ""
+        if include_references:
+            parts.append(
+                f"{reference['citation_label']}\n"
+                f"资料：{document_name}\n"
+                f"{content}"
+            )
+        else:
+            parts.append(str(content))
     return "\n\n".join(parts)
 
 
@@ -566,6 +572,7 @@ class QueryMixin:
         # Create query parameters
         # Enable include_references by default so LightRAG returns source refs
         query_execution_scope = kwargs.pop("query_execution_scope", None)
+        include_references = bool(kwargs.get("include_references", True))
         deadline_monotonic = _scope_deadline(query_execution_scope)
         provenance_sink = _scope_provenance_sink(query_execution_scope)
         kwargs.setdefault("include_references", True)
@@ -602,7 +609,10 @@ class QueryMixin:
                     query_execution_scope, references
                 )
                 if query_param.only_need_context and registered:
-                    result = _format_provenance_context(registered)
+                    result = _format_provenance_context(
+                        registered,
+                        include_references=include_references,
+                    )
                 elif stream:
                     result = (
                         llm_response.get("response_iterator")
@@ -675,6 +685,7 @@ class QueryMixin:
         """
         hybrid_engine = getattr(self, "hybrid_search_engine", None)
         only_need_context = kwargs.pop("only_need_context", False)
+        include_references = bool(kwargs.get("include_references", True))
         query_execution_scope = kwargs.pop("query_execution_scope", None)
         provenance_sink = _scope_provenance_sink(query_execution_scope)
         retrieval_options = kwargs.pop("retrieval_options", None)
@@ -885,7 +896,12 @@ class QueryMixin:
                             if isinstance(item, dict)
                         ):
                             existing_segments.append(structured_segment)
-                    context_parts.append(_format_provenance_context(registered))
+                    context_parts.append(
+                        _format_provenance_context(
+                            registered,
+                            include_references=include_references,
+                        )
+                    )
                 else:
                     doc_name_counts: dict[str, int] = {}
                     for chunk in chunks[:15]:
@@ -902,9 +918,12 @@ class QueryMixin:
                             if count == 0
                             else f"{source_name} (片段{count + 1})"
                         )
-                        context_parts.append(
-                            f"[来源 {source_label}]\n{chunk.content}"
-                        )
+                        if include_references:
+                            context_parts.append(
+                                f"[来源 {source_label}]\n{chunk.content}"
+                            )
+                        else:
+                            context_parts.append(chunk.content)
                 for video_chunk_id, segment in video_segments.items():
                     context_parts.append(
                         "[VIDEO_SEGMENT "
@@ -1024,15 +1043,23 @@ class QueryMixin:
                 )
                 if provenance_sink is not None:
                     context_parts.append(
-                        f"{reference['citation_label']}\n"
-                        f"资料：{document_name}\n"
-                        f"{chunk.content}"
+                        (
+                            f"{reference['citation_label']}\n"
+                            f"资料：{document_name}\n"
+                            f"{chunk.content}"
+                        )
+                        if include_references
+                        else chunk.content
                     )
                 else:
                     context_parts.append(
-                        f"{reference['citation_label']}\n{chunk.content}"
+                        (
+                            f"{reference['citation_label']}\n{chunk.content}"
+                        )
+                        if include_references
+                        else chunk.content
                     )
-                if display_entities:
+                if display_entities and include_references:
                     context_parts.append(
                         f"[关联实体（来源 {reference['source_index']}）："
                         f"{', '.join(display_entities)}]"
@@ -1077,17 +1104,21 @@ class QueryMixin:
                 self.logger.info("RRF entity-annotation: NONE in top-15 context")
 
             # Stage 3: Generate answer via LLM
-            citation_instruction = (
-                _NUMERIC_CITATION_INSTRUCTION
-                if provenance_sink is not None
-                else (
-                    ANSWER_FORMAT_INSTRUCTION
-                    if self.config.enforce_citation
-                    else INLINE_QUOTE_INSTRUCTION
+            citation_instruction = ""
+            if include_references:
+                citation_instruction = (
+                    _NUMERIC_CITATION_INSTRUCTION
+                    if provenance_sink is not None
+                    else (
+                        ANSWER_FORMAT_INSTRUCTION
+                        if self.config.enforce_citation
+                        else INLINE_QUOTE_INSTRUCTION
+                    )
                 )
-            )
             # Detect degraded context: has entities/relations but no text chunks
-            has_chunks = "[来源 " in context and len(context.strip()) > 200
+            has_chunks = len(context.strip()) > 200 and (
+                not include_references or "[来源 " in context
+            )
             prompt = (
                 f"以下是知识库中检索到的相关内容。你必须严格基于这些内容回答问题，不得使用你自己的知识。\n\n"
                 f"## 检索内容\n{context}\n\n"
@@ -1120,7 +1151,10 @@ class QueryMixin:
                 answer = str(answer)
 
             # Post-process: ensure citations are present (if enforce_citation enabled)
-            answer = await self._ensure_citations(answer, query, context, system_prompt)
+            if include_references:
+                answer = await self._ensure_citations(
+                    answer, query, context, system_prompt
+                )
 
             self.logger.info("RRF query completed")
             if callback_manager is not None:
@@ -1166,6 +1200,7 @@ class QueryMixin:
         """
         hybrid_engine = getattr(self, "hybrid_search_engine", None)
         only_need_context = kwargs.pop("only_need_context", False)
+        include_references = bool(kwargs.get("include_references", True))
         query_execution_scope = kwargs.pop("query_execution_scope", None)
         deadline_monotonic = _scope_deadline(query_execution_scope)
         provenance_sink = _scope_provenance_sink(query_execution_scope)
@@ -1307,17 +1342,33 @@ class QueryMixin:
             chunk_text = chunk.content[:800] if chunk.content else "(empty)"
             if provenance_sink is not None:
                 context_parts.append(
-                    f"{reference['citation_label']}\n"
-                    f"资料：{document_name}\n"
-                    f"score={chunk.score:.3f}\n"
-                    f"Entity paths:\n{paths_str}\n"
-                    f"Content: {chunk_text}"
+                    (
+                        f"{reference['citation_label']}\n"
+                        f"资料：{document_name}\n"
+                        f"score={chunk.score:.3f}\n"
+                        f"Entity paths:\n{paths_str}\n"
+                        f"Content: {chunk_text}"
+                    )
+                    if include_references
+                    else (
+                        f"score={chunk.score:.3f}\n"
+                        f"Entity paths:\n{paths_str}\n"
+                        f"Content: {chunk_text}"
+                    )
                 )
             else:
                 context_parts.append(
-                    f"{reference['citation_label']} score={chunk.score:.3f}\n"
-                    f"Entity paths:\n{paths_str}\n"
-                    f"Content: {chunk_text}"
+                    (
+                        f"{reference['citation_label']} score={chunk.score:.3f}\n"
+                        f"Entity paths:\n{paths_str}\n"
+                        f"Content: {chunk_text}"
+                    )
+                    if include_references
+                    else (
+                        f"score={chunk.score:.3f}\n"
+                        f"Entity paths:\n{paths_str}\n"
+                        f"Content: {chunk_text}"
+                    )
                 )
 
         context = "\n\n".join(context_parts)
@@ -1340,15 +1391,17 @@ class QueryMixin:
         if self.llm_model_func is None:
             return context
 
-        citation_instruction = (
-            _NUMERIC_CITATION_INSTRUCTION
-            if provenance_sink is not None
-            else (
-                ANSWER_FORMAT_INSTRUCTION
-                if self.config.enforce_citation
-                else INLINE_QUOTE_INSTRUCTION
+        citation_instruction = ""
+        if include_references:
+            citation_instruction = (
+                _NUMERIC_CITATION_INSTRUCTION
+                if provenance_sink is not None
+                else (
+                    ANSWER_FORMAT_INSTRUCTION
+                    if self.config.enforce_citation
+                    else INLINE_QUOTE_INSTRUCTION
+                )
             )
-        )
         # Detect degraded context: has entities/relations but no text chunks
         has_chunks = "Content:" in context and len(context.strip()) > 200
         prompt = (
@@ -1380,10 +1433,11 @@ class QueryMixin:
             answer = str(answer)
 
         # Post-process: ensure citations are present (if enforce_citation enabled)
-        answer = await await_before_deadline(
-            self._ensure_citations(answer, query, context, system_prompt),
-            deadline_monotonic,
-        )
+        if include_references:
+            answer = await await_before_deadline(
+                self._ensure_citations(answer, query, context, system_prompt),
+                deadline_monotonic,
+            )
 
         return answer
 
