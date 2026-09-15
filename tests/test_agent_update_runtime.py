@@ -538,6 +538,7 @@ async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypa
     vlm_calls = []
     tag_queries = []
     llm_prompts = []
+    llm_system_prompts = []
 
     image_buffer = io.BytesIO()
     Image.new("RGB", (800, 400), "red").save(image_buffer, format="PNG")
@@ -593,8 +594,9 @@ async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypa
         tag_queries.append(_query)
         return "[来源 1]\n" + ("标签上下文 " * 40)
 
-    async def selected_llm(prompt, **_kwargs):
+    async def selected_llm(prompt, **kwargs):
         llm_prompts.append(prompt)
+        llm_system_prompts.append(kwargs.get("system_prompt") or "")
         return "图片中是一个纯红色矩形。"
 
     def discard_background_task(coro):
@@ -643,6 +645,11 @@ async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypa
     assert vlm_calls[0]["image_mime_type"] == "image/png"
     assert len(tag_queries) == 1
     assert "图片中是一个纯红色矩形" in llm_prompts[0]
+    assert llm_prompts[0].rfind("## 检索内容") < llm_prompts[0].rfind(
+        "## 用户上传图片的视觉分析"
+    )
+    assert "最高优先级直接证据" in llm_system_prompts[0]
+    assert "不得用知识库中未出现在视觉分析里的实体覆盖" in llm_system_prompts[0]
     assert '"status": "done"' in body
 
     user_message = next(message for message in saved_messages if message["role"] == "user")
@@ -817,6 +824,6 @@ async def test_image_query_answers_from_vision_when_kb_context_is_empty(monkeypa
 
     assert llm_prompts
     assert "图片中是一个纯绿色矩形" in llm_prompts[0]
-    assert "视觉分析是本轮回答的直接证据" in llm_system_prompts[0]
+    assert "视觉分析结果是图片内容的最高优先级直接证据" in llm_system_prompts[0]
     assert "知识库中暂无与您问题相关的数据" not in body
     assert '"image_description": "图片中是一个纯绿色矩形。"' in body

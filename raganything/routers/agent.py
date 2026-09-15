@@ -226,7 +226,10 @@ def _build_image_section(image_description: str = "", similar_image_urls: list =
     """
     parts = []
     if image_description:
-        parts.append(f"## 用户上传图片的视觉描述\n{image_description}\n\n")
+        parts.append(
+            "## 用户上传图片的视觉分析（最高优先级直接证据）\n"
+            f"{image_description}\n\n"
+        )
     if similar_image_urls:
         parts.append("## 知识库中找到的视觉相似图片\n")
         for si in similar_image_urls[:5]:
@@ -470,9 +473,11 @@ _IMAGE_ONLY_HINT = (
 )
 
 _IMAGE_SYSTEM_ADDENDUM = (
-    "用户上传图片的视觉分析是本轮回答的直接证据。"
-    "回答图片内容时必须优先依据该视觉分析；"
-    "知识库检索内容仅在确有关联时作为补充。"
+    "本轮包含用户上传图片，视觉分析结果是图片内容的最高优先级直接证据。"
+    "当问题涉及图片中的对象、品牌、文字、颜色、场景或关系时，"
+    "必须先依据视觉分析作答；"
+    "不得用知识库中未出现在视觉分析里的实体覆盖图片识别结果。"
+    "知识库内容只有在明确指向同一对象时才可作为补充。"
 )
 
 _NUMERIC_CITATION_MARKER_RE = re.compile(r"\[来源\s*([1-9]\d*)\]")
@@ -681,7 +686,14 @@ def _build_layered_query(
 
     img_section = _build_image_section(image_description, similar_image_urls)
     if img_section:
-        builder.add_image_context(img_section)
+        builder.add_context_layer(ContextLayer(
+            name="image_context",
+            content=img_section,
+            priority=90,
+            max_tokens=2000,
+            enabled=True,
+            label="",
+        ))
 
     if summary_text:
         builder.add_summary(summary_text)
@@ -2696,7 +2708,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             if _img_section:
                 _pb.add_context_layer(ContextLayer(
                     name="image_context", content=_img_section,
-                    priority=25, max_tokens=2000, enabled=True, label="",
+                    priority=90, max_tokens=2000, enabled=True, label="",
                 ))
             if conv_history_text:
                 _pb.add_recent_history(conv_history_text)
