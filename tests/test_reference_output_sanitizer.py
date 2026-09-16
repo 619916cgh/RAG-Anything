@@ -1,4 +1,4 @@
-from raganything.query.output_sanitizer import (
+from raganything.query.response_sanitizer import (
     ReferenceOutputFilter,
     strip_reference_markers,
 )

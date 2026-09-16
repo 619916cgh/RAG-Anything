@@ -65,7 +65,7 @@ from raganything.services.pg_agent_repo import (
 )
 from raganything.services.prompt_builder import PromptBuilder, ContextLayer
 from raganything.query.tag_scoped_retriever import resolve_tag_scope, retrieve_tag_scoped_context
-from raganything.query.output_sanitizer import (
+from raganything.query.response_sanitizer import (
     ReferenceOutputFilter,
     strip_reference_markers,
 )

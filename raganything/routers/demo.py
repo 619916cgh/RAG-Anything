@@ -42,7 +42,7 @@ from raganything.services.pg_agent_repo import pg_list_agents
 from raganything.utils.kb_display_name import get_knowledge_base_display_name
 from raganything.services.prompt_builder import PromptBuilder
 from raganything.services.query_execution import QueryExecutionScope, await_before_deadline
-from raganything.query.output_sanitizer import (
+from raganything.query.response_sanitizer import (
     ReferenceOutputFilter,
     strip_reference_markers,
 )
