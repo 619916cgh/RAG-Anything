@@ -25,7 +25,16 @@ function Root() {
   )
 }
 
-function bootstrap() {
+async function bootstrap() {
+  const isDemoRoute = window.location.pathname.startsWith('/demo/')
+  if (!isDemoRoute) {
+    const changed = await synchronizeSystemDataEpoch()
+    if (changed) {
+      window.location.reload()
+      return
+    }
+  }
+
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
       <BrowserRouter>
@@ -33,12 +42,7 @@ function bootstrap() {
       </BrowserRouter>
     </React.StrictMode>,
   )
-  if (!window.location.pathname.startsWith('/demo/')) {
-    synchronizeSystemDataEpoch().then((changed) => {
-      if (changed) window.location.reload()
-    })
-    startSystemDataEpochMonitor()
-  }
+  if (!isDemoRoute) startSystemDataEpochMonitor()
 }
 
-bootstrap()
+void bootstrap()

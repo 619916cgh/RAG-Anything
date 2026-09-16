@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import {
   applySystemDataEpoch,
@@ -6,6 +8,9 @@ import {
   SYSTEM_DATA_EPOCH_KEY,
   startSystemDataEpochMonitor,
 } from './systemDataEpoch.js'
+
+const sourceRoot = path.resolve(import.meta.dirname, '..')
+const readSource = relative => fs.readFileSync(path.join(sourceRoot, relative), 'utf8')
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial))
@@ -63,6 +68,18 @@ test('bootstrap reads the public health epoch before rendering', async () => {
   assert.equal(await synchronizeSystemDataEpoch({ fetchImpl, local, session }), true)
   assert.equal(local.getItem('raganything_auth'), null)
   assert.equal(local.getItem(SYSTEM_DATA_EPOCH_KEY), 'fresh')
+})
+
+test('application bootstrap synchronizes the data epoch before mounting authenticated routes', () => {
+  const entry = readSource('main.jsx')
+  const synchronizationIndex = entry.indexOf('await synchronizeSystemDataEpoch()')
+  const renderIndex = entry.indexOf('ReactDOM.createRoot(')
+
+  assert.match(entry, /const isDemoRoute = window\.location\.pathname\.startsWith\('\/demo\/'\)/)
+  assert.match(entry, /if \(!isDemoRoute\) \{\s+const changed = await synchronizeSystemDataEpoch\(\)/)
+  assert.ok(synchronizationIndex > -1)
+  assert.ok(renderIndex > synchronizationIndex)
+  assert.match(entry, /if \(!isDemoRoute\) startSystemDataEpochMonitor\(\)/)
 })
 
 test('an epoch change in another tab reloads the current tab', () => {
