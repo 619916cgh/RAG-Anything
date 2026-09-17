@@ -43,7 +43,7 @@ test('AutoRepair scoped loaders and parser require a confirmed KB', () => {
   assert.match(dashboard, /AutoRepairKBState error=\{kbError\}/)
 })
 
-test('direct knowledge routes confirm list membership before scoped requests', () => {
+test('direct knowledge routes confirm list membership independently and gate mutations', () => {
   const detail = source('../pages/KnowledgeDetailPage.jsx')
   const chunks = source('../pages/DocumentChunksPage.jsx')
   const chunk = source('../pages/DocumentChunkDetailPage.jsx')
@@ -51,6 +51,10 @@ test('direct knowledge routes confirm list membership before scoped requests', (
     assert.match(page, /useConfirmedKnowledgeBase\(kbName\)/)
     assert.match(page, /kbAccess\.confirmed/)
   }
+  assert.match(chunks, /if \(legacyChunkId \|\| !kbName \|\| !docId\)/)
+  assert.match(chunk, /if \(!kbName \|\| !docId \|\| !chunkId\)/)
+  assert.doesNotMatch(chunks, /if \(kbAccess\.(?:unavailable|error)\)/)
+  assert.doesNotMatch(chunk, /if \(kbAccess\.(?:unavailable|error)\)/)
   assert.doesNotMatch(chunks, /setCurrentKB\(kbName\)/)
   assert.doesNotMatch(chunk, /setCurrentKB\(kbName\)/)
 })
@@ -97,6 +101,8 @@ test('App routes and copy are capability-aware', () => {
   assert.match(app, /path="\/autorepair\/agent" element=\{<ProtectedRoute requiredPermission="autorepair:write"/)
   assert.match(app, /policy\.canWriteAgents \? '可配置' : '可使用'/)
   assert.match(app, /policy\.canWriteSettings \? '可配置' : '可查看'/)
+  assert.match(app, /new AbortController\(\)/)
+  assert.match(app, /if \(active\) setStats\(nextStats\)/)
 })
 
 test('preferences use the server projection before requesting task settings', () => {

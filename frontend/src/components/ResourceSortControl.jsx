@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ListFilter,
 } from 'lucide-react'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 
 export default function ResourceSortControl({
   sortOptions,
@@ -19,7 +18,6 @@ export default function ResourceSortControl({
   ariaLabel,
 }) {
   const [showSortMenu, setShowSortMenu] = useState(false)
-  const [sortMenuImmediateExit, setSortMenuImmediateExit] = useState(false)
   const [sortMenuOpenMode, setSortMenuOpenMode] = useState(null)
   const [sortMenuPosition, setSortMenuPosition] = useState(null)
   const [sortMenuFocusIndex, setSortMenuFocusIndex] = useState(0)
@@ -28,7 +26,6 @@ export default function ResourceSortControl({
   const sortMenuRef = useRef(null)
   const sortMenuItemRefs = useRef({})
   const sortMenuOpenModeRef = useRef(null)
-  const prefersReducedMotion = useReducedMotion()
 
   const activeSortOption = sortOptions.find(option => option.value === sortField) || sortOptions[0]
   const ActiveSortIcon = activeSortOption.Icon
@@ -38,9 +35,8 @@ export default function ResourceSortControl({
     : (sortDirection === 'asc' ? '从少到多' : '从多到少')
   const directionLabel = sortDirection === 'asc' ? '当前为升序，切换为降序' : '当前为降序，切换为升序'
 
-  const closeSortMenu = useCallback((restoreTriggerFocus = false, immediateExit = false) => {
+  const closeSortMenu = useCallback((restoreTriggerFocus = false) => {
     sortMenuOpenModeRef.current = null
-    setSortMenuImmediateExit(immediateExit)
     setShowSortMenu(false)
     setSortMenuOpenMode(null)
     setSortMenuPosition(null)
@@ -56,13 +52,12 @@ export default function ResourceSortControl({
       sortControlRef.current?.contains(nextTarget) || sortMenuRef.current?.contains(nextTarget)
     )
     if (isWithinHoverSurface) return
-    closeSortMenu(false, true)
+    closeSortMenu(false)
   }, [closeSortMenu])
 
   const openSortMenu = useCallback((mode = 'hover') => {
     if (mode === 'hover' && sortMenuOpenModeRef.current && sortMenuOpenModeRef.current !== 'hover') return
     sortMenuOpenModeRef.current = mode
-    setSortMenuImmediateExit(false)
     const selectedIndex = Math.max(0, sortOptions.findIndex(option => option.value === sortField))
     setSortMenuFocusIndex(selectedIndex)
     setShowSortMenu(true)
@@ -183,16 +178,11 @@ export default function ResourceSortControl({
   }
 
   const sortMenu = typeof document === 'undefined' ? null : createPortal(
-    <AnimatePresence>
-      {showSortMenu && (
-        <motion.div
+      showSortMenu ? (
+        <div
           ref={sortMenuRef}
           id={menuId}
           className="resource-sort-menu"
-          initial={prefersReducedMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={sortMenuImmediateExit || prefersReducedMotion ? undefined : { opacity: 0 }}
-          transition={{ duration: sortMenuImmediateExit || prefersReducedMotion ? 0 : 0.16, ease: 'easeOut' }}
           style={{
             top: sortMenuPosition?.top ?? 0,
             left: sortMenuPosition?.left ?? 0,
@@ -223,9 +213,8 @@ export default function ResourceSortControl({
               </button>
             )
           })}
-        </motion.div>
-      )}
-    </AnimatePresence>,
+        </div>
+      ) : null,
     document.body
   )
 

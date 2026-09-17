@@ -60,7 +60,9 @@ test('streamPublicDemo parses CRLF and multi-line SSE events without sending cre
 test('public demo route is isolated and renders only safe stream sources', () => {
   const entry = readSource('main.jsx')
   const page = readSource('pages/PublicDemoPage.jsx')
-  assert.match(entry, /Route path="\/demo\/:shareId" element={<PublicDemoPage \/>}/)
+  assert.match(entry, /const PublicDemoPage = lazy\(\(\) => import\('\.\/pages\/PublicDemoPage'\)\)/)
+  assert.match(entry, /path="\/demo\/:shareId"/)
+  assert.match(entry, /<Suspense[\s\S]*?<PublicDemoPage \/>/)
   assert.match(entry, /const isDemoRoute = window\.location\.pathname\.startsWith\('\/demo\/'\)/)
   assert.match(entry, /if \(!isDemoRoute\)/)
   assert.match(page, /sources: eventData\.sources \|\| \[\]/)

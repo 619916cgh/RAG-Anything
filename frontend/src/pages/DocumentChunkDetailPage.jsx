@@ -124,7 +124,7 @@ export default function DocumentChunkDetailPage() {
   const toastTimerRef = useRef(null)
 
   useEffect(() => {
-    if (!kbAccess.confirmed) return undefined
+    if (!kbName || !docId || !chunkId) return undefined
     const controller = new AbortController()
     let active = true
     setLoading(true)
@@ -145,7 +145,7 @@ export default function DocumentChunkDetailPage() {
       active = false
       controller.abort()
     }
-  }, [chunkId, docId, kbAccess.confirmed, kbName, reloadKey])
+  }, [chunkId, docId, kbName, reloadKey])
 
   useEffect(() => {
     if (!kbAccess.confirmed) return undefined
@@ -243,10 +243,6 @@ export default function DocumentChunkDetailPage() {
       setDeleting(false)
     }
   }, [backPath, canWrite, chunk, deleting, docId, kbAccess.confirmed, kbName, navigate, showToast])
-
-  if (kbAccess.loading) return <div className="chunk-page-skeleton" aria-label="Loading knowledge base" aria-busy="true"><div className="skeleton h-16 w-full" /><div className="skeleton h-96 w-full" /></div>
-  if (kbAccess.unavailable) return <DetailErrorState error={{ status: 404 }} onRetry={kbAccess.retry} backPath="/knowledge" />
-  if (kbAccess.error) return <DetailErrorState error={kbAccess.error} onRetry={kbAccess.retry} backPath="/knowledge" />
 
   if (loading) return <div className="chunk-page-skeleton" aria-label="正在加载切块详情" aria-busy="true"><div className="skeleton h-16 w-full" /><div className="skeleton h-96 w-full" /></div>
   if (error || !chunk) return <DetailErrorState error={error || { status: 404 }} onRetry={() => setReloadKey(value => value + 1)} backPath={backPath} />

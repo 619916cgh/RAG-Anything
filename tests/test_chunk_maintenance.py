@@ -250,6 +250,116 @@ async def test_paged_chunks_filter_and_keep_document_header_totals(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_paged_chunk_enrichment_runs_concurrently(monkeypatch):
+    instance = _instance()
+    await _wire(monkeypatch, instance)
+    status = await instance.lightrag.doc_status.get_by_id("doc-1")
+    records = [
+        await instance.lightrag.text_chunks.get_by_id("chunk-a"),
+        await instance.lightrag.text_chunks.get_by_id("chunk-b"),
+    ]
+
+    async def direct_status(_kb, _document_id):
+        return status
+
+    async def paged_chunks(*_args, **_kwargs):
+        return {
+            "records": records,
+            "total": 2,
+            "total_tokens": 5,
+            "document_total": 2,
+            "document_total_tokens": 5,
+        }
+
+    started = []
+    all_started = asyncio.Event()
+
+    async def wait_for_peers(name, result):
+        started.append(name)
+        if len(started) == 3:
+            all_started.set()
+        await asyncio.wait_for(all_started.wait(), timeout=0.5)
+        return result
+
+    async def concurrent_tags(_kb, _doc_id, chunk_ids):
+        return await wait_for_peers(
+            "tags",
+            {str(chunk_id): [] for chunk_id in chunk_ids},
+        )
+
+    async def concurrent_video(_kb, _chunks):
+        return await wait_for_peers("video", None)
+
+    async def concurrent_health(_kb, doc_ids):
+        return await wait_for_peers(
+            "health",
+            {doc_id: {"tag_status": "ready"} for doc_id in doc_ids},
+        )
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_by_id", direct_status)
+    monkeypatch.setattr(knowledge, "query_document_chunk_page", paged_chunks)
+    monkeypatch.setattr(knowledge, "get_tags_for_chunks", concurrent_tags)
+    monkeypatch.setattr(knowledge, "_attach_video_segment_metadata", concurrent_video)
+    monkeypatch.setattr(knowledge, "_document_tag_health_contract", concurrent_health)
+
+    result = await asyncio.wait_for(
+        knowledge.get_document_chunks(
+            "doc-1", page=1, page_size=25, kb="kb-1", current_user={"id": 7}
+        ),
+        timeout=1,
+    )
+
+    assert set(started) == {"tags", "video", "health"}
+    assert result["document"]["tag_status"] == "ready"
+    assert [chunk["chunk_id"] for chunk in result["chunks"]] == ["chunk-a", "chunk-b"]
+
+
+@pytest.mark.asyncio
+async def test_chunk_detail_enrichment_runs_concurrently(monkeypatch):
+    instance = _instance()
+    await _wire(monkeypatch, instance)
+    started = []
+    all_started = asyncio.Event()
+
+    async def wait_for_peers(name, result):
+        started.append(name)
+        if len(started) == 3:
+            all_started.set()
+        await asyncio.wait_for(all_started.wait(), timeout=0.5)
+        return result
+
+    async def concurrent_tags(_kb, _doc_id, chunk_ids):
+        return await wait_for_peers(
+            "tags",
+            {str(chunk_id): [] for chunk_id in chunk_ids},
+        )
+
+    async def concurrent_video(_kb, _chunks):
+        return await wait_for_peers("video", None)
+
+    async def concurrent_health(_kb, doc_ids):
+        return await wait_for_peers(
+            "health",
+            {doc_id: {"tag_status": "ready"} for doc_id in doc_ids},
+        )
+
+    monkeypatch.setattr(knowledge, "get_tags_for_chunks", concurrent_tags)
+    monkeypatch.setattr(knowledge, "_attach_video_segment_metadata", concurrent_video)
+    monkeypatch.setattr(knowledge, "_document_tag_health_contract", concurrent_health)
+
+    result = await asyncio.wait_for(
+        knowledge.get_document_chunk(
+            "doc-1", "chunk-a", kb="kb-1", current_user={"id": 7}
+        ),
+        timeout=1,
+    )
+
+    assert set(started) == {"tags", "video", "health"}
+    assert result["document"]["tag_status"] == "ready"
+    assert result["chunk"]["chunk_id"] == "chunk-a"
+
+
+@pytest.mark.asyncio
 async def test_get_document_chunk_returns_only_the_requested_chunk(monkeypatch):
     status = _status()
     status["metadata"]["multimodal_chunks"] = {

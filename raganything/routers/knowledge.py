@@ -139,6 +139,19 @@ def _record_chunk_read_phase(phase: str, outcome: str, elapsed_seconds: float) -
     _CHUNK_READ_DURATION.labels(safe_phase, safe_outcome).observe(max(0.0, elapsed_seconds))
 
 
+async def _run_chunk_enrichment_phase(phase: str, awaitable: Any) -> Any:
+    started_at = time.perf_counter()
+    value = await awaitable
+    elapsed = time.perf_counter() - started_at
+    lightrag_logger.info(
+        "CHUNK_PAGE_TIMING phase=%s outcome=ok elapsed_ms=%.2f",
+        phase,
+        elapsed * 1000,
+    )
+    _record_chunk_read_phase(phase, "ok", elapsed)
+    return value
+
+
 def _is_opaque_graph_entity_id(value: object) -> bool:
     return isinstance(value, str) and bool(_OPAQUE_GRAPH_ENTITY_ID_RE.fullmatch(value.strip()))
 
@@ -2596,19 +2609,25 @@ async def get_document_chunks(
                 already_enriched = False
             lightrag_logger.info("CHUNK_PAGE_TIMING phase=chunk_query outcome=ok elapsed_ms=%.2f", (time.perf_counter() - query_started) * 1000)
             _record_chunk_read_phase("chunk_query", "ok", time.perf_counter() - query_started)
+            document = _chunk_document_payload(full_id, status_info)
             if not already_enriched:
-                tag_started = time.perf_counter()
-                tags_by_chunk = await _get_tags_for_chunks_best_effort(kb, full_id, [item["chunk_id"] for item in chunks])
+                tags_by_chunk, _, tag_health = await asyncio.gather(
+                    _run_chunk_enrichment_phase(
+                        "tag_enrichment",
+                        _get_tags_for_chunks_best_effort(
+                            kb, full_id, [item["chunk_id"] for item in chunks]
+                        ),
+                    ),
+                    _run_chunk_enrichment_phase(
+                        "video_enrichment",
+                        _attach_video_segment_metadata(kb, chunks),
+                    ),
+                    _document_tag_health_contract(kb, [full_id]),
+                )
                 for item in chunks:
                     item["tags"] = tags_by_chunk.get(item["chunk_id"], [])
-                lightrag_logger.info("CHUNK_PAGE_TIMING phase=tag_enrichment outcome=ok elapsed_ms=%.2f", (time.perf_counter() - tag_started) * 1000)
-                _record_chunk_read_phase("tag_enrichment", "ok", time.perf_counter() - tag_started)
-                video_started = time.perf_counter()
-                await _attach_video_segment_metadata(kb, chunks)
-                lightrag_logger.info("CHUNK_PAGE_TIMING phase=video_enrichment outcome=ok elapsed_ms=%.2f", (time.perf_counter() - video_started) * 1000)
-                _record_chunk_read_phase("video_enrichment", "ok", time.perf_counter() - video_started)
-            document = _chunk_document_payload(full_id, status_info)
-            tag_health = await _document_tag_health_contract(kb, [full_id])
+            else:
+                tag_health = await _document_tag_health_contract(kb, [full_id])
             document.update(tag_health.get(full_id, {}))
             document = _apply_enrichment_status_overlay(document)
             if not document["content_summary"] and chunks:
@@ -2719,12 +2738,13 @@ async def get_document_chunk(
         )
         if chunk["chunk_id"] != chunk_id:
             raise HTTPException(404, f"Chunk {chunk_id} does not exist")
-        chunk["tags"] = (
-            await _get_tags_for_chunks_best_effort(kb, full_id, [chunk_id])
-        ).get(chunk_id, [])
-        await _attach_video_segment_metadata(kb, [chunk])
         document = _chunk_document_payload(full_id, status_info)
-        tag_health = await _document_tag_health_contract(kb, [full_id])
+        tags_by_chunk, _, tag_health = await asyncio.gather(
+            _get_tags_for_chunks_best_effort(kb, full_id, [chunk_id]),
+            _attach_video_segment_metadata(kb, [chunk]),
+            _document_tag_health_contract(kb, [full_id]),
+        )
+        chunk["tags"] = tags_by_chunk.get(chunk_id, [])
         document.update(tag_health.get(full_id, {
             "tag_status": "pending",
             "tag_raw_status": "missing",

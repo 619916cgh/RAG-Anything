@@ -1,19 +1,19 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Layers, Trash2, Clock, Database, FileText, CircleDot, X, Search, UserRound, Pencil } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { api, setCurrentKB, getCurrentKB } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import Pagination from '../components/Pagination'
 import ResourceSortControl from '../components/ResourceSortControl'
-import KnowledgeBaseEditorDrawer from '../components/KnowledgeBaseEditorDrawer'
 import { UserDialogConfirmation } from '../components/UserDialog'
 import { getKnowledgeBaseUpdateTimestamp, sortKnowledgeBases } from '../utils/kbSorting'
 import { canEditKnowledgeBase } from '../utils/knowledgeBaseEditor'
 import { clampPage, getStoredPageSize, getTotalPages, storePageSize } from '../utils/pagination'
 import { formatDate } from '../utils/dateFormat'
 import { getKnowledgeBaseDisplayName } from '../utils/kbDisplayName'
+
+const KnowledgeBaseEditorDrawer = lazy(() => import('../components/KnowledgeBaseEditorDrawer'))
 
 const PAGE_SIZE_STORAGE_KEY = 'raganything:pagination:knowledge-bases'
 const KB_GRID_ROWS = 3
@@ -606,98 +606,83 @@ export default function KnowledgePage() {
 
       </section>
 
-      <AnimatePresence>
-        {editingKB && (
+      {editingKB && (
+        <Suspense fallback={null}>
           <KnowledgeBaseEditorDrawer
             kb={editingKB}
             isOpen
             onRequestClose={() => setEditingKB(null)}
             onSaved={handleEditorSaved}
           />
-        )}
-      </AnimatePresence>
+        </Suspense>
+      )}
 
       {/* 创建知识库弹窗 */}
-      {createPortal(
-        <AnimatePresence>
-          {showCreate && (
-            <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="resource-modal-overlay"
-            onClick={closeCreateModal}
-            role="dialog"
-            aria-modal="true"
-            aria-label="新建知识库"
+      {createPortal(showCreate ? (
+        <div
+          className="resource-modal-overlay"
+          onClick={closeCreateModal}
+          role="dialog"
+          aria-modal="true"
+          aria-label="新建知识库"
+        >
+          <div
+            className="card p-6 max-w-sm w-full m-4"
+            onClick={e => e.stopPropagation()}
           >
-            <motion.div
-              initial={{ opacity: 0, y: 16, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.96 }}
-              transition={{ duration: 0.18 }}
-              className="card p-6 max-w-sm w-full m-4"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-start justify-between gap-4 mb-5">
-                <div>
-                  <p className="text-base font-semibold text-ink-primary">新建知识库</p>
-                  <p className="text-xs text-ink-muted mt-1">创建新的文档、实体与图谱空间</p>
-                </div>
-                <button
-                  className="p-1.5 rounded-lg text-ink-muted hover:text-ink-primary hover:bg-cloud-200 transition-colors"
-                  onClick={closeCreateModal}
-                  aria-label="关闭"
-                >
-                  <X size={16} />
-                </button>
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <p className="text-base font-semibold text-ink-primary">新建知识库</p>
+                <p className="text-xs text-ink-muted mt-1">创建新的文档、实体与图谱空间</p>
               </div>
+              <button
+                className="p-1.5 rounded-lg text-ink-muted hover:text-ink-primary hover:bg-cloud-200 transition-colors"
+                onClick={closeCreateModal}
+                aria-label="关闭"
+              >
+                <X size={16} />
+              </button>
+            </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs text-ink-muted mb-1.5 block">知识库名称</label>
-                  <input
-                    ref={createInputRef}
-                    className="input-field text-sm w-full"
-                    placeholder="输入知识库名称…"
-                    value={newKBName}
-                    maxLength={64}
-                    onChange={e => setNewKBName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') handleCreateKB()
-                      if (e.key === 'Escape') closeCreateModal()
-                    }}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button className="btn-secondary text-sm" onClick={closeCreateModal}>取消</button>
-                  <button className="btn-primary text-sm" onClick={handleCreateKB} disabled={!newKBName.trim()}>创建</button>
-                </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-ink-muted mb-1.5 block">知识库名称</label>
+                <input
+                  ref={createInputRef}
+                  className="input-field text-sm w-full"
+                  placeholder="输入知识库名称…"
+                  value={newKBName}
+                  maxLength={64}
+                  onChange={e => setNewKBName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleCreateKB()
+                    if (e.key === 'Escape') closeCreateModal()
+                  }}
+                />
               </div>
-            </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
+              <div className="flex gap-2 justify-end">
+                <button className="btn-secondary text-sm" onClick={closeCreateModal}>取消</button>
+                <button className="btn-primary text-sm" onClick={handleCreateKB} disabled={!newKBName.trim()}>创建</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null,
         document.body,
       )}
 
       {/* 提示消息 */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 24, scale: 0.95 }}
-            role="status"
-            aria-live="polite"
-            className={`fixed bottom-6 right-6 px-5 py-3 rounded-2xl text-sm font-medium z-50 shadow-cloud-md ${
-              toast.type === 'error' ? 'toast-error' : toast.type === 'success' ? 'toast-success' : 'toast-info'
-            }`}
-          >
-            {toast.msg}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-6 right-6 px-5 py-3 rounded-2xl text-sm font-medium z-50 shadow-cloud-md ${
+            toast.type === 'error' ? 'toast-error' : toast.type === 'success' ? 'toast-success' : 'toast-info'
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
     </div>
   )
 }

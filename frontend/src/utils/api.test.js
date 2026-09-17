@@ -418,6 +418,42 @@ test('a document-page cancellation does not abort statistics shared by another p
   assert.equal(result.stats.status, 'ready')
 })
 
+test('top-level KB stats share the in-flight detail statistics request', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const requests = []
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = (url, options = {}) => new Promise(resolve => {
+    requests.push({ target: String(url), signal: options.signal, resolve })
+  })
+  t.after(() => {
+    api.clearKnowledgeDetailCache()
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  api.clearKnowledgeDetailCache()
+  const detailRequest = api.prefetchKnowledgeDetail('manuals')
+  const statsRequest = api.getStatsForKBCached('manuals')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const statsCalls = requests.filter(request => request.target.includes('/knowledge/stats'))
+  assert.equal(statsCalls.length, 1)
+
+  for (const request of requests) {
+    if (request.target.includes('/document-summaries')) {
+      request.resolve(jsonResponse({ documents: [] }))
+    } else if (request.target.includes('/knowledge/inventory')) {
+      request.resolve(jsonResponse({ all: { retrievable: 0 } }))
+    } else {
+      request.resolve(jsonResponse({ documents: 3 }))
+    }
+  }
+
+  const [detail, stats] = await Promise.all([detailRequest, statsRequest])
+  assert.deepEqual(stats, { documents: 3 })
+  assert.deepEqual(detail.stats.data, { documents: 3 })
+})
+
 test('upload task deletion and retry cancellation invalidate every cached document page', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage

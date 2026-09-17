@@ -466,6 +466,25 @@ function abortError() {
   return error
 }
 
+function loadKnowledgeStatsForKB(
+  kbName,
+  {
+    force = false,
+    timeoutMs = KB_DETAIL_PREFETCH_TIMEOUT_MS,
+    signal,
+  } = {},
+) {
+  const encodedKB = encodeURIComponent(kbName)
+  return knowledgeDetailStatsCache.acquire(
+    kbName,
+    ({ signal: statsSignal }) => fetchJson(
+      `/knowledge/stats?kb=${encodedKB}`,
+      { timeoutMs, signal: statsSignal },
+    ),
+    { force, signal },
+  )
+}
+
 async function loadKnowledgeDetailSnapshot(
   kbName,
   {
@@ -486,11 +505,7 @@ async function loadKnowledgeDetailSnapshot(
   if (q) documentParams.set('q', q)
   const [documentsResult, statsResult, inventoryResult] = await Promise.allSettled([
     fetchJson(`/knowledge/document-summaries?${documentParams.toString()}`, { timeoutMs, signal }),
-    knowledgeDetailStatsCache.acquire(
-      kbName,
-      ({ signal: statsSignal }) => fetchJson(`/knowledge/stats?kb=${encodedKB}`, { timeoutMs, signal: statsSignal }),
-      { force: forceStats, signal },
-    ),
+    loadKnowledgeStatsForKB(kbName, { force: forceStats, timeoutMs, signal }),
     fetchJson(`/knowledge/inventory?kb=${encodedKB}`, { timeoutMs, signal }),
   ])
   if (signal?.aborted) throw abortError()
@@ -686,6 +701,7 @@ export const api = {
     `/knowledge/stats?kb=${encodeURIComponent(kbName)}`,
     { signal, timeoutMs },
   ),
+  getStatsForKBCached: (kbName, options) => loadKnowledgeStatsForKB(kbName, options),
   getStatsBatchForKBs: (kbNames) => fetchJson('/knowledge/stats/batch', {
     method: 'POST',
     body: JSON.stringify({ kb_names: kbNames }),

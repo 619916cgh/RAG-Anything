@@ -197,6 +197,14 @@ const formatStatValue = (value) => {
   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
 }
 
+const decodePathSegment = value => {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return ''
+  }
+}
+
 const getCockpitStats = (pathname, stats, hasPermission, policy = {}) => {
   if (pathname === '/' || pathname.startsWith('/knowledge')) {
     return [
@@ -433,14 +441,25 @@ export default function App() {
 
   // 全局统计（顶栏状态条）：30s TTL 缓存、仅知识库路由、页面隐藏时跳过
   const isStatsRoute = location.pathname === '/' || location.pathname.startsWith('/knowledge')
-  const loadStats = useCallback(() => {
-    if (document.hidden) return
-    api.getGlobalStatsCached().then(setStats).catch(() => {})
-  }, [])
+  const routeKBName = location.pathname.startsWith('/knowledge/')
+    ? decodePathSegment(location.pathname.split('/')[2] || '')
+    : ''
   useEffect(() => {
-    if (!token || !isStatsRoute) return
-    loadStats()
-  }, [token, isStatsRoute, loadStats, location.pathname])
+    if (!token || !isStatsRoute || document.hidden) return undefined
+    let active = true
+    const controller = routeKBName ? new AbortController() : null
+    if (routeKBName) setStats({ documents: 0, entities: 0, relations: 0 })
+    const request = routeKBName
+      ? api.getStatsForKBCached(routeKBName, { signal: controller.signal })
+      : api.getGlobalStatsCached()
+    request
+      .then(nextStats => { if (active) setStats(nextStats) })
+      .catch(() => {})
+    return () => {
+      active = false
+      controller?.abort()
+    }
+  }, [token, isStatsRoute, routeKBName])
 
   const showToast = useCallback((msg, type = 'info') => {
     if (toastTimerRef.current) {
@@ -735,4 +754,3 @@ export default function App() {
     </div>
   )
 }
-

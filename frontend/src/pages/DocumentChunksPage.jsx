@@ -187,7 +187,7 @@ export default function DocumentChunksPage() {
   }, [query])
 
   useEffect(() => {
-    if (legacyChunkId || !kbAccess.confirmed) return undefined
+    if (legacyChunkId || !kbName || !docId) return undefined
     const controller = new AbortController()
     let active = true
     if (!backgroundRefreshRef.current) setLoading(true)
@@ -215,7 +215,7 @@ export default function DocumentChunksPage() {
       active = false
       controller.abort()
     }
-  }, [debouncedQuery, docId, kbAccess.confirmed, kbName, legacyChunkId, page, pageSize, reloadKey, selectedTagId])
+  }, [debouncedQuery, docId, kbName, legacyChunkId, page, pageSize, reloadKey, selectedTagId])
 
   const tagStatus = data?.document?.tag_status
   useEffect(() => {
@@ -314,9 +314,6 @@ export default function DocumentChunksPage() {
     }
   }, [canWrite, docId, kbAccess.confirmed, kbName, retagging, showToast])
 
-  if (kbAccess.loading) return <PageSkeleton />
-  if (kbAccess.unavailable) return <ErrorState error={{ status: 404 }} onRetry={kbAccess.retry} backPath="/knowledge" />
-  if (kbAccess.error) return <ErrorState error={kbAccess.error} onRetry={kbAccess.retry} backPath="/knowledge" />
   if (loading) return <PageSkeleton />
   if (error) return <ErrorState error={error} onRetry={() => setReloadKey(value => value + 1)} backPath={backPath} />
 
