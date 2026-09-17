@@ -313,6 +313,50 @@ test('document chunk prefetch shares in-flight reads and reuses a short cache', 
   assert.equal(cached.chunks[0].chunk_id, 'chunk-1')
 })
 
+test('aborting a mounted chunk read does not poison the next mount', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const calls = []
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = (url, options = {}) => {
+    calls.push({ target: String(url), signal: options.signal })
+    if (calls.length === 1) {
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener(
+          'abort',
+          () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          { once: true },
+        )
+      })
+    }
+    return Promise.resolve(jsonResponse({ chunks: [{ chunk_id: 'chunk-2' }] }))
+  }
+  t.after(() => {
+    api.clearKnowledgeDetailCache()
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  api.clearKnowledgeDetailCache()
+  const controller = new AbortController()
+  const aborted = api.getDocumentChunks('doc-1', {
+    kb: 'manuals',
+    page: 1,
+    pageSize: 25,
+    signal: controller.signal,
+  })
+  controller.abort()
+  await assert.rejects(aborted, error => error?.name === 'AbortError')
+
+  const retried = await api.getDocumentChunks('doc-1', {
+    kb: 'manuals',
+    page: 1,
+    pageSize: 25,
+  })
+  assert.equal(calls.length, 2)
+  assert.equal(retried.chunks[0].chunk_id, 'chunk-2')
+})
+
 test('document summary requests encode KB, page, size and literal search terms', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage

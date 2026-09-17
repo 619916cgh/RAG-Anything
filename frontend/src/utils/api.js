@@ -57,10 +57,6 @@ function loadDocumentChunksForKB(docId, options = {}, { force = false } = {}) {
   if (!shouldForce && cached && now - cached.cachedAt <= DOCUMENT_CHUNK_CACHE_TTL_MS) {
     return Promise.resolve(cached.value)
   }
-  if (!shouldForce) {
-    const existing = documentChunkInFlight.get(key)
-    if (existing) return existing
-  }
 
   const requestEpoch = documentChunkCacheEpoch
   const params = new URLSearchParams({ kb })
@@ -68,20 +64,27 @@ function loadDocumentChunksForKB(docId, options = {}, { force = false } = {}) {
   if (options.pageSize != null) params.set('page_size', String(pageSize))
   if (q !== '') params.set('q', q)
   if (tagId != null && tagId !== '') params.set('tag_id', String(tagId))
-  let request
-  request = fetchJson(
-    `/knowledge/documents/${encodeURIComponent(docId)}/chunks?${params.toString()}`,
-    { signal: options.signal },
-  )
-    .then(value => {
-      if (requestEpoch === documentChunkCacheEpoch) {
-        documentChunkCache.set(key, { value, cachedAt: Date.now() })
-        while (documentChunkCache.size > DOCUMENT_CHUNK_CACHE_MAX_ENTRIES) {
-          documentChunkCache.delete(documentChunkCache.keys().next().value)
-        }
+  const url = `/knowledge/documents/${encodeURIComponent(docId)}/chunks?${params.toString()}`
+  const cacheValue = value => {
+    if (requestEpoch === documentChunkCacheEpoch && !options.signal?.aborted) {
+      documentChunkCache.set(key, { value, cachedAt: Date.now() })
+      while (documentChunkCache.size > DOCUMENT_CHUNK_CACHE_MAX_ENTRIES) {
+        documentChunkCache.delete(documentChunkCache.keys().next().value)
       }
-      return value
-    })
+    }
+    return value
+  }
+  if (options.signal) {
+    return fetchJson(url, { signal: options.signal }).then(cacheValue)
+  }
+
+  if (!shouldForce) {
+    const existing = documentChunkInFlight.get(key)
+    if (existing) return existing
+  }
+  let request
+  request = fetchJson(url)
+    .then(cacheValue)
     .finally(() => {
       if (documentChunkInFlight.get(key) === request) {
         documentChunkInFlight.delete(key)
