@@ -2315,6 +2315,44 @@ async def _load_doc_status_by_id(
     return _serialize_doc_status_record(record) if isinstance(record, dict) else None
 
 
+async def _load_pg_doc_status_by_id_read_only(
+    kb_name: str,
+    doc_id: str,
+) -> dict[str, Any] | None:
+    """Read one full PG document-status record without creating LightRAG."""
+    if not _pg_storage_ready():
+        return None
+
+    from raganything.services.pg_state_repo import get_pg_pool
+
+    pool = get_pg_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT id, file_path, status, content_summary, content_length,
+                          chunks_count, chunks_list, metadata, error_msg,
+                          created_at, updated_at, track_id
+                     FROM LIGHTRAG_DOC_STATUS
+                    WHERE workspace=$1 AND id=$2""",
+                kb_dir(kb_name),
+                doc_id,
+            )
+    except Exception as exc:
+        raise RuntimeError("PG doc_status single-record read failed") from exc
+
+    if not row:
+        return None
+    record = dict(row)
+    chunks_list = record.get("chunks_list")
+    if isinstance(chunks_list, str):
+        try:
+            chunks_list = json.loads(chunks_list)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("PG doc_status chunks_list is invalid JSON") from exc
+        record["chunks_list"] = chunks_list
+    return _serialize_doc_status_record(record)
+
+
 def _serialize_doc_status_summary(record: Any) -> dict[str, Any]:
     """Normalize fields exposed by LightRAG's summary-only pagination API."""
     if isinstance(record, Mapping):

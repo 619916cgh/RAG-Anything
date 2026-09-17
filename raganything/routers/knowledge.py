@@ -63,6 +63,7 @@ from raganything.services.kb_service import (
     _unregister_processing_file,
     _load_doc_status_json,
     _load_doc_status_by_id,
+    _load_pg_doc_status_by_id_read_only,
     _load_doc_status_summaries,
     load_document_summary_page,
     _generate_uploaded_document_tags,
@@ -102,8 +103,10 @@ from raganything.services.kb_tag_repo import (
 )
 from raganything.services.kb_chunk_repo import (
     PersistedChunkQueryError,
+    get_chunk_record_direct,
     query_chunks_by_document_id,
     query_document_chunk_page,
+    query_document_chunk_page_direct,
 )
 
 # Module reference for writing to shared mutable state (active_kb)
@@ -2093,7 +2096,9 @@ async def _resolve_chunk_document_direct(
     kb: str, requested_id: str,
 ) -> tuple[str, dict[str, Any]]:
     """Resolve a full ID without hydrating the whole status catalog."""
-    status = await _load_doc_status_by_id(kb, requested_id)
+    status = await _load_pg_doc_status_by_id_read_only(kb, requested_id)
+    if status is None:
+        status = await _load_doc_status_by_id(kb, requested_id)
     if status is not None:
         return requested_id, status
     # Short historical IDs are uncommon. Keep their existing ambiguity behavior
@@ -2557,9 +2562,6 @@ async def get_document_chunks(
     started_at = time.perf_counter()
     try:
         core_started = time.perf_counter()
-        instance = await get_kb(kb)
-        if not instance or not instance.lightrag:
-            raise HTTPException(500, "Knowledge base is not initialized")
         if paged:
             page = page or 1
             page_size = page_size or 25
@@ -2569,15 +2571,29 @@ async def get_document_chunks(
             _record_chunk_read_phase("doc_status", "ok", time.perf_counter() - status_started)
             lightrag_logger.info("CHUNK_PAGE_TIMING phase=doc_status outcome=ok elapsed_ms=%.2f", (time.perf_counter() - status_started) * 1000)
             query_started = time.perf_counter()
-            page_result = await query_document_chunk_page(
-                instance.lightrag, full_id, page=page, page_size=page_size,
+            page_result = await query_document_chunk_page_direct(
+                kb_dir(kb), full_id, page=page, page_size=page_size,
                 query=query, tag_id=tag_id, kb_name=kb,
                 metadata_match_ids=_chunk_metadata_query_ids(status_info, query),
             )
+            instance = None
+            if page_result is None:
+                instance = await get_kb(kb)
+                if not instance or not instance.lightrag:
+                    raise HTTPException(500, "Knowledge base is not initialized")
+                page_result = await query_document_chunk_page(
+                    instance.lightrag, full_id, page=page, page_size=page_size,
+                    query=query, tag_id=tag_id, kb_name=kb,
+                    metadata_match_ids=_chunk_metadata_query_ids(status_info, query),
+                )
             metadata = _multimodal_chunk_metadata(status_info)
             if page_result is None:
                 # JSON and other legacy stores retain correctness, but do not
                 # claim the PostgreSQL large-document performance contract.
+                if instance is None:
+                    instance = await get_kb(kb)
+                    if not instance or not instance.lightrag:
+                        raise HTTPException(500, "Knowledge base is not initialized")
                 all_records = await _load_document_chunk_records(instance.lightrag, full_id, status_info, kb)
                 all_chunks = [
                     _serialize_document_chunk(
@@ -2653,6 +2669,9 @@ async def get_document_chunks(
             lightrag_logger.info("CHUNK_PAGE_TIMING phase=response_size outcome=ok bytes=%s", response_bytes)
             _record_chunk_read_phase("total", "ok", time.perf_counter() - started_at)
             return response
+        instance = await get_kb(kb)
+        if not instance or not instance.lightrag:
+            raise HTTPException(500, "Knowledge base is not initialized")
         all_status = await _load_doc_status_json(kb)
         full_id, status_info = _resolve_chunk_document(all_status or {}, doc_id)
         records = await _load_document_chunk_records(instance.lightrag, full_id, status_info, kb)
@@ -2717,15 +2736,16 @@ async def get_document_chunk(
 ):
     """Return one document chunk for a permalinked detail page."""
     try:
-        instance = await get_kb(kb)
-        if not instance or not instance.lightrag:
-            raise HTTPException(500, "Knowledge base is not initialized")
-        all_status = await _load_doc_status_json(kb)
-        full_id, status_info = _resolve_chunk_document(all_status or {}, doc_id)
+        full_id, status_info = await _resolve_chunk_document_direct(kb, doc_id)
         document_chunk_ids = {
             str(value) for value in status_info.get("chunks_list", []) if value
         }
-        record = await _chunk_store_get(instance.lightrag.text_chunks, chunk_id)
+        record = await get_chunk_record_direct(kb_dir(kb), chunk_id)
+        if record is None:
+            instance = await get_kb(kb)
+            if not instance or not instance.lightrag:
+                raise HTTPException(500, "Knowledge base is not initialized")
+            record = await _chunk_store_get(instance.lightrag.text_chunks, chunk_id)
         if record is None:
             raise HTTPException(404, f"Chunk {chunk_id} does not exist")
         belongs_to_document = (

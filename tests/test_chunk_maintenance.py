@@ -122,6 +122,15 @@ async def _wire(monkeypatch, instance, status=None):
         current = await instance.lightrag.doc_status.get_by_id("doc-1")
         return {"doc-1": current} if current else status_data
 
+    async def fake_direct_page(*_args, **_kwargs):
+        return None
+
+    async def fake_direct_chunk(*_args, **_kwargs):
+        return None
+
+    async def fake_direct_status(*_args, **_kwargs):
+        return None
+
     refreshes = []
     audit = []
 
@@ -155,6 +164,9 @@ async def _wire(monkeypatch, instance, status=None):
     )
     monkeypatch.setattr(knowledge, "get_kb", fake_get_kb)
     monkeypatch.setattr(knowledge, "_load_doc_status_json", fake_status)
+    monkeypatch.setattr(knowledge, "query_document_chunk_page_direct", fake_direct_page)
+    monkeypatch.setattr(knowledge, "get_chunk_record_direct", fake_direct_chunk)
+    monkeypatch.setattr(knowledge, "_load_pg_doc_status_by_id_read_only", fake_direct_status)
     monkeypatch.setattr(knowledge, "_refresh_chunk_search", fake_refresh)
     monkeypatch.setattr(knowledge, "_log_chunk_mutation", fake_log)
     monkeypatch.setattr(knowledge, "get_tags_for_chunks", fake_tags)
@@ -247,6 +259,45 @@ async def test_paged_chunks_filter_and_keep_document_header_totals(monkeypatch):
     assert result["total_tokens"] == 3
     assert result["document_total"] == 2
     assert result["document_total_tokens"] == 5
+
+
+@pytest.mark.asyncio
+async def test_paged_pg_chunks_bypass_full_kb_initialization(monkeypatch):
+    instance = _instance()
+    await _wire(monkeypatch, instance)
+    status = await instance.lightrag.doc_status.get_by_id("doc-1")
+    records = [
+        await instance.lightrag.text_chunks.get_by_id("chunk-a"),
+        await instance.lightrag.text_chunks.get_by_id("chunk-b"),
+    ]
+
+    async def direct_status(_kb, _document_id):
+        return status
+
+    async def direct_page(workspace, document_id, **_kwargs):
+        assert workspace == "./rag_storage_kb-1"
+        assert document_id == "doc-1"
+        return {
+            "records": records,
+            "total": 2,
+            "total_tokens": 5,
+            "document_total": 2,
+            "document_total_tokens": 5,
+        }
+
+    async def unexpected_get_kb(_kb):
+        raise AssertionError("PG chunk reads must not initialize a KB")
+
+    monkeypatch.setattr(knowledge, "_load_doc_status_by_id", direct_status)
+    monkeypatch.setattr(knowledge, "query_document_chunk_page_direct", direct_page)
+    monkeypatch.setattr(knowledge, "get_kb", unexpected_get_kb)
+
+    result = await knowledge.get_document_chunks(
+        "doc-1", page=1, page_size=25, kb="kb-1", current_user={"id": 7}
+    )
+
+    assert [chunk["chunk_id"] for chunk in result["chunks"]] == ["chunk-a", "chunk-b"]
+    assert result["document_total"] == 2
 
 
 @pytest.mark.asyncio
