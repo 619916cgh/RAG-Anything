@@ -44,7 +44,7 @@ from raganything.utils.process_lock import FileLock, get_lock_dir
 # ── constants ──────────────────────────────────────────────────────────
 _PACKAGE_NAME = "opendataloader-pdf"
 _PINNED_VERSION = "2.5.0"
-_ADAPTER_SCHEMA_VERSION = "2"
+_ADAPTER_SCHEMA_VERSION = "3"
 _JAVA_MIN_MAJOR = 17
 _DEFAULT_TIMEOUT = int(os.getenv("ODL_TIMEOUT", "600"))  # 10 min default
 _DEFAULT_PAGE_TIMEOUT = int(os.getenv("ODL_PAGE_TIMEOUT", "120"))
@@ -1777,10 +1777,10 @@ class OpenDataLoaderParser(Parser):
                     unique_page_content.append(block)
 
                 text_char_count = _meaningful_text_char_count(unique_page_content)
-                needs_ocr_fallback = (
-                    entry["state"] != "blank"
-                    and text_char_count < self._odl_ocr_min_text_chars
-                )
+                # ODL reports "blank" when it extracted no top-level elements,
+                # which is not proof that the rendered page is visually blank.
+                # Every low-text page must therefore remain OCR-eligible.
+                needs_ocr_fallback = text_char_count < self._odl_ocr_min_text_chars
                 if needs_ocr_fallback:
                     ocr_candidate_pages.append(page)
                 page_records.append(
@@ -1789,6 +1789,7 @@ class OpenDataLoaderParser(Parser):
                         "content": unique_page_content,
                         "provenance": page_provenance,
                         "text_char_count": text_char_count,
+                        "was_blank": entry["state"] == "blank",
                     }
                 )
                 raw_artifacts.append(
@@ -1883,8 +1884,20 @@ class OpenDataLoaderParser(Parser):
                             self._odl_ocr_min_text_chars,
                         ):
                             ocr_pages.append(page)
+                            if record["was_blank"]:
+                                if page in blank_pages:
+                                    blank_pages.remove(page)
+                                if page not in successful_pages:
+                                    successful_pages.append(page)
                             ocr_text_block_count += recovered_blocks
                             ocr_text_char_count += recovered_chars
+                        elif record["was_blank"]:
+                            if recovered_blocks > 0:
+                                if page in blank_pages:
+                                    blank_pages.remove(page)
+                                if page not in successful_pages:
+                                    successful_pages.append(page)
+                                text_missing_pages.append(page)
                         else:
                             text_missing_pages.append(page)
                     if time.monotonic() >= deadline:
@@ -1893,6 +1906,8 @@ class OpenDataLoaderParser(Parser):
                             "odl_ocr_timeout",
                         )
 
+            successful_pages.sort()
+            ocr_pages.sort()
             for record in page_records:
                 content_list.extend(record["content"])
                 provenance.extend(record["provenance"])

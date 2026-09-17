@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,7 @@ from raganything.parser.opendataloader_parser import (
     _ocr_recovery_is_sufficient,
     _resolve_output_base,
     ODLOcrError,
+    ODLTextCoverageError,
 )
 from raganything.utils._content import separate_content
 
@@ -649,7 +651,7 @@ def test_merged_ocr_text_becomes_searchable_text_before_media_marker():
 def test_cache_identity_includes_ocr_fallback_contract():
     identity = OpenDataLoaderParser.cache_identity()
 
-    assert identity["adapter_schema"] == "2"
+    assert identity["adapter_schema"] == "3"
     assert identity["ocr_engine"] == "rapidocr"
     assert isinstance(identity["ocr_fallback_enabled"], bool)
     assert identity["ocr_min_text_chars"] >= 1
@@ -658,3 +660,189 @@ def test_cache_identity_includes_ocr_fallback_contract():
     assert 0.0 <= identity["ocr_text_score"] <= 1.0
     assert identity["ocr_det_limit_side_len"] == 960
     assert identity["ocr_onnx_threads"] == 2
+
+
+def test_odl_blank_page_is_ocr_recovered_and_moved_to_successful_pages(
+    tmp_path,
+    monkeypatch,
+):
+    import pypdf
+
+    parser = OpenDataLoaderParser(ocr_min_text_chars=6)
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+
+    class FakePage:
+        mediabox = SimpleNamespace(width=100.0, height=100.0)
+
+    class FakeReader:
+        pages = [FakePage(), FakePage()]
+
+    class FakeLock:
+        def release(self):
+            return None
+
+    monkeypatch.setattr(pypdf, "PdfReader", lambda _path: FakeReader())
+    monkeypatch.setattr(parser, "_preflight_pdf", lambda _path: None)
+    monkeypatch.setattr(parser, "installation_error", lambda: None)
+    monkeypatch.setattr(parser, "_find_java", lambda: Path("java"))
+    monkeypatch.setattr(
+        parser,
+        "_acquire_cross_process_slot",
+        lambda *_args, **_kwargs: FakeLock(),
+    )
+
+    def fake_single_page_runner(_pdf_path, page_dir, _source_pages, page, *args):
+        page_dir.mkdir(parents=True, exist_ok=False)
+        return {
+            "page": page,
+            "state": "blank" if page == 1 else "success",
+            "json_relpath": "runner.json",
+            "json_sha256": "unused",
+            "markdown_relpath": "runner.md",
+            "markdown_sha256": "unused",
+        }
+
+    monkeypatch.setattr(
+        parser,
+        "_run_single_page_runner",
+        fake_single_page_runner,
+    )
+
+    def fake_read_json(json_path):
+        page = int(json_path.parent.name.rsplit("-", 1)[-1])
+        if page == 1:
+            return {"kids": []}
+        return {
+            "kids": [
+                {
+                    "type": "paragraph",
+                    "page number": page,
+                    "content": "正文内容完整可检索",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(parser, "_read_and_validate_json", fake_read_json)
+
+    def fake_replace_fragments(page_content, _provenance, *_args):
+        return page_content, 0, 0
+
+    monkeypatch.setattr(
+        parser,
+        "_replace_fragment_dense_images",
+        fake_replace_fragments,
+    )
+
+    requested_pages = []
+
+    def fake_ocr(_pdf_path, _run_root, pages, _timeout):
+        requested_pages.extend(pages)
+        return {
+            1: [
+                {
+                    "text": "新能源汽车电气技术",
+                    "bbox_pixels": [10.0, 20.0, 200.0, 40.0],
+                    "score": 0.99,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(parser, "_run_ocr_batch_runner", fake_ocr)
+
+    content = parser.parse_pdf(source, output_dir=str(tmp_path / "output"))
+    coverage = content.page_coverage
+    from raganything.processor.doc_processor import DocProcessorMixin
+
+    assert requested_pages == [1]
+    assert coverage["successful_pages"] == [1, 2]
+    assert coverage["blank_pages"] == []
+    assert coverage["ocr_pages"] == [1]
+    assert coverage["ocr_candidate_pages"] == [1]
+    assert coverage["text_missing_pages"] == []
+    assert any(block.get("text") == "新能源汽车电气技术" for block in content)
+    assert DocProcessorMixin._validate_pdf_page_coverage(coverage) == coverage
+
+
+@pytest.mark.parametrize(
+    ("ocr_lines", "fails_closed"),
+    [
+        ([], False),
+        ([{"text": "短", "bbox_pixels": [10.0, 20.0, 40.0, 40.0]}], True),
+    ],
+)
+def test_odl_blank_page_ocr_zero_text_is_blank_and_partial_text_fails_closed(
+    tmp_path,
+    monkeypatch,
+    ocr_lines,
+    fails_closed,
+):
+    import pypdf
+
+    parser = OpenDataLoaderParser(ocr_min_text_chars=6)
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+
+    class FakePage:
+        mediabox = SimpleNamespace(width=100.0, height=100.0)
+
+    class FakeReader:
+        pages = [FakePage()]
+
+    class FakeLock:
+        def release(self):
+            return None
+
+    monkeypatch.setattr(pypdf, "PdfReader", lambda _path: FakeReader())
+    monkeypatch.setattr(parser, "_preflight_pdf", lambda _path: None)
+    monkeypatch.setattr(parser, "installation_error", lambda: None)
+    monkeypatch.setattr(parser, "_find_java", lambda: Path("java"))
+    monkeypatch.setattr(
+        parser,
+        "_acquire_cross_process_slot",
+        lambda *_args, **_kwargs: FakeLock(),
+    )
+
+    def fake_single_page_runner(_pdf_path, page_dir, _source_pages, page, *args):
+        page_dir.mkdir(parents=True, exist_ok=False)
+        return {
+            "page": page,
+            "state": "blank",
+            "json_relpath": "runner.json",
+            "json_sha256": "unused",
+            "markdown_relpath": "runner.md",
+            "markdown_sha256": "unused",
+        }
+
+    monkeypatch.setattr(
+        parser,
+        "_run_single_page_runner",
+        fake_single_page_runner,
+    )
+    monkeypatch.setattr(
+        parser,
+        "_read_and_validate_json",
+        lambda _json_path: {"kids": []},
+    )
+    monkeypatch.setattr(
+        parser,
+        "_run_ocr_batch_runner",
+        lambda *_args, **_kwargs: {1: ocr_lines},
+    )
+
+    if fails_closed:
+        with pytest.raises(ODLTextCoverageError) as raised:
+            parser.parse_pdf(source, output_dir=str(tmp_path / "output"))
+        coverage = raised.value.page_coverage
+        assert coverage["successful_pages"] == [1]
+        assert coverage["blank_pages"] == []
+        assert coverage["text_missing_pages"] == [1]
+    else:
+        content = parser.parse_pdf(source, output_dir=str(tmp_path / "output"))
+        coverage = content.page_coverage
+        assert coverage["successful_pages"] == []
+        assert coverage["blank_pages"] == [1]
+        assert coverage["text_missing_pages"] == []
+
+    assert coverage["ocr_pages"] == []
+    assert coverage["ocr_candidate_pages"] == [1]

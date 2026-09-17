@@ -155,7 +155,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 2026-09-17 多模态中文切片修复完成：ODL 空表拦截、caption-only 降级、嵌套图片保留；表格、图片和 chunk 默认中文。聚焦 58 passed/1 skipped，扩展 172 passed/1 skipped，真实 ODL 回放 `table_blocks=0`/`image_blocks=51`；未部署或回填。
 
-2026-09-17 扫描 PDF OCR：提交 `e729b69` 增加 ODL 正文覆盖检查和受控 RapidOCR，真实 25 页 PDF 第 12-14 页恢复正文；聚焦 46 passed/1 skipped，未部署、未回填。
+2026-09-17 ODL 扫描 PDF OCR：`e729b69` 后修复 `blank` 页漏入 OCR、状态迁移与旧缓存失效；聚焦 49 passed/1 skipped，真实 25 页第 1-25 页覆盖，`blank_pages=[]`。
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|

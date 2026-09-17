@@ -170,7 +170,11 @@ class DocProcessorMixin:
 
         # blank_pages are acknowledged empty pages — they are covered
         covered = success | blank
-        if success & failed or success & skipped or failed & skipped:
+        if (
+            success & (failed | skipped | blank)
+            or failed & (skipped | blank)
+            or skipped & blank
+        ):
             raise ValueError("PDF page coverage contains overlapping page states")
         if covered | failed | skipped != expected:
             raise ValueError("PDF page coverage does not account for every source page")

@@ -24,15 +24,19 @@ content-safety options are not supported. A page with missing, ambiguous,
 invalid, or out-of-root artifacts fails the whole upload before cache or
 ingestion.
 
-When a physically successful page has little or no searchable body text, the
-adapter renders that source page and runs the bundled local RapidOCR models
-in a supervised child process directly. Recovered Chinese or mixed-language
-text is inserted before the page's ODL media blocks, while the original
-image/table provenance remains intact. The batch runs inside the remaining
-document timeout and is terminated if it hangs. The fallback is enabled by
-default and fails closed: disabling it, an OCR engine/render failure, timeout,
-or an OCR result without enough usable text prevents cache or ingestion rather
-than silently indexing an image-only document.
+When a page has little or no searchable body text, including pages where ODL
+extracted no top-level elements, the adapter renders that source page and runs
+the bundled local RapidOCR models in a supervised child process directly.
+Recovered Chinese or mixed-language text is inserted before the page's ODL
+media blocks, while the original image/table provenance remains intact. A page
+is removed from ``blank_pages`` and moved to ``successful_pages`` only after
+OCR recovery reaches the configured text threshold. The batch runs inside the
+remaining document timeout and is terminated if it hangs. The fallback is
+enabled by default and fails closed: disabling it, an OCR engine/render
+failure, timeout, or insufficient recovered text on a nonblank or partially
+recognized page prevents cache or ingestion rather than silently indexing an
+image-only document. A page with no OCR text at all remains an acknowledged
+blank page.
 
 ## Resource Controls
 

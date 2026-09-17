@@ -342,6 +342,14 @@ def test_pdf_coverage_rejects_unresolved_text_and_invalid_ocr_states():
             "blank_pages": [2],
         })
 
+    with pytest.raises(ValueError, match="overlapping page states"):
+        DocProcessorMixin._validate_pdf_page_coverage({
+            **covered,
+            "successful_pages": [1, 2],
+            "blank_pages": [2],
+            "ocr_pages": [2],
+        })
+
 
 def test_real_long_scanned_pdf_has_complete_coverage_and_bounded_memory(tmp_path):
     """Opt-in real-stack regression; never targets an upload by default."""
