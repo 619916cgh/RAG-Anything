@@ -466,9 +466,11 @@ def test_worker_does_not_retry_local_odl_ocr_timeout_as_external():
     wrapped = RuntimeError("wrapper timeout")
     wrapped.__cause__ = error
 
-    assert process_worker._is_ocr_memory_error(error)
+    assert process_worker._is_local_ocr_error(error)
+    assert not process_worker._is_ocr_memory_error(error)
     assert not process_worker._is_retryable_external_error(error)
-    assert process_worker._is_ocr_memory_error(wrapped)
+    assert process_worker._is_local_ocr_error(wrapped)
+    assert not process_worker._is_ocr_memory_error(wrapped)
     assert not process_worker._is_retryable_external_error(wrapped)
 
 

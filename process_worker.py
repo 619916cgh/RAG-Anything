@@ -287,7 +287,10 @@ def _video_failure_code(exc: BaseException) -> str:
 
 def _is_ocr_memory_error(exc: BaseException) -> bool:
     """Classify only the local OCR allocation failures, never remote model errors."""
-    if _is_local_ocr_error(exc):
+    if (
+        getattr(exc, "failure_code", "") == "ocr_oom"
+        or "ocroutofmemoryerror" in type(exc).__name__.casefold()
+    ):
         return True
     text = _exception_chain_text(exc)
     return any(marker in text for marker in (
@@ -987,7 +990,7 @@ async def process_file(
                     raise RetryableExternalServiceError(
                         "External model service is temporarily unavailable"
                     ) from e
-                if _is_ocr_memory_error(e):
+                if _is_local_ocr_error(e):
                     # Docling's bounded PDF path already retried the individual
                     # failing page once. A whole-document VLM fallback cannot
                     # prove 100% page coverage, so it must not mask this error.
@@ -1208,7 +1211,7 @@ async def process_file(
         )
         retryable = (
             not hnsw_memory_error
-            and not _is_ocr_memory_error(e)
+            and not _is_local_ocr_error(e)
             and (
                 isinstance(e, (RetryableExternalServiceError, RetryableVideoProcessingError))
                 or _is_retryable_external_error(e)
@@ -1223,7 +1226,7 @@ async def process_file(
             current_stage = "graph_index"
         elif video_failure_code:
             current_stage = "video_processing"
-        if current_stage == "parsing" and _is_ocr_memory_error(e):
+        if current_stage == "parsing" and _is_local_ocr_error(e):
             current_stage = "ocr"
         elif current_stage == "parsing" and "embedding" in chain_text:
             current_stage = "embedding"
