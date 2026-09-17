@@ -44,15 +44,25 @@ test('fallbackParserOptions merges the current parser with docling', () => {
   assert.deepEqual(fallbackParserOptions('mineru').map(item => item.id), ['mineru', 'docling'])
   assert.deepEqual(fallbackParserOptions(undefined).map(item => item.id), ['docling'])
   assert.deepEqual(fallbackParserOptions('docling').map(item => item.id), ['docling'])
+  assert.deepEqual(fallbackParserOptions('marker').map(item => item.id), ['docling'])
+  assert.deepEqual(fallbackParserOptions(' Marker ').map(item => item.id), ['docling'])
+  assert.deepEqual(fallbackParserOptions('paddleocr').map(item => item.id), ['docling'])
+  assert.deepEqual(fallbackParserOptions(' PaddleOCR ').map(item => item.id), ['docling'])
 })
 
 test('MINIMAL_CHUNKING_STRATEGY_IDS exposes the personal-settings fallback', () => {
   assert.deepEqual(MINIMAL_CHUNKING_STRATEGY_IDS, ['recursive', 'fixed_size'])
 })
 
-test('resolveParserOptions renders a present catalog as-is and falls back only when missing', () => {
-  const catalog = [{ id: 'docling', name: 'docling', available: true }]
-  assert.deepEqual(resolveParserOptions(catalog, 'mineru'), catalog)
+test('resolveParserOptions filters retired ids and falls back only when missing', () => {
+  const catalog = [
+    { id: 'docling', name: 'docling', available: true },
+    { id: 'Marker', name: 'Marker', available: true },
+    { id: 'PaddleOCR', name: 'PaddleOCR', available: true },
+  ]
+  const expected = [{ id: 'docling', name: 'docling', available: true }]
+  assert.deepEqual(resolveParserOptions(catalog, 'mineru'), expected)
+  assert.deepEqual(resolveParserOptions(catalog, 'Marker'), expected)
   assert.deepEqual(resolveParserOptions([], 'mineru'), [])
   assert.deepEqual(resolveParserOptions(undefined, 'mineru').map(item => item.id), ['mineru', 'docling'])
   assert.deepEqual(resolveParserOptions(null, undefined).map(item => item.id), ['docling'])

@@ -14,6 +14,8 @@ test('knowledge detail keeps KB ingestion controls behind global and per-KB writ
   assert.match(source, /api\.updateKBIngestionSettings\(kbName/)
   assert.match(source, /canManageKB && <section[^>]*aria-labelledby="kb-ingestion-heading"/)
   assert.match(source, /if \(error\?\.status === 403\) void verifyToken\(\)/)
+  assert.match(source, /resolveParserOptions\(options\?\.parsers/)
+  assert.doesNotMatch(source, /setParserOptions\(Array\.isArray\(options\?\.parsers\)/)
   assert.match(source, /parserOptions\.map\(parser/)
   assert.match(source, /ingestionDraft\.chunking_strategy/)
 

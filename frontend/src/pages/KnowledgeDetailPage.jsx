@@ -12,7 +12,7 @@ import { api, setCurrentKB } from '../utils/api'
 import Pagination from '../components/Pagination'
 import ChunkingStrategySelector from '../components/ChunkingStrategySelector'
 import { getChunkingStrategyPresentation } from '../utils/chunkingStrategyPresentation'
-import { canonicalChunkingStrategyId, fallbackChunkingStrategyCatalog, normalizeChunkingStrategyCatalog } from '../utils/chunkingOptions'
+import { canonicalChunkingStrategyId, fallbackChunkingStrategyCatalog, normalizeChunkingStrategyCatalog, resolveParserOptions } from '../utils/chunkingOptions'
 import { resolveBatchUploadOutcomes } from '../utils/batchUploadOutcomes'
 import { getDocumentTagPresentation } from '../utils/documentTagHealth'
 import {
@@ -1210,7 +1210,7 @@ export default function KnowledgeDetailPage() {
       setIngestionSettings(kbSettings)
       setIngestionDraft(kbSettings?.stored || {})
       const catalog = options?.chunking_strategies
-      setParserOptions(Array.isArray(options?.parsers) ? options.parsers : [])
+      setParserOptions(resolveParserOptions(options?.parsers, kbSettings?.effective?.parser))
       // The catalog determines UI choices; server-side validation remains
       // authoritative for stale clients and direct API callers.
       const normalized = Array.isArray(catalog) ? normalizeChunkingStrategyCatalog(catalog) : {}

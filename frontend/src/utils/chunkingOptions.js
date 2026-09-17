@@ -9,6 +9,11 @@
 export const MINIMAL_CHUNKING_STRATEGY_IDS = ['recursive', 'fixed_size']
 
 const BUILTIN_STRATEGY_IDS = ['fixed_size', 'recursive', 'sentence', 'structure', 'semantic', 'agentic']
+const RETIRED_PARSER_IDS = new Set(['paddleocr', 'marker'])
+
+export function isRetiredParserId(value) {
+  return typeof value === 'string' && RETIRED_PARSER_IDS.has(value.trim().toLowerCase())
+}
 
 export function canonicalChunkingStrategyId(value) {
   return value === 'fixed' ? 'fixed_size' : value
@@ -38,18 +43,24 @@ export function fallbackChunkingStrategyCatalog() {
 
 // Fallback parser options: the current effective parser plus docling.
 export function fallbackParserOptions(currentParser) {
-  const ids = [currentParser || 'docling', 'docling']
+  const normalizedCurrent = typeof currentParser === 'string' ? currentParser.trim() : ''
+  const ids = [normalizedCurrent || 'docling', 'docling']
   const seen = new Set()
   return ids
     .filter(id => { if (seen.has(id)) return false; seen.add(id); return true })
-    .map(id => ({ id, name: id, available: true }))
+    .filter(id => !isRetiredParserId(id))
+    .map(id => ({
+      id,
+      name: id,
+      available: true,
+    }))
 }
 
-// Resolve the parser option list for a select.  A present catalog (even an
-// empty one, e.g. filtered away by a restrictive platform allow-list) is
-// rendered as-is; only a missing catalog (options request failed) falls back.
+// Resolve the parser option list for a select. Retired ids are removed even
+// from stale catalogs; only a missing catalog falls back.
 export function resolveParserOptions(catalog, currentParser) {
-  return Array.isArray(catalog) ? catalog : fallbackParserOptions(currentParser)
+  if (!Array.isArray(catalog)) return fallbackParserOptions(currentParser)
+  return catalog.filter(item => !isRetiredParserId(item?.id))
 }
 
 // Resolve canonical chunking strategy ids for a select.  A present catalog is
