@@ -163,6 +163,10 @@ class DocProcessorMixin:
         failed = {int(value) for value in page_coverage.get("failed_pages") or []}
         skipped = {int(value) for value in page_coverage.get("skipped_pages") or []}
         blank = {int(value) for value in page_coverage.get("blank_pages") or []}
+        text_missing = {
+            int(value) for value in page_coverage.get("text_missing_pages") or []
+        }
+        ocr_pages = {int(value) for value in page_coverage.get("ocr_pages") or []}
 
         # blank_pages are acknowledged empty pages — they are covered
         covered = success | blank
@@ -174,6 +178,15 @@ class DocProcessorMixin:
             raise ValueError(
                 "PDF page coverage is incomplete; failed pages: "
                 + ",".join(str(p) for p in sorted(failed | skipped))
+            )
+        if text_missing:
+            raise ValueError(
+                "PDF page coverage has unresolved body text; pages: "
+                + ",".join(str(p) for p in sorted(text_missing))
+            )
+        if ocr_pages - success:
+            raise ValueError(
+                "PDF page coverage lists OCR pages outside successful pages"
             )
         return page_coverage
 

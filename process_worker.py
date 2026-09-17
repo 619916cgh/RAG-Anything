@@ -167,6 +167,11 @@ def _emit_worker_error(
                 "failed_pages",
                 "skipped_pages",
                 "retried_pages",
+                "blank_pages",
+                "text_successful_pages",
+                "text_missing_pages",
+                "ocr_pages",
+                "ocr_candidate_pages",
             )
         }
     print("WORKER_ERROR_JSON " + json.dumps(payload, ensure_ascii=False), flush=True)
@@ -192,7 +197,21 @@ def _exception_chain_text(exc: BaseException) -> str:
     return " ".join(values).casefold()
 
 
+def _is_local_ocr_error(exc: BaseException) -> bool:
+    """Recognize parser OCR failures through wrapper exceptions."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if getattr(current, "failure_stage", "") == "ocr":
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _is_retryable_external_error(exc: BaseException) -> bool:
+    if _is_local_ocr_error(exc):
+        return False
     text = _exception_chain_text(exc)
     return any(marker in text for marker in (
         "apiconnectionerror",
@@ -268,7 +287,7 @@ def _video_failure_code(exc: BaseException) -> str:
 
 def _is_ocr_memory_error(exc: BaseException) -> bool:
     """Classify only the local OCR allocation failures, never remote model errors."""
-    if getattr(exc, "failure_stage", "") == "ocr":
+    if _is_local_ocr_error(exc):
         return True
     text = _exception_chain_text(exc)
     return any(marker in text for marker in (
@@ -280,9 +299,16 @@ def _is_ocr_memory_error(exc: BaseException) -> bool:
 
 
 def _is_incomplete_pdf_coverage_error(exc: BaseException) -> bool:
+    text = _exception_chain_text(exc)
     return (
-        getattr(exc, "failure_code", "") == "pdf_page_coverage_incomplete"
-        or "pdf page coverage is incomplete" in _exception_chain_text(exc)
+        getattr(exc, "failure_code", "")
+        in {
+            "pdf_page_coverage_incomplete",
+            "odl_text_coverage_incomplete",
+        }
+        or "pdf page coverage is incomplete" in text
+        or "could not recover required body text" in text
+        or "ocr fallback candidate pages exceed" in text
     )
 
 

@@ -27,6 +27,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import os
 from raganything.parser import MineruParser, DoclingParser
+from raganything.parser.opendataloader_parser import ODLOcrError, ODLTextCoverageError
 from raganything.parser.office_parser import OcrOutOfMemoryError
 
 
@@ -314,6 +315,34 @@ def test_pdf_coverage_requires_every_page_to_succeed():
         })
 
 
+def test_pdf_coverage_rejects_unresolved_text_and_invalid_ocr_states():
+    from raganything.processor.doc_processor import DocProcessorMixin
+
+    covered = {
+        "source_total_pages": 2,
+        "successful_pages": [1, 2],
+        "failed_pages": [],
+        "skipped_pages": [],
+        "blank_pages": [],
+        "text_missing_pages": [],
+        "ocr_pages": [2],
+    }
+    assert DocProcessorMixin._validate_pdf_page_coverage(covered) == covered
+
+    with pytest.raises(ValueError, match="unresolved body text"):
+        DocProcessorMixin._validate_pdf_page_coverage({
+            **covered,
+            "text_missing_pages": [2],
+        })
+
+    with pytest.raises(ValueError, match="outside successful pages"):
+        DocProcessorMixin._validate_pdf_page_coverage({
+            **covered,
+            "successful_pages": [1],
+            "blank_pages": [2],
+        })
+
+
 def test_real_long_scanned_pdf_has_complete_coverage_and_bounded_memory(tmp_path):
     """Opt-in real-stack regression; never targets an upload by default."""
     fixture_value = os.getenv("OCR_LONG_PDF_FIXTURE", "").strip()
@@ -395,6 +424,52 @@ def test_worker_reports_ocr_oom_as_a_non_retryable_structured_error(capsys):
     assert payload["failure_code"] == "ocr_oom"
     assert payload["retryable"] is False
     assert payload["page_coverage"]["failed_pages"] == [2]
+
+
+def test_worker_rejects_odl_text_coverage_before_vlm_fallback(capsys):
+    import process_worker
+
+    error = ODLTextCoverageError(
+        "OpenDataLoader could not recover required body text on pages [12]",
+        {
+            "source_total_pages": 25,
+            "successful_pages": list(range(6, 26)),
+            "failed_pages": [],
+            "skipped_pages": [],
+            "blank_pages": list(range(1, 6)),
+            "text_successful_pages": list(range(6, 12)),
+            "text_missing_pages": [12],
+            "ocr_pages": [],
+            "ocr_candidate_pages": [12],
+        },
+    )
+
+    assert process_worker._is_incomplete_pdf_coverage_error(error)
+    process_worker._emit_worker_error(
+        stage="parsing",
+        error=error,
+        retryable=False,
+    )
+    payload = json.loads(capsys.readouterr().out.split("WORKER_ERROR_JSON ", 1)[1])
+    assert payload["failure_code"] == "odl_text_coverage_incomplete"
+    assert payload["page_coverage"]["text_missing_pages"] == [12]
+    assert payload["page_coverage"]["ocr_candidate_pages"] == [12]
+
+
+def test_worker_does_not_retry_local_odl_ocr_timeout_as_external():
+    import process_worker
+
+    error = ODLOcrError(
+        "OpenDataLoader OCR fallback exceeded the total timeout",
+        "odl_ocr_timeout",
+    )
+    wrapped = RuntimeError("wrapper timeout")
+    wrapped.__cause__ = error
+
+    assert process_worker._is_ocr_memory_error(error)
+    assert not process_worker._is_retryable_external_error(error)
+    assert process_worker._is_ocr_memory_error(wrapped)
+    assert not process_worker._is_retryable_external_error(wrapped)
 
 
 @pytest.mark.asyncio

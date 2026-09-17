@@ -19,10 +19,20 @@ than leaving an install command that cannot resolve.
   parser such as `mineru`.
 
 The adapter uses the official Python SDK in a supervised child process once
-per PDF page. It uses local fast mode only; hybrid, remote URLs, fallback, and
-disabled content-safety options are not supported. A page with missing,
-ambiguous, invalid, or out-of-root artifacts fails the whole upload before
-cache or ingestion.
+per PDF page. It uses local fast mode only; hybrid, remote URLs, and disabled
+content-safety options are not supported. A page with missing, ambiguous,
+invalid, or out-of-root artifacts fails the whole upload before cache or
+ingestion.
+
+When a physically successful page has little or no searchable body text, the
+adapter renders that source page and runs the bundled local RapidOCR models
+in a supervised child process directly. Recovered Chinese or mixed-language
+text is inserted before the page's ODL media blocks, while the original
+image/table provenance remains intact. The batch runs inside the remaining
+document timeout and is terminated if it hangs. The fallback is enabled by
+default and fails closed: disabling it, an OCR engine/render failure, timeout,
+or an OCR result without enough usable text prevents cache or ingestion rather
+than silently indexing an image-only document.
 
 ## Resource Controls
 
@@ -31,6 +41,15 @@ runner, `ODL_JAVA_HEAP` accepts only values such as `-Xmx2g`, and
 `ODL_CONCURRENCY` defaults to one conversion per worker. `ODL_MAX_PAGES` and
 `ODL_MAX_BYTES` reject inputs before Java starts. Timeouts terminate the runner
 process tree on Windows and Linux containers.
+
+`ODL_OCR_FALLBACK_ENABLED` defaults to `true`;
+`ODL_OCR_MIN_TEXT_CHARS` defaults to `20` and applies to the merged
+searchable page text; `ODL_OCR_MAX_PAGES` defaults to `100`;
+`ODL_OCR_RENDER_SCALE` defaults to `2.0`; and
+`ODL_OCR_TEXT_SCORE` defaults to `0.5`. Candidate pages are determined from
+the final ODL page blocks, not from a separate whole-document text probe.
+Candidate count above the configured limit fails the whole upload before
+cache or ingestion.
 
 Parser artifacts and provenance sidecars remain under the parser output root.
 They contain relative references and hashes, never a public provenance API or
@@ -53,13 +72,14 @@ worker as follows:
 PARSER=mineru
 PDF_PARSER=opendataloader
 ODL_CONCURRENCY=1
+ODL_OCR_FALLBACK_ENABLED=true
 ```
 
 Run the approved external corpus in this isolated environment and retain the
 coverage, quality, injection-defense, P50/P95, and peak-memory report with the
-release evidence. A task failing coverage, preflight, resource, timeout,
-conversion, or artifact validation must remain failed; there is no automatic
-retry through MinerU, Docling, hybrid, or remote parsing.
+release evidence. A task failing coverage, body-text recovery, preflight,
+resource, timeout, conversion, or artifact validation must remain failed;
+there is no automatic retry through MinerU, Docling, hybrid, or remote parsing.
 
 ## Container
 

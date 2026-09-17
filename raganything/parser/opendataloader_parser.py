@@ -44,7 +44,7 @@ from raganything.utils.process_lock import FileLock, get_lock_dir
 # ── constants ──────────────────────────────────────────────────────────
 _PACKAGE_NAME = "opendataloader-pdf"
 _PINNED_VERSION = "2.5.0"
-_ADAPTER_SCHEMA_VERSION = "1"
+_ADAPTER_SCHEMA_VERSION = "2"
 _JAVA_MIN_MAJOR = 17
 _DEFAULT_TIMEOUT = int(os.getenv("ODL_TIMEOUT", "600"))  # 10 min default
 _DEFAULT_PAGE_TIMEOUT = int(os.getenv("ODL_PAGE_TIMEOUT", "120"))
@@ -60,8 +60,39 @@ _TINY_FRAGMENT_MAX_SHORT_EDGE = 22
 _FRAGMENT_DENSE_MIN_IMAGES = 8
 _FRAGMENT_DENSE_TINY_FRACTION = 0.80
 _PAGE_RENDER_SCALE = 2
+_DEFAULT_OCR_FALLBACK_ENABLED = os.getenv(
+    "ODL_OCR_FALLBACK_ENABLED", "true"
+).strip().lower() not in {"0", "false", "no", "off"}
+_DEFAULT_OCR_MIN_TEXT_CHARS = max(
+    1, min(int(os.getenv("ODL_OCR_MIN_TEXT_CHARS", "20")), 1000)
+)
+_DEFAULT_OCR_MAX_PAGES = max(1, min(int(os.getenv("ODL_OCR_MAX_PAGES", "100")), 1000))
+_DEFAULT_OCR_RENDER_SCALE = max(
+    0.5, min(float(os.getenv("ODL_OCR_RENDER_SCALE", "2.0")), 4.0)
+)
+_DEFAULT_OCR_TEXT_SCORE = max(
+    0.0, min(float(os.getenv("ODL_OCR_TEXT_SCORE", "0.5")), 1.0)
+)
+_OCR_DET_LIMIT_SIDE_LEN = 960
+_OCR_ONNX_THREADS = 2
+_OCR_PUNCTUATION_ONLY_RE = re.compile(r"^[\W_]+$", re.UNICODE)
+_OCR_PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
 _JAVA_HEAP_RE = re.compile(r"-Xmx[1-9][0-9]*[mMgG]")
 _RUNNER_RESULT_SCHEMA = "opendataloader-runner-result-v1"
+_OCR_RUNNER_REQUEST_SCHEMA = "odl-ocr-runner-request-v1"
+_OCR_RUNNER_RESULT_SCHEMA = "odl-ocr-runner-result-v1"
+_OCR_FAILURE_MESSAGES = {
+    "odl_ocr_failed": "OpenDataLoader OCR fallback failed",
+    "odl_ocr_timeout": "OpenDataLoader OCR fallback exceeded the total timeout",
+    "odl_ocr_dependency_missing": (
+        "OpenDataLoader OCR fallback dependency is unavailable"
+    ),
+    "odl_ocr_engine_init_failed": (
+        "OpenDataLoader OCR fallback engine failed to initialize"
+    ),
+    "odl_ocr_page_failed": "OpenDataLoader OCR fallback failed on a source page",
+    "ocr_oom": "OpenDataLoader OCR fallback exhausted local memory",
+}
 _RUNNER_FAILURE_CATEGORIES = frozenset(
     {
         "upstream_process_failed",
@@ -147,9 +178,35 @@ class ODLValidationError(OpenDataLoaderError):
 class ODLPageCoverageError(OpenDataLoaderError):
     """Page-coverage proof is missing or incomplete."""
 
-    def __init__(self, message: str, coverage: Dict[str, Any] | None = None):
-        super().__init__(message, failure_code="pdf_page_coverage_incomplete")
+    def __init__(
+        self,
+        message: str,
+        coverage: Dict[str, Any] | None = None,
+        *,
+        failure_code: str = "pdf_page_coverage_incomplete",
+    ):
+        super().__init__(message, failure_code=failure_code)
         self.page_coverage = coverage
+
+
+class ODLTextCoverageError(ODLPageCoverageError):
+    """A physically readable page still has no recoverable body text."""
+
+    def __init__(self, message: str, coverage: Dict[str, Any] | None = None):
+        super().__init__(
+            message,
+            coverage,
+            failure_code="odl_text_coverage_incomplete",
+        )
+
+
+class ODLOcrError(OpenDataLoaderError):
+    """The local OCR fallback could not process a required source page."""
+
+    failure_stage = "ocr"
+
+    def __init__(self, message: str, failure_code: str = "odl_ocr_failed"):
+        super().__init__(message, failure_code=failure_code)
 
 
 class ODLContainerError(OpenDataLoaderError):
@@ -177,6 +234,11 @@ class OpenDataLoaderParser(Parser):
         "_odl_max_bytes",
         "_odl_max_output_bytes",
         "_odl_concurrency",
+        "_odl_ocr_fallback_enabled",
+        "_odl_ocr_min_text_chars",
+        "_odl_ocr_max_pages",
+        "_odl_ocr_render_scale",
+        "_odl_ocr_text_score",
     )
 
     logger = logging.getLogger(__name__)
@@ -190,6 +252,11 @@ class OpenDataLoaderParser(Parser):
         max_bytes: int | None = None,
         max_output_bytes: int | None = None,
         concurrency: int | None = None,
+        ocr_fallback_enabled: bool | None = None,
+        ocr_min_text_chars: int | None = None,
+        ocr_max_pages: int | None = None,
+        ocr_render_scale: float | None = None,
+        ocr_text_score: float | None = None,
     ) -> None:
         super().__init__()
         self._odl_timeout = timeout if timeout is not None else _DEFAULT_TIMEOUT
@@ -207,6 +274,47 @@ class OpenDataLoaderParser(Parser):
             else _DEFAULT_MAX_OUTPUT_BYTES
         )
         self._odl_concurrency = max(1, concurrency or _DEFAULT_CONCURRENCY)
+        self._odl_ocr_fallback_enabled = (
+            _DEFAULT_OCR_FALLBACK_ENABLED
+            if ocr_fallback_enabled is None
+            else bool(ocr_fallback_enabled)
+        )
+        self._odl_ocr_min_text_chars = max(
+            1,
+            min(
+                ocr_min_text_chars
+                if ocr_min_text_chars is not None
+                else _DEFAULT_OCR_MIN_TEXT_CHARS,
+                1000,
+            ),
+        )
+        self._odl_ocr_max_pages = max(
+            1,
+            min(
+                ocr_max_pages
+                if ocr_max_pages is not None
+                else _DEFAULT_OCR_MAX_PAGES,
+                1000,
+            ),
+        )
+        self._odl_ocr_render_scale = max(
+            0.5,
+            min(
+                ocr_render_scale
+                if ocr_render_scale is not None
+                else _DEFAULT_OCR_RENDER_SCALE,
+                4.0,
+            ),
+        )
+        self._odl_ocr_text_score = max(
+            0.0,
+            min(
+                ocr_text_score
+                if ocr_text_score is not None
+                else _DEFAULT_OCR_TEXT_SCORE,
+                1.0,
+            ),
+        )
 
     def _log_parse_outcome(
         self,
@@ -215,6 +323,9 @@ class OpenDataLoaderParser(Parser):
         *,
         page_count: int = 0,
         block_count: int = 0,
+        text_block_count: int = 0,
+        text_missing_pages: Optional[List[int]] = None,
+        ocr_pages: Optional[List[int]] = None,
         success: bool = False,
     ) -> None:
         """Emit the bounded OpenDataLoader telemetry contract."""
@@ -223,6 +334,9 @@ class OpenDataLoaderParser(Parser):
             "sdk_version": _PINNED_VERSION,
             "page_count": max(0, int(page_count)),
             "block_count": max(0, int(block_count)),
+            "text_block_count": max(0, int(text_block_count)),
+            "text_missing_pages": list(text_missing_pages or []),
+            "ocr_pages": list(ocr_pages or []),
             "elapsed_ms": int(max(0.0, time.monotonic() - operation_start) * 1000),
             "outcome_category": outcome_category,
         }
@@ -257,6 +371,14 @@ class OpenDataLoaderParser(Parser):
             "max_bytes": _DEFAULT_MAX_BYTES,
             "max_output_bytes": _DEFAULT_MAX_OUTPUT_BYTES,
             "concurrency": _DEFAULT_CONCURRENCY,
+            "ocr_fallback_enabled": _DEFAULT_OCR_FALLBACK_ENABLED,
+            "ocr_min_text_chars": _DEFAULT_OCR_MIN_TEXT_CHARS,
+            "ocr_max_pages": _DEFAULT_OCR_MAX_PAGES,
+            "ocr_render_scale": _DEFAULT_OCR_RENDER_SCALE,
+            "ocr_text_score": _DEFAULT_OCR_TEXT_SCORE,
+            "ocr_engine": "rapidocr",
+            "ocr_det_limit_side_len": _OCR_DET_LIMIT_SIDE_LEN,
+            "ocr_onnx_threads": _OCR_ONNX_THREADS,
         }
 
     # ── installation check ──────────────────────────────────────────
@@ -1194,6 +1316,256 @@ class OpenDataLoaderParser(Parser):
         _walk(kids)
         return content_list, provenance, pages_seen
 
+    @staticmethod
+    def _load_ocr_engine() -> Any:
+        """Load RapidOCR lazily with bounded CPU and memory settings."""
+        try:
+            from rapidocr import RapidOCR
+        except ImportError as exc:
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback requires the rapidocr package",
+                "odl_ocr_dependency_missing",
+            ) from exc
+
+        params = {
+            "Global.log_level": "warning",
+            "Global.max_side_len": 1600,
+            "Det.limit_side_len": _OCR_DET_LIMIT_SIDE_LEN,
+            "Rec.rec_batch_num": 1,
+            "EngineConfig.onnxruntime.intra_op_num_threads": _OCR_ONNX_THREADS,
+            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+            "EngineConfig.onnxruntime.enable_cpu_mem_arena": False,
+        }
+        try:
+            return RapidOCR(params=params)
+        except Exception as exc:
+            failure_code = (
+                "ocr_oom" if _looks_like_ocr_oom(exc) else "odl_ocr_engine_init_failed"
+            )
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback engine failed to initialize",
+                failure_code,
+            ) from exc
+
+    @classmethod
+    def _ocr_page_lines(
+        cls,
+        engine: Any,
+        pdf_path: Path,
+        page_number: int,
+        *,
+        render_scale: float,
+        text_score: float,
+    ) -> List[Dict[str, Any]]:
+        """Render one source page and return sorted, filtered OCR lines."""
+        document = None
+        page = None
+        bitmap = None
+        image = None
+        try:
+            import pypdfium2
+
+            document = pypdfium2.PdfDocument(str(pdf_path))
+            page = document[page_number - 1]
+            bitmap = page.render(scale=render_scale)
+            image = bitmap.to_pil()
+            width, height = image.size
+            result = engine(image, text_score=text_score)
+            return _extract_rapidocr_lines(result, width, height)
+        except Exception as exc:
+            failure_code = (
+                "ocr_oom" if _looks_like_ocr_oom(exc) else "odl_ocr_page_failed"
+            )
+            raise ODLOcrError(
+                f"OpenDataLoader OCR fallback failed on page {page_number}",
+                failure_code,
+            ) from exc
+        finally:
+            for resource in (image, bitmap, page, document):
+                if resource is None:
+                    continue
+                try:
+                    close = getattr(resource, "close", None)
+                    if callable(close):
+                        close()
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _merge_ocr_text(
+        page_content: List[Dict[str, Any]],
+        page_provenance: List[Dict[str, Any]],
+        lines: List[Dict[str, Any]],
+        page_number: int,
+    ) -> Tuple[int, int]:
+        """Put recoverable body text before media while preserving ODL media."""
+        blocks, provenance_entries = _build_ocr_content_blocks(
+            lines,
+            page_number,
+        )
+        if not blocks:
+            return 0, 0
+        base_index = len(page_provenance)
+        for offset, block in enumerate(blocks):
+            block["_odl_provenance_index"] = base_index + offset
+        page_provenance.extend(provenance_entries)
+        insert_at = next(
+            (
+                index
+                for index, block in enumerate(page_content)
+                if block.get("type") != "text"
+            ),
+            len(page_content),
+        )
+        page_content[insert_at:insert_at] = blocks
+        return len(blocks), _meaningful_text_char_count(blocks)
+
+    def _run_ocr_batch_runner(
+        self,
+        pdf_path: Path,
+        run_root: Path,
+        pages: List[int],
+        timeout: float,
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """Run all candidate-page OCR in one supervised child process."""
+        if timeout <= 0:
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback has no remaining timeout",
+                "odl_ocr_timeout",
+            )
+        runner_deadline = time.monotonic() + timeout
+        ocr_dir = run_root / "ocr"
+        request_path = ocr_dir / "ocr-request.json"
+        try:
+            ocr_dir.mkdir(parents=True, exist_ok=False)
+            _write_atomic_json(
+                request_path,
+                {
+                    "schema_version": _OCR_RUNNER_REQUEST_SCHEMA,
+                    "source_pdf": str(pdf_path),
+                    "pages": pages,
+                    "render_scale": self._odl_ocr_render_scale,
+                    "text_score": self._odl_ocr_text_score,
+                },
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback could not prepare its runner"
+            ) from exc
+        runner_env = {
+            key: value
+            for key in _RUNNER_ENV_ALLOWLIST
+            if (value := os.environ.get(key))
+        }
+        popen_kwargs: Dict[str, Any] = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "env": runner_env,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+        try:
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "raganything.parser.opendataloader_ocr_runner",
+                    "--request",
+                    str(request_path),
+                ],
+                **popen_kwargs,
+            )
+        except OSError as exc:
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback could not start its runner"
+            ) from exc
+        remaining = runner_deadline - time.monotonic()
+        if remaining <= 0:
+            try:
+                self._terminate_process_tree(process)
+            except ODLConversionError as termination_error:
+                raise ODLOcrError(
+                    "OpenDataLoader OCR fallback timed out and could not be terminated",
+                    "odl_ocr_timeout",
+                ) from termination_error
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback exceeded the total timeout",
+                "odl_ocr_timeout",
+            )
+        try:
+            return_code = process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as exc:
+            try:
+                self._terminate_process_tree(process)
+            except ODLConversionError as termination_error:
+                raise ODLOcrError(
+                    "OpenDataLoader OCR fallback timed out and could not be terminated",
+                    "odl_ocr_timeout",
+                ) from termination_error
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback exceeded the total timeout",
+                "odl_ocr_timeout",
+            ) from exc
+
+        result_path = self._contained_path(ocr_dir / "ocr-result.json", ocr_dir)
+        if return_code != 0 and not result_path.is_file():
+            raise ODLOcrError("OpenDataLoader OCR fallback process failed")
+        try:
+            with self._open_verified_file(result_path) as result_file:
+                result = json.loads(result_file.read().decode("utf-8"))
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ODLContainerError,
+        ) as exc:
+            raise ODLOcrError(
+                "OpenDataLoader OCR fallback produced invalid result metadata"
+            ) from exc
+        if (
+            not isinstance(result, dict)
+            or result.get("schema_version") != _OCR_RUNNER_RESULT_SCHEMA
+        ):
+            raise ODLOcrError("OpenDataLoader OCR fallback result schema is invalid")
+        error = result.get("error")
+        if isinstance(error, dict):
+            failure_code = str(error.get("failure_code") or "odl_ocr_failed")
+            if failure_code not in _OCR_FAILURE_MESSAGES:
+                failure_code = "odl_ocr_failed"
+            raise ODLOcrError(
+                _OCR_FAILURE_MESSAGES[failure_code],
+                failure_code,
+            )
+        if return_code != 0:
+            raise ODLOcrError("OpenDataLoader OCR fallback process failed")
+        entries = result.get("pages")
+        if not isinstance(entries, list):
+            raise ODLOcrError("OpenDataLoader OCR fallback returned no pages")
+        recovered: Dict[int, List[Dict[str, Any]]] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ODLOcrError("OpenDataLoader OCR fallback page entry is invalid")
+            page = entry.get("page")
+            lines = entry.get("lines")
+            if (
+                not isinstance(page, int)
+                or isinstance(page, bool)
+                or page not in pages
+                or not isinstance(lines, list)
+                or page in recovered
+                or any(not isinstance(line, dict) for line in lines)
+            ):
+                raise ODLOcrError("OpenDataLoader OCR fallback returned an invalid page")
+            recovered[page] = lines
+        if set(recovered) != set(pages):
+            raise ODLOcrError("OpenDataLoader OCR fallback did not return every page")
+        return recovered
+
     # ── main parse entry point ──────────────────────────────────────
 
     def parse_pdf(
@@ -1284,7 +1656,13 @@ class OpenDataLoaderParser(Parser):
             duplicate_media_hashes: List[str] = []
             successful_pages: List[int] = []
             blank_pages: List[int] = []
+            ocr_pages: List[int] = []
+            ocr_candidate_pages: List[int] = []
+            text_missing_pages: List[int] = []
+            ocr_text_block_count = 0
+            ocr_text_char_count = 0
             raw_artifacts: List[Dict[str, Any]] = []
+            page_records: List[Dict[str, Any]] = []
             for page in range(1, source_pages + 1):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -1397,8 +1775,22 @@ class OpenDataLoaderParser(Parser):
                     if isinstance(digest, str):
                         seen_media_digests.add(digest)
                     unique_page_content.append(block)
-                content_list.extend(unique_page_content)
-                provenance.extend(page_provenance)
+
+                text_char_count = _meaningful_text_char_count(unique_page_content)
+                needs_ocr_fallback = (
+                    entry["state"] != "blank"
+                    and text_char_count < self._odl_ocr_min_text_chars
+                )
+                if needs_ocr_fallback:
+                    ocr_candidate_pages.append(page)
+                page_records.append(
+                    {
+                        "page": page,
+                        "content": unique_page_content,
+                        "provenance": page_provenance,
+                        "text_char_count": text_char_count,
+                    }
+                )
                 raw_artifacts.append(
                     {
                         "page": page,
@@ -1437,6 +1829,74 @@ class OpenDataLoaderParser(Parser):
                     coverage=coverage,
                 )
 
+            if ocr_candidate_pages:
+                if not self._odl_ocr_fallback_enabled:
+                    text_missing_pages = list(ocr_candidate_pages)
+                elif len(ocr_candidate_pages) > self._odl_ocr_max_pages:
+                    text_missing_pages = list(ocr_candidate_pages)
+                    coverage = {
+                        "source_total_pages": source_pages,
+                        "successful_pages": successful_pages,
+                        "failed_pages": [],
+                        "skipped_pages": [],
+                        "blank_pages": blank_pages,
+                        "text_successful_pages": sorted(
+                            (set(successful_pages) | set(blank_pages))
+                            - set(text_missing_pages)
+                        ),
+                        "ocr_pages": ocr_pages,
+                        "ocr_candidate_pages": ocr_candidate_pages,
+                        "text_missing_pages": text_missing_pages,
+                    }
+                    raise ODLTextCoverageError(
+                        "OpenDataLoader OCR fallback candidate pages "
+                        f"exceed ODL_OCR_MAX_PAGES={self._odl_ocr_max_pages}",
+                        coverage=coverage,
+                    )
+                else:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ODLOcrError(
+                            "OpenDataLoader OCR fallback has no remaining timeout",
+                            "odl_ocr_timeout",
+                        )
+                    recovered_pages = self._run_ocr_batch_runner(
+                        pdf_path,
+                        run_root,
+                        ocr_candidate_pages,
+                        remaining,
+                    )
+                    for record in page_records:
+                        page = record["page"]
+                        if page not in recovered_pages:
+                            continue
+                        recovered_blocks, recovered_chars = self._merge_ocr_text(
+                            record["content"],
+                            record["provenance"],
+                            recovered_pages[page],
+                            page,
+                        )
+                        if _ocr_recovery_is_sufficient(
+                            record["text_char_count"],
+                            recovered_blocks,
+                            recovered_chars,
+                            self._odl_ocr_min_text_chars,
+                        ):
+                            ocr_pages.append(page)
+                            ocr_text_block_count += recovered_blocks
+                            ocr_text_char_count += recovered_chars
+                        else:
+                            text_missing_pages.append(page)
+                    if time.monotonic() >= deadline:
+                        raise ODLOcrError(
+                            "OpenDataLoader OCR fallback exceeded the total timeout",
+                            "odl_ocr_timeout",
+                        )
+
+            for record in page_records:
+                content_list.extend(record["content"])
+                provenance.extend(record["provenance"])
+
             coverage = {
                 "source_total_pages": source_pages,
                 "successful_pages": successful_pages,
@@ -1446,7 +1906,24 @@ class OpenDataLoaderParser(Parser):
                 # but contain zero elements.  Recorded explicitly so that
                 # post-hoc analysis can distinguish "blank" from "lost".
                 "blank_pages": blank_pages,
+                "text_successful_pages": sorted(
+                    (set(successful_pages) | set(blank_pages))
+                    - set(text_missing_pages)
+                ),
+                "text_missing_pages": text_missing_pages,
+                "ocr_pages": ocr_pages,
+                "ocr_candidate_pages": ocr_candidate_pages,
             }
+            if text_missing_pages:
+                if self._odl_ocr_fallback_enabled:
+                    reason = "OCR fallback returned no usable text"
+                else:
+                    reason = "OCR fallback is disabled"
+                raise ODLTextCoverageError(
+                    "OpenDataLoader could not recover required body text on "
+                    f"pages {text_missing_pages}: {reason}",
+                    coverage=coverage,
+                )
 
             # 5. Retain content and raw-artifact identity only after coverage proof.
             media_entries = [
@@ -1518,6 +1995,11 @@ class OpenDataLoaderParser(Parser):
                     ),
                     "filtered_tiny_fragment_elements": image_filtered_fragment_count,
                     "generated_page_render_assets": generated_page_render_count,
+                    "ocr_fallback_enabled": self._odl_ocr_fallback_enabled,
+                    "ocr_candidate_pages": ocr_candidate_pages,
+                    "ocr_pages": ocr_pages,
+                    "ocr_text_blocks": ocr_text_block_count,
+                    "ocr_text_chars": ocr_text_char_count,
                     "eligible_image_elements": len(media_entries),
                     "dedupe_scope": "semantic_per_page_then_exact_media_per_document",
                     "duplicate_identity_hashes": duplicate_identity_hashes,
@@ -1556,6 +2038,11 @@ class OpenDataLoaderParser(Parser):
                 operation_start,
                 page_count=source_pages,
                 block_count=len(content_list),
+                text_block_count=sum(
+                    1 for block in content_list if block.get("type") == "text"
+                ),
+                text_missing_pages=[],
+                ocr_pages=ocr_pages,
                 success=True,
             )
             return result
@@ -1565,6 +2052,7 @@ class OpenDataLoaderParser(Parser):
             ODLConversionError,
             ODLValidationError,
             ODLPageCoverageError,
+            ODLOcrError,
             ODLContainerError,
         ):
             self._log_parse_outcome(
@@ -1654,6 +2142,266 @@ def _extract_heading_depth(
             return len(m.group(1).split("."))
 
     return None
+
+
+def _looks_like_ocr_oom(error: BaseException) -> bool:
+    """Classify ONNX allocation failures without retaining traceback data."""
+    text = f"{type(error).__name__} {error}".casefold()
+    allocation_markers = (
+        "bad allocation",
+        "std::bad_alloc",
+        "memoryerror",
+        "out of memory",
+        "bad_alloc",
+    )
+    return any(marker in text for marker in allocation_markers) and any(
+        marker in text for marker in ("onnx", "rapidocr", "ocr")
+    )
+
+
+def _meaningful_text_char_count(blocks: List[Dict[str, Any]]) -> int:
+    """Count searchable alphanumeric body characters, excluding media."""
+    text_parts: List[str] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        content_type = block.get("type", "text")
+        if content_type == "text":
+            text_parts.append(str(block.get("text") or ""))
+        elif content_type == "table":
+            text_parts.append(str(block.get("table_body") or ""))
+            text_parts.append(str(block.get("caption") or ""))
+        elif content_type == "equation":
+            for key in ("text", "latex", "equation"):
+                text_parts.append(str(block.get(key) or ""))
+    return sum(1 for char in "".join(text_parts) if char.isalnum())
+
+
+def _ocr_recovery_is_sufficient(
+    existing_chars: int,
+    recovered_block_count: int,
+    recovered_chars: int,
+    minimum_chars: int,
+) -> bool:
+    """Require the merged page to reach the configured body-text threshold."""
+    return (
+        recovered_block_count > 0
+        and existing_chars + recovered_chars >= minimum_chars
+    )
+
+
+def _normalise_ocr_text(value: Any) -> str:
+    """Collapse OCR whitespace while preserving the recognised characters."""
+    return " ".join(str(value or "").replace("\x00", "").split())
+
+
+def _ocr_dedupe_text(value: Any) -> str:
+    """Normalise text for duplicate suppression against existing page text."""
+    return "".join(
+        char.casefold()
+        for char in _normalise_ocr_text(value)
+        if char.isalnum()
+    )
+
+
+def _extract_rapidocr_lines(
+    result: Any,
+    image_width: int,
+    image_height: int,
+) -> List[Dict[str, Any]]:
+    """Normalise RapidOCR output into reading-order page lines."""
+    texts = getattr(result, "txts", None)
+    boxes = getattr(result, "boxes", None)
+    scores = getattr(result, "scores", None)
+    if texts is None and isinstance(result, (tuple, list)) and len(result) >= 2:
+        boxes, texts = result[0], result[1]
+        if len(result) >= 3:
+            scores = result[2]
+
+    if (
+        texts is None
+        or boxes is None
+        or isinstance(texts, (str, bytes))
+        or isinstance(boxes, (str, bytes))
+        or not hasattr(texts, "__len__")
+        or not hasattr(texts, "__getitem__")
+        or not hasattr(boxes, "__len__")
+        or not hasattr(boxes, "__getitem__")
+    ):
+        return []
+    if (
+        scores is None
+        or isinstance(scores, (str, bytes))
+        or not hasattr(scores, "__len__")
+        or not hasattr(scores, "__getitem__")
+    ):
+        scores = [None] * len(texts)
+
+    lines: List[Dict[str, Any]] = []
+    for index, (raw_text, raw_box) in enumerate(zip(texts, boxes)):
+        text = _normalise_ocr_text(raw_text)
+        if not text or _OCR_PUNCTUATION_ONLY_RE.fullmatch(text):
+            continue
+        if text == "000":
+            continue
+        try:
+            coordinates = []
+            for point in raw_box:
+                if (
+                    isinstance(point, (str, bytes))
+                    or not hasattr(point, "__len__")
+                    or not hasattr(point, "__getitem__")
+                    or len(point) < 2
+                ):
+                    continue
+                coordinates.append((float(point[0]), float(point[1])))
+        except (TypeError, ValueError, OverflowError):
+            coordinates = []
+        if not coordinates:
+            continue
+        left = min(point[0] for point in coordinates)
+        right = max(point[0] for point in coordinates)
+        top = min(point[1] for point in coordinates)
+        bottom = max(point[1] for point in coordinates)
+        center_y = (top + bottom) / 2
+        if _OCR_PAGE_NUMBER_RE.fullmatch(text) and (
+            center_y <= max(1, image_height) * 0.08
+            or center_y >= max(1, image_height) * 0.92
+        ):
+            continue
+        score = scores[index] if index < len(scores) else None
+        try:
+            score = float(score) if score is not None else None
+        except (TypeError, ValueError, OverflowError):
+            score = None
+        lines.append(
+            {
+                "text": text,
+                "bbox_pixels": [
+                    round(left, 2),
+                    round(top, 2),
+                    round(right, 2),
+                    round(bottom, 2),
+                ],
+                "score": score,
+            }
+        )
+
+    lines.sort(
+        key=lambda line: (
+            line["bbox_pixels"][1],
+            line["bbox_pixels"][0],
+        )
+    )
+    return lines
+
+
+def _bbox_iou(first: Any, second: Any) -> float:
+    """Return intersection-over-union for two pixel-space OCR boxes."""
+    if (
+        not isinstance(first, (list, tuple))
+        or not isinstance(second, (list, tuple))
+        or len(first) < 4
+        or len(second) < 4
+    ):
+        return 0.0
+    try:
+        first_left, first_top, first_right, first_bottom = (
+            float(first[index]) for index in range(4)
+        )
+        second_left, second_top, second_right, second_bottom = (
+            float(second[index]) for index in range(4)
+        )
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    left = max(first_left, second_left)
+    top = max(first_top, second_top)
+    right = min(first_right, second_right)
+    bottom = min(first_bottom, second_bottom)
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    if intersection <= 0:
+        return 0.0
+    first_area = max(0.0, first_right - first_left) * max(
+        0.0, first_bottom - first_top
+    )
+    second_area = max(0.0, second_right - second_left) * max(
+        0.0, second_bottom - second_top
+    )
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _build_ocr_content_blocks(
+    lines: List[Dict[str, Any]],
+    page_number: int,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Build text and sidecar entries for one OCR-recovered source page."""
+    page_idx = page_number - 1
+    blocks: List[Dict[str, Any]] = []
+    provenance_entries: List[Dict[str, Any]] = []
+    seen_boxes: Dict[str, List[List[float]]] = {}
+
+    for line_number, line in enumerate(lines, start=1):
+        text = _normalise_ocr_text(line.get("text"))
+        dedupe_text = _ocr_dedupe_text(text)
+        if not text or not dedupe_text:
+            continue
+
+        element_id = f"rapidocr-page-{page_number:04d}-line-{line_number:03d}"
+        bbox_pixels = line.get("bbox_pixels")
+        if isinstance(bbox_pixels, list) and any(
+            _bbox_iou(bbox_pixels, prior) >= 0.8
+            for prior in seen_boxes.get(dedupe_text, [])
+        ):
+            continue
+        score = line.get("score")
+        provenance = {
+            "source_page": page_number,
+            "page_idx": page_idx,
+            "element_id": element_id,
+            "element_type": "ocr_text",
+            "extraction_method": "ocr",
+            "fallback_parser": "rapidocr",
+            "parser_chain": ["opendataloader", "rapidocr"],
+        }
+        if isinstance(bbox_pixels, list):
+            provenance["ocr_bbox_pixels"] = list(bbox_pixels)
+        if isinstance(score, float):
+            provenance["ocr_confidence"] = score
+
+        blocks.append(
+            {
+                "type": "text",
+                "text": text,
+                "page_idx": page_idx,
+                "_provenance": dict(provenance),
+            }
+        )
+        provenance_entries.append(
+            {
+                "odl_id": element_id,
+                "odl_type": "ocr_text",
+                "source_page": page_number,
+                "page_idx": page_idx,
+                "extraction_method": "ocr",
+                "fallback_parser": "rapidocr",
+                "parser_chain": ["opendataloader", "rapidocr"],
+                **(
+                    {"ocr_bbox_pixels": list(bbox_pixels)}
+                    if isinstance(bbox_pixels, list)
+                    else {}
+                ),
+                **(
+                    {"ocr_confidence": score}
+                    if isinstance(score, float)
+                    else {}
+                ),
+            }
+        )
+        if isinstance(bbox_pixels, list):
+            seen_boxes.setdefault(dedupe_text, []).append(list(bbox_pixels))
+
+    return blocks, provenance_entries
 
 
 def _normalize_bbox(raw_bbox: List[float]) -> List[float]:
