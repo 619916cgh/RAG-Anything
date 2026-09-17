@@ -8,7 +8,7 @@
 |---|---|
 | 最后核验日期 | 2026-09-17（Asia/Shanghai） |
 | 核验分支 | `codex/paginate-large-kb-document-summaries` |
-| 基准提交 | 当前 HEAD `e729b691997073b74f0cceb244b20e89e523a6ef`；Stage 3 离线资格 `f751e54f2e57` |
+| 基准提交 | 当前 HEAD `8a6d5c9e23cf279adf260924e722baa6962e30d2`；Stage 3 离线资格 `f751e54f2e57` |
 | 工作区状态 | 2026-09-14 文档交付收口提交后应为干净；以实时 `git status` 为准 |
 | 维护上限 | 不超过 350 行、30 KB；近期任务不超过 15 条 |
 
