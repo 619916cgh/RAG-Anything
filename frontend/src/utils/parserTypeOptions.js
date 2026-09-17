@@ -5,6 +5,8 @@
 // (options request failed) collapses every per-type selector to the single
 // "follow default" choice while remaining editable.
 
+import { isRetiredParserId } from './chunkingOptions.js'
+
 export const PARSER_FILE_TYPES = [
   { id: 'pdf', label: 'PDF' },
   { id: 'office', label: '办公文档（docx/pptx/xlsx/html）' },
@@ -30,6 +32,7 @@ export function resolveParserOptionsByType(parsers, fileType) {
   if (Array.isArray(parsers)) {
     for (const parser of parsers) {
       if (!parser || !parser.id) continue
+      if (isRetiredParserId(parser.id)) continue
       if (!Array.isArray(parser.supported_types) || !parser.supported_types.includes(fileType)) continue
       options.push({
         id: parser.id,

@@ -42,19 +42,33 @@ test('resolveParserOptionsByType filters by supported_types', () => {
 })
 
 test('resolveParserOptionsByType keeps the available flag for disabled parsers', () => {
-  const options = resolveParserOptionsByType(CATALOG, 'image')
-  const marker = options.find(item => item.id === 'marker')
-  assert.equal(marker.available, false)
-  const mineru = options.find(item => item.id === 'mineru')
-  assert.equal(mineru.available, true)
+  const options = resolveParserOptionsByType([
+    ...CATALOG,
+    { id: 'custom-unavailable', name: 'Custom', available: false, supported_types: ['pdf'] },
+  ], 'pdf')
+  const custom = options.find(item => item.id === 'custom-unavailable')
+  assert.equal(custom.available, false)
+  const docling = options.find(item => item.id === 'docling')
+  assert.equal(docling.available, true)
 })
 
 test('resolveParserOptionsByType preserves an unavailable parser reason', () => {
   const options = resolveParserOptionsByType([
-    { id: 'marker', name: 'Marker', available: false, reason: 'missing marker-pdf', supported_types: ['pdf'] },
+    { id: 'custom-unavailable', name: 'Custom', available: false, reason: 'missing custom runtime', supported_types: ['pdf'] },
   ], 'pdf')
 
-  assert.equal(options[1].reason, 'missing marker-pdf')
+  assert.equal(options[1].reason, 'missing custom runtime')
+})
+
+test('resolveParserOptionsByType removes retired parsers', () => {
+  const options = resolveParserOptionsByType([
+    ...CATALOG,
+    { id: 'Marker', name: 'Marker', available: true, supported_types: ['pdf'] },
+    { id: ' PaddleOCR ', name: 'PaddleOCR', available: true, supported_types: ['image'] },
+  ], 'pdf')
+
+  assert.ok(!options.some(item => item.id.toLowerCase().includes('marker')))
+  assert.ok(!options.some(item => item.id.toLowerCase().includes('paddleocr')))
 })
 
 test('resolveParserOptionsByType falls back to follow-default only when the catalog is missing', () => {
