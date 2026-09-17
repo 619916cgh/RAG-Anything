@@ -6,9 +6,9 @@
 
 | 项目 | 当前值 |
 |---|---|
-| 最后核验日期 | 2026-09-15（Asia/Shanghai） |
+| 最后核验日期 | 2026-09-17（Asia/Shanghai） |
 | 核验分支 | `codex/paginate-large-kb-document-summaries` |
-| 基准提交 | 当前 HEAD `31426a4`；Stage 3 离线资格 `f751e54f2e57` |
+| 基准提交 | 当前 HEAD `e729b691997073b74f0cceb244b20e89e523a6ef`；Stage 3 离线资格 `f751e54f2e57` |
 | 工作区状态 | 2026-09-14 文档交付收口提交后应为干净；以实时 `git status` 为准 |
 | 维护上限 | 不超过 350 行、30 KB；近期任务不超过 15 条 |
 
@@ -153,9 +153,9 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 ## 10. 近期任务
 
-前端遮罩修复完成：弹窗；单测/Vite/diff passed，未执行浏览器/Worker/生产验收。
-
 2026-09-17 多模态中文切片修复完成：ODL 空表拦截、caption-only 降级、嵌套图片保留；表格、图片和 chunk 默认中文。聚焦 58 passed/1 skipped，扩展 172 passed/1 skipped，真实 ODL 回放 `table_blocks=0`/`image_blocks=51`；未部署或回填。
+
+2026-09-17 扫描 PDF OCR：提交 `e729b69` 增加 ODL 正文覆盖检查和受控 RapidOCR，真实 25 页 PDF 第 12-14 页恢复正文；聚焦 46 passed/1 skipped，未部署、未回填。
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
