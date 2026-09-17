@@ -494,13 +494,7 @@ export default function App() {
         import('./pages/DocumentChunkDetailPage').catch(() => {})
       }
     }
-    const requestIdle = window.requestIdleCallback
-    const cancelIdle = window.cancelIdleCallback
-    if (typeof requestIdle === 'function') {
-      const handle = requestIdle.call(window, preload, { timeout: 1500 })
-      return () => cancelIdle?.call(window, handle)
-    }
-    const timer = window.setTimeout(preload, 300)
+    const timer = window.setTimeout(preload, 0)
     return () => window.clearTimeout(timer)
   }, [hasPermission, location.pathname, token])
 
