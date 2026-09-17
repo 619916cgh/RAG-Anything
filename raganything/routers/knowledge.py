@@ -5582,22 +5582,11 @@ async def list_kbs(
             "capabilities": _kb_capabilities_from_metadata(personal_kb, meta[personal_kb], current_user),
         })
 
-    visible_names = [kb["name"] for kb in kbs]
-    stats_by_name: dict[str, dict[str, int]] = {}
-    if visible_names:
-        try:
-            stats_result = await asyncio.wait_for(
-                _compute_kb_stats_batch_fast(visible_names),
-                timeout=KB_STATS_BATCH_TIMEOUT_SECONDS,
-            )
-        except Exception:
-            lightrag_logger.warning("KB stats batch failed", exc_info=True)
-            stats_result = {}
-        if isinstance(stats_result, dict):
-            stats_by_name = stats_result
-
     for kb in kbs:
-        kb["stats"] = stats_by_name.get(kb["name"], _stats_unavailable_payload())
+        # Keep list discovery independent from aggregate queries. The frontend
+        # loads card statistics separately so a slow stats path cannot make the
+        # KB list itself unavailable.
+        kb["stats"] = _stats_unavailable_payload()
         last_updated_at = kb["updated_at"] or kb["created"] or ""
         kb["last_updated_at"] = last_updated_at
         # Retain the legacy key while clients migrate to the generic KB update time.
@@ -5605,10 +5594,9 @@ async def list_kbs(
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     lightrag_logger.info(
-        "[KB-LIST] user=%s visible_kbs=%s stats_embedded=%s elapsed_ms=%.1f",
+        "[KB-LIST] user=%s visible_kbs=%s stats_embedded=0 elapsed_ms=%.1f",
         current_user.get("username", "?"),
         len(kbs),
-        len(stats_by_name),
         elapsed_ms,
     )
     return {"knowledge_bases": kbs, "active": _shared.active_kb}

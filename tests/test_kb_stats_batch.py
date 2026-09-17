@@ -139,7 +139,7 @@ async def test_knowledge_stats_batch_prefers_batched_fast_path(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_kbs_embeds_stats_from_fast_batch_path(monkeypatch):
+async def test_list_kbs_does_not_wait_for_stats_batch(monkeypatch):
     from raganything.routers.knowledge import list_kbs
 
     async def fake_load_kb_meta():
@@ -148,11 +148,8 @@ async def test_list_kbs_embeds_stats_from_fast_batch_path(monkeypatch):
             "kb-b": {"name": "KB B", "created": "2026-07-02", "owner_id": 2, "owner_username": "bob"},
         }
 
-    async def fake_batch_stats(names):
-        assert names == ["kb-a", "kb-b"]
-        return {
-            "kb-a": {"documents": 3, "entities": 4, "relations": 5, "chunks": 6},
-        }
+    async def fail_if_stats_are_computed(_names):
+        raise AssertionError("KB list must not wait for aggregate statistics")
 
     monkeypatch.setattr(
         "raganything.routers.knowledge.load_kb_meta",
@@ -160,7 +157,7 @@ async def test_list_kbs_embeds_stats_from_fast_batch_path(monkeypatch):
     )
     monkeypatch.setattr(
         "raganything.routers.knowledge._compute_kb_stats_batch_fast",
-        fake_batch_stats,
+        fail_if_stats_are_computed,
     )
     monkeypatch.setattr(
         "raganything.routers.knowledge._shared.active_kb",
@@ -176,4 +173,6 @@ async def test_list_kbs_embeds_stats_from_fast_batch_path(monkeypatch):
     result = await list_kbs(current_user=current_user)
 
     assert [kb["name"] for kb in result["knowledge_bases"]] == ["kb-a", "kb-b"]
-    assert result["knowledge_bases"][0]["stats"]["documents"] == 3
+    for kb in result["knowledge_bases"]:
+        assert kb["stats"]["unavailable"] is True
+        assert kb["stats"]["documents"] == 0
