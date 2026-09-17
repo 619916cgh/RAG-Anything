@@ -411,9 +411,16 @@ class ChunkProcessorMixin:
         Returns:
             Formatted chunk content using the appropriate template
         """
-        from raganything.prompt import PROMPTS
+        from raganything.prompt_manager import (
+            get_multimodal_prompt_language,
+            get_multimodal_prompts,
+        )
 
         try:
+            language = get_multimodal_prompt_language()
+            prompts = get_multimodal_prompts(language)
+            missing = "无" if language == "zh" else "None"
+
             if content_type == "image":
                 image_path = original_item.get("img_path", "")
                 captions = normalize_caption_list(
@@ -429,12 +436,12 @@ class ChunkProcessorMixin:
                 section_path = original_item.get("_section_path", "")
                 neighbor_text = original_item.get("_neighbor_text", "")
 
-                return PROMPTS["image_chunk"].format(
-                    section_path=section_path if section_path else "None",
-                    neighbor_text=neighbor_text if neighbor_text else "None",
+                return prompts["image_chunk"].format(
+                    section_path=section_path if section_path else missing,
+                    neighbor_text=neighbor_text if neighbor_text else missing,
                     image_path=image_path,
-                    captions=", ".join(captions) if captions else "None",
-                    footnotes=", ".join(footnotes) if footnotes else "None",
+                    captions=", ".join(captions) if captions else missing,
+                    footnotes=", ".join(footnotes) if footnotes else missing,
                     enhanced_caption=description,
                 )
 
@@ -447,18 +454,27 @@ class ChunkProcessorMixin:
                     original_item.get("table_footnote", [])
                 )
                 # Simplify table body: strip bbox noise, keep text + position
-                from raganything.utils import simplify_table_body as _simplify_table
+                from raganything.utils import (
+                    has_meaningful_table_content,
+                    simplify_table_body as _simplify_table,
+                )
 
                 raw_body = get_table_body(original_item)
                 table_body = _simplify_table(raw_body)
+                if not has_meaningful_table_content(raw_body):
+                    table_body = (
+                        "未提取到有效表格内容。"
+                        if language == "zh"
+                        else "No meaningful table content was extracted."
+                    )
 
-                return PROMPTS["table_chunk"].format(
+                return prompts["table_chunk"].format(
                     table_img_path=table_img_path,
-                    table_caption=", ".join(table_caption) if table_caption else "None",
+                    table_caption=", ".join(table_caption) if table_caption else missing,
                     table_body=table_body,
                     table_footnote=", ".join(table_footnote)
                     if table_footnote
-                    else "None",
+                    else missing,
                     enhanced_caption=description,
                 )
 
@@ -467,7 +483,7 @@ class ChunkProcessorMixin:
                     original_item
                 )
 
-                return PROMPTS["equation_chunk"].format(
+                return prompts["equation_chunk"].format(
                     equation_text=equation_text,
                     equation_format=equation_format,
                     enhanced_caption=description,
@@ -481,8 +497,19 @@ class ChunkProcessorMixin:
             else:  # generic or unknown types
                 content = str(original_item.get("content", original_item))
 
-                return PROMPTS["generic_chunk"].format(
-                    content_type=content_type.title(),
+                content_type_label = (
+                    {
+                        "image": "图片",
+                        "table": "表格",
+                        "equation": "公式",
+                        "video": "视频",
+                    }.get(content_type, content_type)
+                    if language == "zh"
+                    else content_type.title()
+                )
+
+                return prompts["generic_chunk"].format(
+                    content_type=content_type_label,
                     content=content,
                     enhanced_caption=description,
                 )

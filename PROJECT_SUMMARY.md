@@ -155,6 +155,8 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 
 前端遮罩修复完成：弹窗；单测/Vite/diff passed，未执行浏览器/Worker/生产验收。
 
+2026-09-17 多模态中文切片修复完成：ODL 空表拦截、caption-only 降级、嵌套图片保留；表格、图片和 chunk 默认中文。聚焦 58 passed/1 skipped，扩展 172 passed/1 skipped，真实 ODL 回放 `table_blocks=0`/`image_blocks=51`；未部署或回填。
+
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
 | 2026-09-15 | agent-image-query-recognition-and-preview | 修复/真实链路 | 标签范围下仍执行 VLM；图片理解独立超时并显式报错；规范化 MIME；无知识库文本时视觉描述可作为直接证据；用户消息持久化 JPEG 缩略图并在历史恢复 | Agent 路由、对话元数据、前端消息映射；无迁移或 RBAC 变更 | 后端相关 90 passed、前端 236 passed、Vite build；真实 `weaviate_pricing.png` 被识别并回答为 `Weaviate`；会话 API 返回 50,923 字符 JPEG 预览及图片描述 | 仅本地真实 Provider/API 验证；未执行浏览器 UAT、云端部署或生产验收 |

@@ -33,6 +33,7 @@ from pathlib import Path
 from lightrag import QueryParam
 from lightrag.utils import always_get_an_event_loop, get_env_value
 from raganything.prompt import PROMPTS, INLINE_QUOTE_INSTRUCTION, ANSWER_FORMAT_INSTRUCTION
+from raganything.prompt_manager import get_multimodal_prompts
 
 # Hint appended to LLM prompt when text chunk resolution fails (chunks=0)
 DEGRADED_CONTEXT_HINT = (
@@ -1764,7 +1765,7 @@ class QueryMixin:
                 continue
 
         enhanced_query = "\n".join(enhanced_parts)
-        enhanced_query += PROMPTS["QUERY_ENHANCEMENT_SUFFIX"]
+        enhanced_query += get_multimodal_prompts()["QUERY_ENHANCEMENT_SUFFIX"]
 
         self.logger.info("Multimodal query content processing completed")
         return enhanced_query
@@ -1811,11 +1812,12 @@ class QueryMixin:
             # If image exists, use vision model to generate description
             image_base64 = processor._encode_image_to_base64(image_path)
             if image_base64:
-                prompt = PROMPTS["QUERY_IMAGE_DESCRIPTION"]
+                prompts = get_multimodal_prompts()
+                prompt = prompts["QUERY_IMAGE_DESCRIPTION"]
                 description = await processor.modal_caption_func(
                     prompt,
                     image_data=image_base64,
-                    system_prompt=PROMPTS["QUERY_IMAGE_ANALYST_SYSTEM"],
+                    system_prompt=prompts["QUERY_IMAGE_ANALYST_SYSTEM"],
                 )
                 return description
 
@@ -1837,12 +1839,13 @@ class QueryMixin:
         table_data = content.get("table_data", "")
         table_caption = content.get("table_caption", "")
 
-        prompt = PROMPTS["QUERY_TABLE_ANALYSIS"].format(
+        prompts = get_multimodal_prompts()
+        prompt = prompts["QUERY_TABLE_ANALYSIS"].format(
             table_data=table_data, table_caption=table_caption
         )
 
         description = await processor.modal_caption_func(
-            prompt, system_prompt=PROMPTS["QUERY_TABLE_ANALYST_SYSTEM"]
+            prompt, system_prompt=prompts["QUERY_TABLE_ANALYST_SYSTEM"]
         )
 
         return description
@@ -1854,12 +1857,13 @@ class QueryMixin:
         latex = content.get("latex", "")
         equation_caption = content.get("equation_caption", "")
 
-        prompt = PROMPTS["QUERY_EQUATION_ANALYSIS"].format(
+        prompts = get_multimodal_prompts()
+        prompt = prompts["QUERY_EQUATION_ANALYSIS"].format(
             latex=latex, equation_caption=equation_caption
         )
 
         description = await processor.modal_caption_func(
-            prompt, system_prompt=PROMPTS["QUERY_EQUATION_ANALYST_SYSTEM"]
+            prompt, system_prompt=prompts["QUERY_EQUATION_ANALYST_SYSTEM"]
         )
 
         return description
@@ -1870,13 +1874,14 @@ class QueryMixin:
         """Generate generic content description for query"""
         content_str = str(content)
 
-        prompt = PROMPTS["QUERY_GENERIC_ANALYSIS"].format(
+        prompts = get_multimodal_prompts()
+        prompt = prompts["QUERY_GENERIC_ANALYSIS"].format(
             content_type=content_type, content_str=content_str
         )
 
         description = await processor.modal_caption_func(
             prompt,
-            system_prompt=PROMPTS["QUERY_GENERIC_ANALYST_SYSTEM"].format(
+            system_prompt=prompts["QUERY_GENERIC_ANALYST_SYSTEM"].format(
                 content_type=content_type
             ),
         )
@@ -1905,7 +1910,8 @@ class QueryMixin:
         # Enhanced regex pattern for matching image paths
         # Matches only the path ending with image file extensions
         image_path_pattern = (
-            r"Image Path:\s*([^\r\n]*?\.(?:jpg|jpeg|png|gif|bmp|webp|tiff|tif))"
+            r"(?:Image Path|图片路径)\s*[:：]\s*"
+            r"([^\r\n]*?\.(?:jpg|jpeg|png|gif|bmp|webp|tiff|tif))"
         )
 
         # First, let's see what matches we find

@@ -3220,6 +3220,7 @@ def _extract_media_path(chunk_data: dict) -> str | None:
     import re as _re
     for pattern in (
         r"Image Path:\s*(\S+)",
+        r"图片路径\s*[:：]\s*(\S+)",
         r"Table Image Path:\s*(\S+)",
         r"- Video Path:\s*(\S+)",
     ):

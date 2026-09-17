@@ -909,13 +909,19 @@ class OpenDataLoaderParser(Parser):
         content_list: List[Dict[str, Any]] = []
         provenance: List[Dict[str, Any]] = []
         pages_seen: set = set()
+        processed_nested_image_ids: set[int] = set()
 
         def _walk(children: List[Dict[str, Any]]) -> None:
             for el in children:
                 if not isinstance(el, dict):
                     continue
+                if id(el) in processed_nested_image_ids:
+                    continue
 
                 content_start = len(content_list)
+                extra_provenance_blocks: List[
+                    Tuple[Dict[str, Any], Dict[str, Any]]
+                ] = []
                 el_type = el.get("type", "")
                 el_id = el.get("id")
                 src_page = el.get("page number")
@@ -987,7 +993,9 @@ class OpenDataLoaderParser(Parser):
                     pass
 
                 elif el_type == "table":
-                    # Table — generate normalized table block from cells/labels
+                    # Table — only structured cells with meaningful text become
+                    # table blocks.  Empty ODL table containers are common in
+                    # converted PDFs and must not reach the LLM or graph.
                     table_block = _build_table_block(
                         el, output_root, page_idx, working_dir
                     )
@@ -1004,6 +1012,96 @@ class OpenDataLoaderParser(Parser):
                                     "page_idx": page_idx,
                                 }
                             )
+                    else:
+                        caption_text = _extract_table_caption(el)
+                        if caption_text:
+                            content_list.append(
+                                {
+                                    "type": "text",
+                                    "text": caption_text,
+                                    "page_idx": page_idx,
+                                }
+                            )
+
+                    nested_images = _collect_nested_table_images(
+                        el,
+                        include_table_image=not (
+                            table_block
+                            and table_block.get("type") == "table"
+                        ),
+                    )
+                    processed_nested_image_ids.update(
+                        id(image_el) for image_el in nested_images
+                    )
+                    for image_index, image_el in enumerate(nested_images):
+                        child_src_page = image_el.get("page number", src_page)
+                        if isinstance(child_src_page, (int, float)):
+                            child_page = int(child_src_page)
+                            child_page_idx = child_page - 1
+                            pages_seen.add(child_page)
+                        else:
+                            child_page = page_idx + 1
+                            child_page_idx = page_idx
+
+                        image_block = _build_image_block(
+                            image_el,
+                            output_root,
+                            child_page_idx,
+                            working_dir,
+                        )
+                        if not image_block:
+                            continue
+
+                        child_prov_entry = {
+                            "odl_id": image_el.get("id")
+                            or f"{el_id or 'table'}:image:{image_index + 1}",
+                            "odl_type": image_el.get("type", "image"),
+                            "odl_pdfua_tag": image_el.get("pdfua_tag", ""),
+                            "source_page": child_page,
+                            "page_idx": child_page_idx,
+                        }
+                        child_bbox = image_el.get("bounding box", bbox)
+                        if child_bbox is not None:
+                            child_prov_entry["bbox"] = _normalize_bbox(child_bbox)
+                            child_prov_entry["bbox_coordinate_system"] = {
+                                "units": "PDF points",
+                                "origin": "bottom-left",
+                                "order": ["left", "bottom", "right", "top"],
+                            }
+                        if el_id is not None:
+                            child_prov_entry["parent_element_id"] = el_id
+
+                        media = image_block.get("_odl_media")
+                        if isinstance(media, dict) and isinstance(
+                            media.get("sha256"), str
+                        ):
+                            child_prov_entry["media_sha256"] = media["sha256"]
+
+                        if image_block.get("type") == "image":
+                            image_block["_odl_dedupe_key"] = (
+                                OpenDataLoaderParser._image_semantic_identity(
+                                    image_el, image_block
+                                )
+                            )
+                        image_block["_provenance"] = {
+                            "source_page": child_page,
+                            "page_idx": child_page_idx,
+                            "element_id": child_prov_entry["odl_id"],
+                            "element_type": child_prov_entry["odl_type"],
+                        }
+                        if child_prov_entry.get("bbox") is not None:
+                            image_block["_provenance"]["bbox"] = (
+                                child_prov_entry["bbox"]
+                            )
+                            image_block["_provenance"][
+                                "bbox_coordinate_system"
+                            ] = dict(
+                                child_prov_entry["bbox_coordinate_system"]
+                            )
+                        extra_provenance_blocks.append(
+                            (image_block, child_prov_entry)
+                        )
+                        content_list.append(image_block)
 
                 elif el_type in ("figure", "image"):
                     # Image block
@@ -1080,9 +1178,12 @@ class OpenDataLoaderParser(Parser):
                         prov_entry["bbox_coordinate_system"]
                     )
                 for block in content_list[content_start:]:
-                    block["_provenance"] = dict(block_provenance)
+                    block.setdefault("_provenance", dict(block_provenance))
 
                 provenance.append(prov_entry)
+                for block, child_prov_entry in extra_provenance_blocks:
+                    block["_odl_provenance_index"] = len(provenance)
+                    provenance.append(child_prov_entry)
 
                 # Recurse into nested kids (e.g. list items inside lists)
                 for child_key in ("kids", "children", "list items"):
@@ -1206,6 +1307,15 @@ class OpenDataLoaderParser(Parser):
                 page_content, page_provenance, pages_seen = self._flatten_elements(
                     data["kids"], page_dir, working_dir
                 )
+                raw_has_retainable_content = any(
+                    _has_retainable_element_content(
+                        element,
+                        page_dir,
+                        page - 1,
+                        working_dir,
+                    )
+                    for element in data["kids"]
+                )
                 media_box = source_pdf.pages[page - 1].mediabox
                 page_width = float(media_box.width)
                 page_height = float(media_box.height)
@@ -1231,7 +1341,9 @@ class OpenDataLoaderParser(Parser):
                         )
                     blank_pages.append(page)
                 else:
-                    if not pages_seen or not page_content:
+                    if not pages_seen or (
+                        not page_content and raw_has_retainable_content
+                    ):
                         raise ODLPageCoverageError(
                             f"OpenDataLoader did not prove content for page {page}"
                         )
@@ -1566,70 +1678,254 @@ def _normalize_bbox(raw_bbox: List[float]) -> List[float]:
     return bbox
 
 
+_TABLE_MARKUP_ONLY_RE = re.compile(r"^[\s|:：\-—_]+$")
+
+
+def _table_text_content(value: Any) -> str:
+    """Return display text from an ODL table cell or nested text node."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        direct_parts = []
+        for key in ("content", "text"):
+            if key not in value:
+                continue
+            direct = _table_text_content(value.get(key))
+            if direct:
+                direct_parts.append(direct)
+        if direct_parts:
+            return " ".join(direct_parts)
+        nested_parts = []
+        for key in ("kids", "children"):
+            nested = value.get(key)
+            if isinstance(nested, (list, tuple)):
+                nested_text = _table_text_content(nested)
+                if nested_text:
+                    nested_parts.append(nested_text)
+        return " ".join(nested_parts)
+    if isinstance(value, (list, tuple)):
+        parts = []
+        for item in value:
+            text = _table_text_content(item)
+            if text:
+                parts.append(text)
+        return " ".join(parts)
+    return str(value).strip()
+
+
+def _is_meaningful_table_text(value: Any) -> bool:
+    """Return whether a table value contains usable display text.
+
+    Semantic placeholders such as ``N/A`` and ``无`` are intentionally kept:
+    they can be legitimate cell values.  Only blank and Markdown separator
+    markup are discarded.
+    """
+    text = _table_text_content(value)
+    return bool(text) and not _TABLE_MARKUP_ONLY_RE.fullmatch(text)
+
+
+def _table_row_cells(row: Any) -> List[Any]:
+    """Return the cell values from one ODL table row."""
+    if isinstance(row, dict):
+        cells = row.get("cells")
+        if isinstance(cells, (list, tuple)) and cells:
+            return list(cells)
+        return [row]
+    if isinstance(row, (list, tuple)):
+        return list(row)
+    return [row]
+
+
+def _table_rows_value(el: Dict[str, Any]) -> List[List[str]]:
+    """Normalise ODL labels/rows/cells into non-empty display rows."""
+    rows: List[List[str]] = []
+
+    labels = el.get("labels")
+    if isinstance(labels, (list, tuple)) and labels:
+        label_values = [_table_text_content(cell) for cell in labels]
+        if any(_is_meaningful_table_text(cell) for cell in label_values):
+            rows.append(label_values)
+
+    raw_rows = el.get("cells") or el.get("rows") or []
+    if isinstance(raw_rows, dict):
+        raw_rows = [raw_rows]
+    if isinstance(raw_rows, (list, tuple)):
+        for raw_row in raw_rows:
+            values = [
+                _table_text_content(cell)
+                for cell in _table_row_cells(raw_row)
+            ]
+            if any(_is_meaningful_table_text(cell) for cell in values):
+                rows.append(values)
+
+    return rows
+
+
+def _extract_table_caption(el: Dict[str, Any]) -> str:
+    """Return a non-empty table caption without treating it as table data."""
+    caption = _table_text_content(el.get("caption"))
+    if _is_meaningful_table_text(caption):
+        return caption
+    for key in ("captions", "labels"):
+        value = el.get(key)
+        if key == "labels" and _table_rows_value(el):
+            continue
+        text = _table_text_content(value)
+        if _is_meaningful_table_text(text):
+            return text
+    return ""
+
+
+def _table_image_ref(value: Dict[str, Any]) -> str:
+    """Return the first usable image reference from an ODL node."""
+    for key in ("image", "img_path", "src", "source", "table_img_path"):
+        ref = value.get(key)
+        if isinstance(ref, str) and ref.strip():
+            return ref.strip()
+    return ""
+
+
+def _collect_nested_table_images(
+    el: Dict[str, Any], *, include_table_image: bool = False
+) -> List[Dict[str, Any]]:
+    """Collect image elements nested in table labels, rows, cells, or kids."""
+    images: List[Dict[str, Any]] = []
+    seen_refs: set[str] = set()
+
+    def _walk(value: Any) -> None:
+        if isinstance(value, dict):
+            ref = _table_image_ref(value)
+            node_type = str(value.get("type", "")).strip().lower()
+            if ref and (
+                node_type in {"image", "figure"}
+                or any(
+                    key in value
+                    for key in ("source", "image", "img_path", "src")
+                )
+            ):
+                if ref not in seen_refs:
+                    seen_refs.add(ref)
+                    images.append(value)
+
+            for key in ("labels", "cells", "rows", "kids", "children"):
+                nested = value.get(key)
+                if isinstance(nested, (list, tuple, dict)):
+                    _walk(nested)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                _walk(item)
+
+    _walk(
+        {
+            key: el.get(key)
+            for key in ("labels", "cells", "rows", "kids", "children")
+            if key in el
+        }
+    )
+
+    if include_table_image:
+        table_ref = _table_image_ref(el)
+        if table_ref and table_ref not in seen_refs:
+            images.append(
+                {
+                    "type": "image",
+                    "id": f"{el.get('id') or 'table'}:image",
+                    "page number": el.get("page number"),
+                    "bounding box": el.get("bounding box"),
+                    "caption": el.get("caption", ""),
+                    "source": table_ref,
+                }
+            )
+
+    return images
+
+
+def _has_retainable_element_content(
+    el: Dict[str, Any],
+    output_root: Path,
+    page_idx: int,
+    working_dir: str,
+) -> bool:
+    """Return whether an ODL element should yield at least one block.
+
+    Non-table elements have explicit fallbacks in the normaliser.  Tables are
+    the only current case that may intentionally be filtered out, so evaluate
+    their text, caption, and nested media before marking a page as covered.
+    """
+    if not isinstance(el, dict):
+        return False
+    if el.get("type") != "table":
+        return True
+    if _build_table_block(el, output_root, page_idx, working_dir) is not None:
+        return True
+    if _extract_table_caption(el):
+        return True
+    if _collect_nested_table_images(el, include_table_image=True):
+        return True
+    for child_key in ("kids", "children", "list items"):
+        children = el.get(child_key)
+        if isinstance(children, list):
+            if any(
+                _has_retainable_element_content(
+                    child,
+                    output_root,
+                    page_idx,
+                    working_dir,
+                )
+                for child in children
+            ):
+                return True
+    return False
+
+
 def _build_table_block(
     el: Dict[str, Any],
     output_root: Path,
     page_idx: int,
     working_dir: str,
 ) -> Optional[Dict[str, Any]]:
-    """Build a normalised table block from an OpenDataLoader table element.
+    """Build a normalised table block from meaningful ODL table text.
 
-    The upstream table element may have ``labels`` (header) and ``cells``
-    (data rows).  Normalises into a Markdown-style ``table_body`` string.
+    Empty table containers and markup-only rows are not table content and
+    return ``None``.  This keeps them out of prompts, chunks, and the graph.
     """
-    rows = []
-
-    # Labels (header row)
-    labels = el.get("labels") or []
-    if labels:
-        rows.append([str(c.get("content", "")) for c in labels])
-        rows.append(["---" for _ in labels])
-
-    # Cells
-    cells = el.get("cells") or el.get("rows") or []
-    for row in cells:
-        if isinstance(row, dict):
-            row_cells = row.get("cells") or row.get("content") or [row]
-        elif isinstance(row, list):
-            row_cells = row
-        else:
-            continue
-        rows.append(
-            [
-                str(c.get("content", "")) if isinstance(c, dict) else str(c)
-                for c in row_cells
-            ]
-        )
-
+    rows = _table_rows_value(el)
     if not rows:
-        # Fallback: extract from content string
-        content = str(el.get("content", ""))
-        if content:
+        content = _table_text_content(el.get("content"))
+        if _is_meaningful_table_text(content):
             return {"type": "text", "text": content, "page_idx": page_idx}
         return None
 
-    # Build Markdown table body
-    md_lines = []
-    for i, row in enumerate(rows):
-        md_lines.append("| " + " | ".join(row) + " |")
-        if i == 0 and len(rows) > 1 and rows[1] != ["---" for _ in labels]:
-            # Insert separator row after header if not present
-            md_lines.append("| " + " | ".join(["---"] * len(row)) + " |")
+    max_columns = max(len(row) for row in rows)
+    if max_columns <= 0:
+        return None
+    rows = [row + [""] * (max_columns - len(row)) for row in rows]
 
+    md_lines = ["| " + " | ".join(rows[0]) + " |"]
+    if len(rows) > 1 or any(cell.strip() for cell in rows[0][1:]):
+        md_lines.append("| " + " | ".join(["---"] * max_columns) + " |")
+    md_lines.extend("| " + " | ".join(row) + " |" for row in rows[1:])
     table_body = "\n".join(md_lines)
-    caption = str(el.get("caption", ""))
+
     block: Dict[str, Any] = {
         "type": "table",
         "table_body": table_body,
         "page_idx": page_idx,
     }
+    caption = _extract_table_caption(el)
     if caption:
         block["caption"] = caption
 
-    # Attach table image if present
-    table_img = el.get("image") or el.get("table_img_path")
+    # Attach a table-level raster only when the table itself has usable text.
+    # A table-level image on an otherwise empty table is handled by the
+    # nested-image path in ``_flatten_elements``.
+    table_img = _table_image_ref(el)
     if table_img:
-        resolved = OpenDataLoaderParser._resolve_media_path(str(table_img), output_root)
+        resolved = OpenDataLoaderParser._resolve_media_path(table_img, output_root)
         if resolved:
             block["img_path"] = str(resolved)
             attach_public_media_urls(block)

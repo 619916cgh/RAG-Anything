@@ -18,6 +18,7 @@ Usage (process-global switch)::
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Any, Dict
 
@@ -154,3 +155,22 @@ def get_available_languages() -> list[str]:
     # Include known lazy-loadable languages
     all_langs = set(_PROMPT_LANGUAGES.keys()) | {"zh"}
     return sorted(all_langs)
+
+
+def get_multimodal_prompt_language(default: str = "zh") -> str:
+    """Resolve the configured language for multimodal processing."""
+    value = os.getenv("MULTIMODAL_PROMPT_LANGUAGE", default)
+    normalized = str(value or default).strip().lower().replace("_", "-")
+    return "zh" if normalized in {"zh", "zh-cn", "cmn"} else "en"
+
+
+def get_multimodal_prompts(language: str | None = None) -> Dict[str, Any]:
+    """Return the prompt template mapping for multimodal processing."""
+    if language is None:
+        lang = get_multimodal_prompt_language()
+    else:
+        normalized = _normalize_language_code(language).replace("_", "-")
+        lang = "zh" if normalized in {"zh", "zh-cn", "cmn"} else "en"
+    if lang == "zh":
+        return _lazy_load_language("zh")
+    return _ENGLISH_PROMPTS

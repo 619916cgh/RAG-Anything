@@ -20,6 +20,7 @@ Functions:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Tuple
 from lightrag.utils import logger
 
@@ -69,6 +70,69 @@ def format_table_body(table_body: Any) -> str:
             return "\n".join(rendered_rows)
         return "\n".join(str(row) for row in table_body)
     return str(table_body)
+
+
+_TABLE_MARKUP_ONLY_RE = re.compile(r"^[\s|:：\-—_]+$")
+
+
+def _is_meaningful_table_cell(value: Any) -> bool:
+    if value is None:
+        return False
+    normalized = str(value).strip()
+    if not normalized:
+        return False
+    return not _TABLE_MARKUP_ONLY_RE.fullmatch(normalized)
+
+
+def has_meaningful_table_content(table_body: Any) -> bool:
+    """Return whether a table contains any usable cell text or data."""
+    if table_body is None:
+        return False
+
+    if isinstance(table_body, dict):
+        nested = get_table_body(table_body)
+        if nested is table_body:
+            return False
+        return has_meaningful_table_content(nested)
+
+    if isinstance(table_body, list):
+        if not table_body:
+            return False
+
+        if any(isinstance(cell, dict) for cell in table_body):
+            for cell in table_body:
+                if not isinstance(cell, dict):
+                    if _is_meaningful_table_cell(cell):
+                        return True
+                    continue
+                for key in ("text", "content"):
+                    if key in cell and has_meaningful_table_content(cell.get(key)):
+                        return True
+                for key in ("kids", "children", "cells", "rows"):
+                    if key in cell and has_meaningful_table_content(cell.get(key)):
+                        return True
+            return False
+
+        if all(isinstance(row, (list, tuple)) for row in table_body):
+            return any(
+                _is_meaningful_table_cell(cell)
+                for row in table_body
+                for cell in row
+            )
+
+        return any(_is_meaningful_table_cell(item) for item in table_body)
+
+    text = format_table_body(table_body)
+    if not text.strip():
+        return False
+
+    for line in text.splitlines():
+        if not line.strip() or _TABLE_MARKUP_ONLY_RE.fullmatch(line):
+            continue
+        cells = line.strip().strip("|").split("|")
+        if any(_is_meaningful_table_cell(cell) for cell in cells):
+            return True
+    return False
 
 
 def simplify_table_body(table_body: Any, max_chars: int = 2000) -> str:

@@ -16,7 +16,10 @@ from lightrag.lightrag import LightRAG
 
 from raganything.modalprocessors.base import BaseModalProcessor
 from raganything.modalprocessors.context import ContextExtractor
-from raganything.prompt import PROMPTS
+from raganything.prompt_manager import (
+    get_multimodal_prompt_language,
+    get_multimodal_prompts,
+)
 
 
 class GenericModalProcessor(BaseModalProcessor):
@@ -39,30 +42,37 @@ class GenericModalProcessor(BaseModalProcessor):
             context = ""
             if item_info:
                 context = self._get_context_for_item(item_info)
+            language = get_multimodal_prompt_language()
+            prompts = get_multimodal_prompts(language)
+            default_entity_name = (
+                f"为该{content_type}内容生成唯一且语义明确的中文名称"
+                if language == "zh"
+                else f"descriptive name for this {content_type}"
+            )
 
             if context:
-                generic_prompt = PROMPTS.get(
-                    "generic_prompt_with_context", PROMPTS["generic_prompt"]
+                generic_prompt = prompts.get(
+                    "generic_prompt_with_context", prompts["generic_prompt"]
                 ).format(
                     context=context,
                     content_type=content_type,
                     entity_name=entity_name
                     if entity_name
-                    else f"descriptive name for this {content_type}",
+                    else default_entity_name,
                     content=str(modal_content),
                 )
             else:
-                generic_prompt = PROMPTS["generic_prompt"].format(
+                generic_prompt = prompts["generic_prompt"].format(
                     content_type=content_type,
                     entity_name=entity_name
                     if entity_name
-                    else f"descriptive name for this {content_type}",
+                    else default_entity_name,
                     content=str(modal_content),
                 )
 
             response = await self._call_modal_caption(
                 generic_prompt,
-                system_prompt=PROMPTS["GENERIC_ANALYSIS_SYSTEM"].format(
+                system_prompt=prompts["GENERIC_ANALYSIS_SYSTEM"].format(
                     content_type=content_type
                 ),
             )
@@ -116,10 +126,26 @@ class GenericModalProcessor(BaseModalProcessor):
                 else:
                     img_path = ""
                 if img_path:
-                    image_path_line = f"Image Path: {img_path}\n"
+                    image_path_line = (
+                        f"图片路径：{img_path}\n"
+                        if get_multimodal_prompt_language() == "zh"
+                        else f"Image Path: {img_path}\n"
+                    )
 
-            modal_chunk = PROMPTS["generic_chunk"].format(
-                content_type=content_type.title(),
+            language = get_multimodal_prompt_language()
+            prompts = get_multimodal_prompts(language)
+            content_type_label = (
+                {
+                    "image": "图片",
+                    "table": "表格",
+                    "equation": "公式",
+                    "video": "视频",
+                }.get(content_type, content_type)
+                if language == "zh"
+                else content_type.title()
+            )
+            modal_chunk = prompts["generic_chunk"].format(
+                content_type=content_type_label,
                 content=str(modal_content),
                 enhanced_caption=enhanced_caption,
             )

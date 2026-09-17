@@ -10,6 +10,7 @@ from raganything.prompt_manager import (
     reset_prompts,
     register_prompt_language,
     get_available_languages,
+    get_multimodal_prompts,
 )
 
 
@@ -91,6 +92,26 @@ class TestGetAvailableLanguages:
         langs = get_available_languages()
         assert "en" in langs
         assert "zh" in langs
+
+
+class TestMultimodalPromptSelection:
+    def test_defaults_to_chinese(self, monkeypatch):
+        monkeypatch.delenv("MULTIMODAL_PROMPT_LANGUAGE", raising=False)
+        prompts = get_multimodal_prompts()
+        assert "表格分析" in prompts["table_chunk"]
+        assert "图片内容分析" in prompts["image_chunk"]
+
+    def test_explicit_english_override(self, monkeypatch):
+        monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "en")
+        prompts = get_multimodal_prompts()
+        assert "Table Analysis" in prompts["table_chunk"]
+        assert "Image Content Analysis" in prompts["image_chunk"]
+
+    @pytest.mark.parametrize("language", ["zh", "zh-cn", "cmn"])
+    def test_chinese_language_aliases(self, language):
+        prompts = get_multimodal_prompts(language)
+        assert "表格分析" in prompts["table_chunk"]
+        assert "图片内容分析" in prompts["image_chunk"]
 
 
 class TestAtomicPromptSwitches:

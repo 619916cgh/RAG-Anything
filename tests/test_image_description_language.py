@@ -4,6 +4,7 @@ import pytest
 
 from raganything.modalprocessors import image as image_module
 from raganything.modalprocessors.image import ImageModalProcessor
+from raganything.modalprocessors.table import TableModalProcessor
 
 
 def _write_meaningful_image(path):
@@ -99,6 +100,91 @@ async def test_image_description_cache_isolated_by_prompt_context(tmp_path, monk
     await processor.generate_description_only(second, "image")
 
     assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_table_uses_chinese_fallback_without_llm(monkeypatch):
+    monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "zh")
+    calls = []
+
+    async def caption(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("empty tables must not call the LLM")
+
+    processor = object.__new__(TableModalProcessor)
+    processor.modal_caption_func = caption
+    processor.content_source = None
+
+    description, entity = await processor.generate_description_only(
+        {"table_body": "| | | |\n| --- | --- | --- | --- |\n| | | |"},
+        "table",
+    )
+
+    assert calls == []
+    assert "未提取到可识别的单元格文本或数据" in description
+    assert entity["entity_name"] == "空表格"
+    assert entity["summary"] == description
+    assert entity["non_indexable"] is True
+    assert entity["analysis_source"] == "empty_table"
+
+
+@pytest.mark.asyncio
+async def test_nonempty_table_uses_chinese_analysis_prompt(monkeypatch):
+    monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "zh")
+    calls = []
+
+    async def caption(prompt, **kwargs):
+        calls.append((prompt, kwargs.get("system_prompt", "")))
+        return json.dumps({
+            "detailed_description": "该表比较了两种技术的续航表现。",
+            "entity_info": {
+                "entity_name": "新能源汽车技术对比表",
+                "entity_type": "table",
+                "summary": "对比两种技术方案的续航数据。",
+            },
+        }, ensure_ascii=False)
+
+    processor = object.__new__(TableModalProcessor)
+    processor.modal_caption_func = caption
+    processor.content_source = None
+
+    description, entity = await processor.generate_description_only(
+        {
+            "table_body": (
+                "| 技术 | 续航 |\n"
+                "| --- | --- |\n"
+                "| 纯电动 | 500km |"
+            )
+        },
+        "table",
+    )
+
+    assert len(calls) == 1
+    assert "简体中文" in calls[0][0]
+    assert "简体中文" in calls[0][1]
+    assert description == "该表比较了两种技术的续航表现。"
+    assert entity["entity_name"] == "新能源汽车技术对比表（表格）"
+
+
+@pytest.mark.parametrize("entity_type", ["image", "table"])
+def test_english_type_suffix_is_replaced_by_chinese_suffix(
+    monkeypatch, entity_type
+):
+    monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "zh")
+    processor = object.__new__(TableModalProcessor)
+    response = json.dumps({
+        "detailed_description": "中文说明",
+        "entity_info": {
+            "entity_name": f"测试名称 ({entity_type})",
+            "entity_type": entity_type,
+            "summary": "中文摘要",
+        },
+    })
+
+    _, entity = processor._parse_typed_response(response, None, entity_type)
+
+    localized = {"image": "图片", "table": "表格"}[entity_type]
+    assert entity["entity_name"] == f"测试名称（{localized}）"
 
 
 @pytest.mark.asyncio

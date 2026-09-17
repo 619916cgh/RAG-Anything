@@ -131,6 +131,43 @@ def test_extract_image_paths_accepts_both_protocols_and_deduplicates(monkeypatch
     assert result.rejection_counts["empty"] == 1
 
 
+def test_extract_image_paths_accepts_plain_chinese_chunk_marker(monkeypatch, tmp_path):
+    from raganything.routers import shared
+
+    _allow_controlled_root(monkeypatch, tmp_path)
+    image = tmp_path / "chinese-plain.png"
+    _write_png(image)
+
+    result = shared.extract_image_paths_with_stats(f"图片路径：{image}")
+
+    assert result.paths == [str(image.resolve())]
+    assert result.protocol_counts == {"chinese_plain": 1}
+
+
+@pytest.mark.asyncio
+async def test_query_table_description_uses_multimodal_chinese_prompt(monkeypatch):
+    from raganything.query.pipeline import QueryMixin
+
+    monkeypatch.setenv("MULTIMODAL_PROMPT_LANGUAGE", "zh")
+    captured = {}
+
+    async def caption(prompt, system_prompt):
+        captured["prompt"] = prompt
+        captured["system_prompt"] = system_prompt
+        return "中文表格说明"
+
+    query = object.__new__(QueryMixin)
+    result = await query._describe_table_for_query(
+        SimpleNamespace(modal_caption_func=caption),
+        {"table_data": "| 项目 | 数值 |", "table_caption": "参数表"},
+    )
+
+    assert result == "中文表格说明"
+    assert "表格数据" in captured["prompt"]
+    assert "表格标题" in captured["prompt"]
+    assert "数据分析师" in captured["system_prompt"]
+
+
 def test_extract_image_paths_rejects_uncontrolled_and_invalid_paths(monkeypatch, tmp_path):
     from raganything.routers import shared
 

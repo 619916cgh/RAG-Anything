@@ -201,6 +201,10 @@ _IMAGE_PATH_PROTOCOLS = (
         r"\[\s*图片路径\s*[:：]\s*(?P<path>[^\r\n\]]*)\s*\]",
         _re.IGNORECASE,
     )),
+    ("chinese_plain", _re.compile(
+        r"^\s*图片路径\s*[:：]\s*(?P<path>[^\r\n]+?)\s*$",
+        _re.IGNORECASE | _re.MULTILINE,
+    )),
 )
 
 
@@ -532,6 +536,7 @@ async def _discover_images_via_graph(instance, query: str, kb_name: str,
                 is_image = (
                     entity_name in image_entity_names
                     or " (image)" in entity_name
+                    or "（图片）" in entity_name
                 )
                 if is_image:
                     chunk = item["chunk"]

@@ -31,6 +31,7 @@ from lightrag.kg.shared_storage import get_namespace_data, get_pipeline_status_l
 from lightrag.operate import extract_entities, merge_nodes_and_edges
 
 from raganything.modalprocessors.context import ContextExtractor
+from raganything.prompt_manager import get_multimodal_prompt_language
 
 
 _DEFAULT_MODAL_CAPTION_TIMEOUT = 90.0
@@ -354,11 +355,35 @@ class BaseModalProcessor:
         ):
             raise ValueError("Missing required fields in entity_info")
 
-        # Prevent double suffix: if LLM already returned "Foo (image)",
-        # don't make it "Foo (image) (image)"
-        raw_name = entity_data["entity_name"]
-        suffix = f" ({entity_data['entity_type']})"
-        if not raw_name.endswith(suffix):
+        # Prevent double suffix: if LLM already returned a typed name, don't
+        # append the type again. Chinese multimodal output uses localized
+        # suffixes so the entity label does not reintroduce English.
+        raw_name = str(entity_data["entity_name"]).strip()
+        entity_type = str(entity_data["entity_type"])
+        if get_multimodal_prompt_language() == "zh":
+            localized_type = {
+                "image": "图片",
+                "table": "表格",
+                "equation": "公式",
+                "video": "视频",
+            }.get(entity_type, entity_type)
+            suffix = f"（{localized_type}）"
+            legacy_suffixes = (f" ({entity_type})", suffix)
+        else:
+            suffix = f" ({entity_type})"
+            localized_type = {
+                "image": "图片",
+                "table": "表格",
+                "equation": "公式",
+                "video": "视频",
+            }.get(entity_type, entity_type)
+            legacy_suffixes = (f"（{localized_type}）", suffix)
+
+        for existing_suffix in legacy_suffixes:
+            if raw_name.endswith(existing_suffix):
+                raw_name = raw_name[: -len(existing_suffix)].rstrip()
+                break
+        if raw_name:
             entity_data["entity_name"] = raw_name + suffix
 
         if entity_name:

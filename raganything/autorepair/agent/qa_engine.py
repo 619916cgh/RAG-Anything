@@ -410,14 +410,17 @@ class QAEngine:
         if ctx and image_path:
             escaped = re.escape(image_path)
             block_match = re.search(
-                rf"Image Path:\s*{escaped}(.*?)(?:\n\s*Image Path:|\Z)",
+                rf"(?:Image Path|图片路径)\s*[:：]\s*{escaped}"
+                rf"(.*?)(?:\n\s*(?:Image Path|图片路径)\s*[:：]|\Z)",
                 ctx,
                 re.IGNORECASE | re.DOTALL,
             )
             block = block_match.group(1) if block_match else ctx
             for pattern in (
                 r"Captions?:\s*(.+)",
+                r"标注\s*[:：]\s*(.+)",
                 r"Visual Analysis:\s*(.+)",
+                r"视觉分析\s*[:：]\s*(.+)",
                 r"\[Image:\s*(.+?)\]",
             ):
                 match = re.search(pattern, block, re.IGNORECASE)

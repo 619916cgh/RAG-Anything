@@ -485,6 +485,19 @@ class MultimodalProcessorMixin:
                     if not isinstance(chunk_ids, list):
                         chunk_ids = [entity_info.get("chunk_id")] if isinstance(entity_info, dict) else []
                     chunk_ids = [str(chunk_id) for chunk_id in chunk_ids if chunk_id]
+                    if (
+                        isinstance(entity_info, dict)
+                        and entity_info.get("non_indexable", False)
+                        and not chunk_ids
+                    ):
+                        self.logger.info(
+                            "Skipping non-indexable %s item %d (source=%s)",
+                            content_type,
+                            i + 1,
+                            entity_info.get("analysis_source", "unknown"),
+                        )
+                        processed_count += 1
+                        continue
                     if not chunk_ids:
                         raise RuntimeError(
                             "multimodal processor did not persist an indexable chunk"

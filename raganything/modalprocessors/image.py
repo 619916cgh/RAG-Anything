@@ -21,8 +21,10 @@ from lightrag.lightrag import LightRAG
 
 from raganything.modalprocessors.base import BaseModalProcessor
 from raganything.modalprocessors.context import ContextExtractor
-from raganything.prompt import PROMPTS
-from raganything.prompts_zh import PROMPTS_ZH
+from raganything.prompt_manager import (
+    get_multimodal_prompt_language,
+    get_multimodal_prompts,
+)
 from raganything.utils._image import encode_image_to_base64, image_mime_type
 
 
@@ -45,13 +47,11 @@ _IMAGE_PROMPT_VERSION = "image-description-zh-v2"
 
 def _image_prompt_language() -> str:
     """Return the language used by future image descriptions."""
-    value = os.getenv("MULTIMODAL_PROMPT_LANGUAGE", "zh")
-    normalized = str(value or "zh").strip().lower().replace("_", "-")
-    return "zh" if normalized in {"zh", "zh-cn", "cmn"} else "en"
+    return get_multimodal_prompt_language()
 
 
 def _image_prompt_registry() -> Any:
-    return PROMPTS_ZH if _image_prompt_language() == "zh" else PROMPTS
+    return get_multimodal_prompts(_image_prompt_language())
 
 
 def _vlm_cache_key(
@@ -607,13 +607,14 @@ class ImageModalProcessor(BaseModalProcessor):
             )
             section_path = content_data.get("_section_path", "")
             neighbor_text = content_data.get("_neighbor_text", "")
+            missing = "无" if _image_prompt_language() == "zh" else "None"
 
-            modal_chunk = PROMPTS["image_chunk"].format(
-                section_path=section_path if section_path else "None",
-                neighbor_text=neighbor_text if neighbor_text else "None",
+            modal_chunk = _image_prompt_registry()["image_chunk"].format(
+                section_path=section_path if section_path else missing,
+                neighbor_text=neighbor_text if neighbor_text else missing,
                 image_path=image_path,
-                captions=", ".join(captions) if captions else "None",
-                footnotes=", ".join(footnotes) if footnotes else "None",
+                captions=", ".join(captions) if captions else missing,
+                footnotes=", ".join(footnotes) if footnotes else missing,
                 enhanced_caption=enhanced_caption,
             )
 

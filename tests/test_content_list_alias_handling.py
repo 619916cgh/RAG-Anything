@@ -1,8 +1,10 @@
 import importlib.util
+import os
 import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +75,7 @@ ProcessorMixin = processor_module.ProcessorMixin
 format_table_body = utils_module.format_table_body
 get_equation_text_and_format = utils_module.get_equation_text_and_format
 get_table_body = utils_module.get_table_body
+has_meaningful_table_content = utils_module.has_meaningful_table_content
 normalize_caption_list = utils_module.normalize_caption_list
 separate_content = utils_module.separate_content
 extract_section_path_from_content_list = (
@@ -84,6 +87,15 @@ extract_neighbor_text_from_content_list = (
 
 
 class ContentListAliasHandlingTests(unittest.TestCase):
+    def setUp(self):
+        self._prompt_language = patch.dict(
+            os.environ, {"MULTIMODAL_PROMPT_LANGUAGE": "zh"}
+        )
+        self._prompt_language.start()
+
+    def tearDown(self):
+        self._prompt_language.stop()
+
     def test_separate_content_preserves_original_content_list_index(self):
         content = [
             {"type": "text", "text": "Before"},
@@ -123,6 +135,28 @@ class ContentListAliasHandlingTests(unittest.TestCase):
         self.assertIn("Performance table", chunk)
         self.assertNotIn("P, e, r, f", chunk)
         self.assertIn("Synthetic example", chunk)
+        self.assertIn("表格分析", chunk)
+        self.assertIn("标题", chunk)
+        self.assertNotIn("Table Analysis", chunk)
+
+    def test_empty_markdown_table_is_collapsed_and_not_kept_as_pipe_noise(self):
+        processor = ProcessorMixin()
+        chunk = processor._apply_chunk_template(
+            "table",
+            {
+                "table_body": "| | | |\n| --- | --- | --- | --- |\n| | | |",
+            },
+            "The provided table is empty.",
+        )
+
+        self.assertFalse(has_meaningful_table_content("| | | |\n| --- | --- |"))
+        self.assertTrue(
+            has_meaningful_table_content("| 项目 | 数值 |\n| --- | --- |\n| 续航 | 500km |")
+        )
+        self.assertTrue(has_meaningful_table_content("| 状态 | 0 |"))
+        self.assertTrue(has_meaningful_table_content("| 状态 | N/A |"))
+        self.assertIn("未提取到有效表格内容", chunk)
+        self.assertNotIn("| --- |", chunk)
 
     def test_equation_latex_alias_is_not_dropped_from_chunk_template(self):
         processor = ProcessorMixin()
@@ -141,7 +175,7 @@ class ContentListAliasHandlingTests(unittest.TestCase):
             "equation", latex_only_item, "A physics equation."
         )
         self.assertIn("E = mc^2", chunk)
-        self.assertIn("Format: latex", chunk)
+        self.assertIn("格式：latex", chunk)
         self.assertIn("A physics equation.", chunk)
 
         equation_alias_item = {"equation": "x^2 + y^2 = 1"}
@@ -187,11 +221,13 @@ class ContentListAliasHandlingTests(unittest.TestCase):
             "A line chart comparing model variants.",
         )
 
-        self.assertIn("Section Path: 2 Method > 2.1 Setup", chunk)
+        self.assertIn("章节路径：2 Method > 2.1 Setup", chunk)
         self.assertIn(
-            "Neighbor Text: setup details before image discussion after image", chunk
+            "邻近文本：setup details before image discussion after image", chunk
         )
         self.assertIn("A line chart comparing model variants.", chunk)
+        self.assertIn("图片内容分析", chunk)
+        self.assertNotIn("Image Content Analysis", chunk)
 
     def test_section_and_neighbor_helpers_handle_invalid_indices(self):
         content = [{"type": "text", "text": "1 Intro", "text_level": 1}]

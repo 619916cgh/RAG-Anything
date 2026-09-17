@@ -16,7 +16,10 @@ from lightrag.lightrag import LightRAG
 
 from raganything.modalprocessors.base import BaseModalProcessor
 from raganything.modalprocessors.context import ContextExtractor
-from raganything.prompt import PROMPTS
+from raganything.prompt_manager import (
+    get_multimodal_prompt_language,
+    get_multimodal_prompts,
+)
 from raganything.utils import get_equation_text_and_format
 
 
@@ -46,34 +49,41 @@ class EquationModalProcessor(BaseModalProcessor):
                 content_data = modal_content
 
             equation_text, equation_format = get_equation_text_and_format(content_data)
+            language = get_multimodal_prompt_language()
+            prompts = get_multimodal_prompts(language)
+            default_entity_name = (
+                "为该公式生成唯一且语义明确的中文名称"
+                if language == "zh"
+                else "descriptive name for this equation"
+            )
 
             context = ""
             if item_info:
                 context = self._get_context_for_item(item_info)
 
             if context:
-                equation_prompt = PROMPTS.get(
-                    "equation_prompt_with_context", PROMPTS["equation_prompt"]
+                equation_prompt = prompts.get(
+                    "equation_prompt_with_context", prompts["equation_prompt"]
                 ).format(
                     context=context,
                     equation_text=equation_text,
                     equation_format=equation_format,
                     entity_name=entity_name
                     if entity_name
-                    else "descriptive name for this equation",
+                    else default_entity_name,
                 )
             else:
-                equation_prompt = PROMPTS["equation_prompt"].format(
+                equation_prompt = prompts["equation_prompt"].format(
                     equation_text=equation_text,
                     equation_format=equation_format,
                     entity_name=entity_name
                     if entity_name
-                    else "descriptive name for this equation",
+                    else default_entity_name,
                 )
 
             response = await self._call_modal_caption(
                 equation_prompt,
-                system_prompt=PROMPTS["EQUATION_ANALYSIS_SYSTEM"],
+                system_prompt=prompts["EQUATION_ANALYSIS_SYSTEM"],
             )
 
             enhanced_caption, entity_info = self._parse_equation_response(
@@ -118,8 +128,9 @@ class EquationModalProcessor(BaseModalProcessor):
                 content_data = modal_content
 
             equation_text, equation_format = get_equation_text_and_format(content_data)
+            prompts = get_multimodal_prompts()
 
-            modal_chunk = PROMPTS["equation_chunk"].format(
+            modal_chunk = prompts["equation_chunk"].format(
                 equation_text=equation_text,
                 equation_format=equation_format,
                 enhanced_caption=enhanced_caption,
