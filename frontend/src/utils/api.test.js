@@ -269,6 +269,50 @@ test('document chunk reads keep the legacy URL and opt into encoded pagination',
   assert.equal(calls[1], '/api/knowledge/documents/doc%20%2F%201/chunks?kb=KB+A&page=2&page_size=25&q=%E5%8F%91%E5%8A%A8%E6%9C%BA+%26&tag_id=7')
 })
 
+test('document chunk prefetch shares in-flight reads and reuses a short cache', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const calls = []
+  let resolveRequest
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = (url, options = {}) => {
+    calls.push({ target: String(url), signal: options.signal })
+    return new Promise(resolve => { resolveRequest = resolve })
+  }
+  t.after(() => {
+    api.clearKnowledgeDetailCache()
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalLocalStorage
+  })
+
+  api.clearKnowledgeDetailCache()
+  const prefetched = api.prefetchDocumentChunks('doc-1', {
+    kb: 'manuals',
+    page: 1,
+    pageSize: 25,
+  })
+  const loaded = api.getDocumentChunks('doc-1', {
+    kb: 'manuals',
+    page: 1,
+    pageSize: 25,
+  })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(calls.length, 1)
+
+  resolveRequest(jsonResponse({ chunks: [{ chunk_id: 'chunk-1' }] }))
+  const [first, second] = await Promise.all([prefetched, loaded])
+  assert.equal(first.chunks[0].chunk_id, 'chunk-1')
+  assert.equal(second.chunks[0].chunk_id, 'chunk-1')
+
+  const cached = await api.getDocumentChunks('doc-1', {
+    kb: 'manuals',
+    page: 1,
+    pageSize: 25,
+  })
+  assert.equal(calls.length, 1)
+  assert.equal(cached.chunks[0].chunk_id, 'chunk-1')
+})
+
 test('document summary requests encode KB, page, size and literal search terms', async t => {
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage

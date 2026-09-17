@@ -95,6 +95,15 @@ test('resource pages do not mount an empty grid beside their empty state', () =>
   assert.match(agents, /没有找到匹配的智能体/)
 })
 
+test('agent cards do not wait for template and KB option loading', () => {
+  const agents = source('../pages/AgentsPage.jsx')
+  assert.match(agents, /const loadAgents = useCallback/)
+  assert.match(agents, /const loadAgentOptions = useCallback/)
+  assert.match(agents, /Promise\.allSettled/)
+  assert.match(agents, /loadAgents\(\)\.catch/)
+  assert.doesNotMatch(agents, /Promise\.all\(\[\s*api\.listAgents\(\)/)
+})
+
 test('App routes and copy are capability-aware', () => {
   const app = source('../App.jsx')
   assert.match(app, /path="\/knowledge" element=\{<ProtectedRoute requiredPermission="kb:read"/)

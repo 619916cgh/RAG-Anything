@@ -12,6 +12,7 @@ Extracted from routers/shared.py. All KB instance management is centralized here
 
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 from typing import Any
@@ -72,6 +73,9 @@ EMB_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 WORKING_DIR = os.getenv("WORKING_DIR", "./rag_storage")
 CHUNKING_STRATEGY = os.getenv("CHUNKING_STRATEGY", "recursive")
 MAX_CACHED_KBS = int(os.getenv("MAX_CACHED_KBS", "16"))
+KB_META_CACHE_TTL_SECONDS = max(
+    0.0, float(os.getenv("KB_META_CACHE_TTL_SECONDS", "30"))
+)
 DELETE_KB_QUERY_DRAIN_SECONDS = max(
     0.1, float(os.getenv("DELETE_KB_QUERY_DRAIN_SECONDS", "5"))
 )
@@ -84,6 +88,9 @@ _recovery_local_lock = asyncio.Lock()
 _RECOVERY_LOCK_NOT_ACQUIRED = object()
 _retry_cleanup_locks: dict[tuple[str, str], asyncio.Lock] = {}
 _deferred_auto_tag_tasks: dict[asyncio.Task[Any], str] = {}
+_kb_meta_cache: dict[str, Any] | None = None
+_kb_meta_cache_time = 0.0
+_kb_meta_cache_lock = asyncio.Lock()
 _STAGED_UPLOAD_PREFIX_RE = re.compile(r"^(?:[0-9a-f]{8}|[0-9a-f]{32})_(.+)$")
 try:
     _AUTO_TAG_PLANNING_CONCURRENCY = int(
@@ -2111,12 +2118,44 @@ async def load_kb_meta() -> dict[str, Any]:
         Dict keyed by KB name: {name: {name, created, domain, ...}, ...}
         Empty dict if no KBs exist (caller should create default if needed).
     """
-    try:
-        from raganything.services.pg_kb_meta_repo import pg_load_kb_meta
-        return await pg_load_kb_meta()
-    except Exception:
-        kb_logger.exception("PG kb_meta load failed")
-        raise
+    global _kb_meta_cache, _kb_meta_cache_time
+
+    now = time.monotonic()
+    cached = _kb_meta_cache
+    if (
+        cached is not None
+        and now - _kb_meta_cache_time <= KB_META_CACHE_TTL_SECONDS
+    ):
+        return copy.deepcopy(cached)
+
+    async with _kb_meta_cache_lock:
+        now = time.monotonic()
+        cached = _kb_meta_cache
+        if (
+            cached is not None
+            and now - _kb_meta_cache_time <= KB_META_CACHE_TTL_SECONDS
+        ):
+            return copy.deepcopy(cached)
+        try:
+            from raganything.services.pg_kb_meta_repo import pg_load_kb_meta
+            meta = await pg_load_kb_meta()
+        except Exception:
+            if cached is not None:
+                kb_logger.warning(
+                    "PG kb_meta load failed; serving the last cached metadata"
+                )
+                return copy.deepcopy(cached)
+            kb_logger.exception("PG kb_meta load failed")
+            raise
+        _kb_meta_cache = copy.deepcopy(meta)
+        _kb_meta_cache_time = time.monotonic()
+        return copy.deepcopy(meta)
+
+
+def invalidate_kb_meta_cache() -> None:
+    global _kb_meta_cache, _kb_meta_cache_time
+    _kb_meta_cache = None
+    _kb_meta_cache_time = 0.0
 
 
 async def save_kb_meta(meta: dict[str, Any]) -> None:
@@ -2128,6 +2167,9 @@ async def save_kb_meta(meta: dict[str, Any]) -> None:
     # ── PG ──────────────────────────────────────────────
     from raganything.services.pg_kb_meta_repo import pg_save_all_kb_meta
     await pg_save_all_kb_meta(meta)
+    global _kb_meta_cache, _kb_meta_cache_time
+    _kb_meta_cache = copy.deepcopy(meta)
+    _kb_meta_cache_time = time.monotonic()
 
     # ── JSON mirror ─────────────────────────────────────
     try:
@@ -7203,6 +7245,7 @@ __all__ = [
     "KB_META_FILE",
     "load_kb_meta",
     "save_kb_meta",
+    "invalidate_kb_meta_cache",
     "kb_dir",
     "get_kb",
     "acquire_query_kb",

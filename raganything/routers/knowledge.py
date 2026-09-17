@@ -68,6 +68,7 @@ from raganything.services.kb_service import (
     _generate_uploaded_document_tags,
     _resolve_uploaded_document_id,
     _kb_worker_procs,
+    invalidate_kb_meta_cache,
 )
 from raganything.dependencies import (
     get_current_user,
@@ -772,6 +773,7 @@ async def update_kb_ingestion_settings(
         raise HTTPException(503, {"code": "settings_unavailable", "message": "knowledge base settings storage is unavailable"}) from exc
     if result is None:
         raise HTTPException(409, {"code": "revision_conflict", "message": "knowledge base settings revision has changed"})
+    invalidate_kb_meta_cache()
     await audit_log(int(user["id"]), "kb.ingestion_settings.updated", details={"kb": kb, "revision": result[1]})
     return await _kb_ingestion_state(kb, int(user["id"]))
 
@@ -843,6 +845,7 @@ async def update_kb_vision_settings(
             if code == "vision_index_populated":
                 raise HTTPException(409, {"code": "reindex_required", "message": "visual vectors were added; refresh and confirm reindex"}) from exc
             raise HTTPException(503, {"code": "vision_storage_unavailable", "message": "visual vector storage is unavailable"}) from exc
+        invalidate_kb_meta_cache()
         await vision_models.audit_vision_event(
             int(current_user["id"]),
             "vision.kb_profile.updated",
@@ -865,6 +868,7 @@ async def update_kb_vision_settings(
         if code in {"reindex_in_progress", "vision_mutation_in_progress"}:
             raise HTTPException(409, {"code": code, "message": "cannot start visual reindex"}) from exc
         raise HTTPException(503, {"code": "profile_unavailable", "message": "vision reindex source is unavailable"}) from exc
+    invalidate_kb_meta_cache()
     await vision_models.audit_vision_event(int(current_user["id"]), "vision.kb_reindex.queued", profile_id=target.profile.id, kb=kb, result="queued")
     return JSONResponse(
         status_code=202,
@@ -5672,6 +5676,7 @@ async def update_kb_metadata(
         raise HTTPException(422, {"code": "invalid_display_name", "message": str(exc)}) from exc
     if updated is None:
         raise HTTPException(409, {"code": "metadata_conflict", "message": "knowledge-base metadata has changed"})
+    invalidate_kb_meta_cache()
     await audit_log(
         int(current_user["id"]),
         "kb.display_name.updated",

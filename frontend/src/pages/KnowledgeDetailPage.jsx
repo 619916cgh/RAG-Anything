@@ -1838,6 +1838,23 @@ export default function KnowledgeDetailPage() {
     }
   }
 
+  const prefetchDocumentChunks = useCallback((doc) => {
+    if (!doc || globalThis.navigator?.connection?.saveData) return
+    const docId = doc.full_id || doc.id
+    if (!docId) return
+    const pageSize = getStoredPageSize(
+      'raganything:pagination:document-chunks',
+      [25, 50, 100],
+      25,
+    )
+    void import('./DocumentChunksPage')
+    api.prefetchDocumentChunks(docId, {
+      kb: kbName,
+      page: 1,
+      pageSize,
+    }).catch(() => {})
+  }, [kbName])
+
   const retryFailedReindex = visionSettings?.index_state === 'failed'
     && visionProfileDraft === visionSettings?.target_profile_id
 
@@ -2184,6 +2201,8 @@ export default function KnowledgeDetailPage() {
                           className="document-chunks-link"
                           to={`/knowledge/${encodeURIComponent(kbName)}/documents/${encodeURIComponent(doc.full_id || doc.id)}/chunks`}
                           state={{ doc }}
+                          onPointerEnter={() => prefetchDocumentChunks(doc)}
+                          onFocus={() => prefetchDocumentChunks(doc)}
                           title={`查看 ${doc.file} 的切块详情`}
                           aria-label={`查看 ${doc.file} 的 ${doc.chunks} 个切块`}
                         >

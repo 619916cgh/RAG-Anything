@@ -107,29 +107,43 @@ export default function AgentsPage({ onToast }) {
   const canWrite = hasPermission('agent:write')
   const canDelete = hasPermission('agent:delete')
 
-  const loadData = useCallback(async () => {
+  const loadAgents = useCallback(async () => {
     setAgentsLoading(true)
     try {
-      const [agentsResponse, templatesResponse, kbResponse] = await Promise.all([
-        api.listAgents(),
-        api.getAgentTemplates(),
-        api.listKBs(),
-      ])
+      const agentsResponse = await api.listAgents()
       setAgents(agentsResponse.agents || [])
-      setTemplates(templatesResponse.templates || [])
-      setKBs(kbResponse.knowledge_bases || [])
-      return [agentsResponse, templatesResponse, kbResponse]
+      return agentsResponse
     } finally {
       setAgentsLoading(false)
     }
   }, [])
 
+  const loadAgentOptions = useCallback(async () => {
+    const [templatesResult, kbResult] = await Promise.allSettled([
+      api.getAgentTemplates(),
+      api.listKBs(),
+    ])
+    if (templatesResult.status === 'fulfilled') {
+      setTemplates(templatesResult.value.templates || [])
+    }
+    if (kbResult.status === 'fulfilled') {
+      setKBs(kbResult.value.knowledge_bases || [])
+    }
+    return [templatesResult, kbResult]
+  }, [])
+
+  const loadData = useCallback(
+    () => Promise.all([loadAgents(), loadAgentOptions()]),
+    [loadAgentOptions, loadAgents],
+  )
+
   useEffect(() => {
-    loadData().catch(err => {
+    loadAgents().catch(err => {
       console.error(err)
       onToast?.(err.message || '加载智能体数据失败', 'error')
     })
-  }, [loadData, onToast])
+    loadAgentOptions().catch(() => {})
+  }, [loadAgentOptions, loadAgents, onToast])
   useEffect(() => { setPage(1) }, [search])
   useLayoutEffect(() => {
     const grid = gridRef.current

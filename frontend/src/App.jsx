@@ -484,6 +484,26 @@ export default function App() {
     ROUTE_PREFETCH[to]?.().catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (!token || globalThis.navigator?.connection?.saveData) return undefined
+    const preload = () => {
+      ROUTE_PREFETCH['/knowledge']?.().catch(() => {})
+      if (hasPermission('agent:read')) ROUTE_PREFETCH['/agents']?.().catch(() => {})
+      if (location.pathname.startsWith('/knowledge')) {
+        import('./pages/DocumentChunksPage').catch(() => {})
+        import('./pages/DocumentChunkDetailPage').catch(() => {})
+      }
+    }
+    const requestIdle = window.requestIdleCallback
+    const cancelIdle = window.cancelIdleCallback
+    if (typeof requestIdle === 'function') {
+      const handle = requestIdle.call(window, preload, { timeout: 1500 })
+      return () => cancelIdle?.call(window, handle)
+    }
+    const timer = window.setTimeout(preload, 300)
+    return () => window.clearTimeout(timer)
+  }, [hasPermission, location.pathname, token])
+
   const handleLogout = async () => {
     await logout()
     navigate('/login')

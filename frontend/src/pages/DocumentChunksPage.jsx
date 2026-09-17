@@ -192,7 +192,15 @@ export default function DocumentChunksPage() {
     let active = true
     if (!backgroundRefreshRef.current) setLoading(true)
     setError(null)
-    api.getDocumentChunks(docId, { kb: kbName, page, pageSize, q: debouncedQuery, tagId: selectedTagId, signal: controller.signal })
+    api.getDocumentChunks(docId, {
+      kb: kbName,
+      page,
+      pageSize,
+      q: debouncedQuery,
+      tagId: selectedTagId,
+      signal: controller.signal,
+      force: backgroundRefreshRef.current,
+    })
       .then(result => {
         if (!active) return
         const responsePage = Number(result.page) || 1

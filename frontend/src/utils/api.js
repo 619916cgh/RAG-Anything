@@ -8,6 +8,8 @@ const KB_STATS_TIMEOUT_MS = 8_000
 const KB_LIST_TIMEOUT_MS = 8_000
 const KB_LIST_CACHE_TTL_MS = 5_000
 const KB_DETAIL_PREFETCH_TIMEOUT_MS = 6_000
+const DOCUMENT_CHUNK_CACHE_TTL_MS = 15_000
+const DOCUMENT_CHUNK_CACHE_MAX_ENTRIES = 40
 export const SSE_FIRST_EVENT_TIMEOUT_MS = 20_000
 export const SSE_IDLE_TIMEOUT_MS = 45_000
 
@@ -16,10 +18,78 @@ let kbListInFlight = null
 let kbListCache = null
 let kbListCacheAt = 0
 let kbListEpoch = 0
+let documentChunkCacheEpoch = 0
+const documentChunkCache = new Map()
+const documentChunkInFlight = new Map()
 const globalStatsCache = createGlobalStatsCache({ ttlMs: GLOBAL_STATS_CACHE_TTL_MS })
 const knowledgeDetailStatsCache = createKnowledgeDetailCache()
 export function setCurrentKB(name) { currentKB = name }
 export function getCurrentKB() { return currentKB }
+
+function clearDocumentChunkCache() {
+  documentChunkCacheEpoch += 1
+  documentChunkCache.clear()
+  documentChunkInFlight.clear()
+}
+
+function documentChunkReadKey(docId, { kb, page = 1, pageSize = 25, q = '', tagId = null }) {
+  return JSON.stringify([
+    documentChunkCacheEpoch,
+    String(kb || ''),
+    String(docId || ''),
+    Number(page) || 1,
+    Number(pageSize) || 25,
+    String(q || ''),
+    tagId == null || tagId === '' ? '' : String(tagId),
+  ])
+}
+
+function loadDocumentChunksForKB(docId, options = {}, { force = false } = {}) {
+  const kb = options.kb || currentKB
+  const page = options.page ?? 1
+  const pageSize = options.pageSize ?? 25
+  const q = options.q ?? ''
+  const tagId = options.tagId ?? null
+  const key = documentChunkReadKey(docId, { kb, page, pageSize, q, tagId })
+  const now = Date.now()
+  const cached = documentChunkCache.get(key)
+  const shouldForce = force || options.force === true
+  if (!shouldForce && cached && now - cached.cachedAt <= DOCUMENT_CHUNK_CACHE_TTL_MS) {
+    return Promise.resolve(cached.value)
+  }
+  if (!shouldForce) {
+    const existing = documentChunkInFlight.get(key)
+    if (existing) return existing
+  }
+
+  const requestEpoch = documentChunkCacheEpoch
+  const params = new URLSearchParams({ kb })
+  if (options.page != null) params.set('page', String(page))
+  if (options.pageSize != null) params.set('page_size', String(pageSize))
+  if (q !== '') params.set('q', q)
+  if (tagId != null && tagId !== '') params.set('tag_id', String(tagId))
+  let request
+  request = fetchJson(
+    `/knowledge/documents/${encodeURIComponent(docId)}/chunks?${params.toString()}`,
+    { signal: options.signal },
+  )
+    .then(value => {
+      if (requestEpoch === documentChunkCacheEpoch) {
+        documentChunkCache.set(key, { value, cachedAt: Date.now() })
+        while (documentChunkCache.size > DOCUMENT_CHUNK_CACHE_MAX_ENTRIES) {
+          documentChunkCache.delete(documentChunkCache.keys().next().value)
+        }
+      }
+      return value
+    })
+    .finally(() => {
+      if (documentChunkInFlight.get(key) === request) {
+        documentChunkInFlight.delete(key)
+      }
+    })
+  documentChunkInFlight.set(key, request)
+  return request
+}
 
 export function getCachedKnowledgeDetail(kbName, pageQuery) {
   if (!kbName) return null
@@ -37,11 +107,13 @@ export function invalidateKnowledgeDetail(kbName) {
     knowledgeDetailCache.invalidateKB(kbName)
     knowledgeDetailStatsCache.invalidateKB(kbName)
   }
+  clearDocumentChunkCache()
 }
 
 export function clearKnowledgeDetailCache() {
   knowledgeDetailCache.invalidateAll()
   knowledgeDetailStatsCache.invalidateAll()
+  clearDocumentChunkCache()
 }
 
 export function advanceKnowledgeDetailAuthGeneration() {
@@ -51,6 +123,7 @@ export function advanceKnowledgeDetailAuthGeneration() {
   currentKB = ''
   clearKBListCache()
   clearGlobalStatsCache()
+  clearDocumentChunkCache()
 }
 
 // 从 localStorage 读取 token
@@ -742,14 +815,8 @@ export const api = {
     `/knowledge/graph/edges/${id}?kb=${encodeURIComponent(kb)}`,
     { method: 'DELETE' },
   ), kb),
-  getDocumentChunks: (docId, { kb = currentKB, page, pageSize, q, tagId, signal } = {}) => {
-    const params = new URLSearchParams({ kb })
-    if (page != null) params.set('page', String(page))
-    if (pageSize != null) params.set('page_size', String(pageSize))
-    if (q != null && q !== '') params.set('q', q)
-    if (tagId != null && tagId !== '') params.set('tag_id', String(tagId))
-    return fetchJson(`/knowledge/documents/${encodeURIComponent(docId)}/chunks?${params.toString()}`, { signal })
-  },
+  getDocumentChunks: (docId, options = {}) => loadDocumentChunksForKB(docId, options),
+  prefetchDocumentChunks: (docId, options = {}) => loadDocumentChunksForKB(docId, options),
   regenerateDocumentTags: (docId, { kb = currentKB } = {}) => invalidateAfter(fetchJson(
     `/knowledge/documents/${encodeURIComponent(docId)}/tags/regenerate?kb=${encodeURIComponent(kb)}`,
     { method: 'POST' },
