@@ -76,6 +76,10 @@ from raganything.services.kb_service import (
     pg_get_latest_content_updates_batch,
 )
 from raganything.services.knowledge_inventory import get_knowledge_inventory
+from raganything.services.answer_completeness import (
+    answer_completeness_guard_enabled,
+    apply_answer_completeness_guard,
+)
 from raganything.utils.kb_display_name import get_knowledge_base_display_name
 from raganything.services.odl_media_delivery import catalog_media_payload
 from raganything.services.query_timing import QueryTiming
@@ -2940,6 +2944,35 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
 
             timing.finish("llm")
             timing.record("llm_last_token", time.perf_counter() - llm_started)
+            answer_guard_metadata = None
+            answer_guard_client_metadata = None
+            if (
+                answer_completeness_guard_enabled(agent_id)
+                and full_answer
+                and ctx
+            ):
+                timing.start("answer_guard")
+                guard_result = await apply_answer_completeness_guard(
+                    question=req.query,
+                    context=ctx,
+                    draft_answer=full_answer,
+                    llm_callable=agent_llm,
+                    timeout_seconds=float(
+                        os.getenv("AGENT_ANSWER_COMPLETENESS_GUARD_TIMEOUT", "45")
+                    ),
+                )
+                answer_guard_metadata = guard_result.metadata()
+                answer_guard_client_metadata = (
+                    guard_result.client_metadata()
+                )
+                if guard_result.used_revision:
+                    guarded_answer = guard_result.final_answer
+                    if not include_references:
+                        guarded_answer = strip_reference_markers(guarded_answer)
+                    if guarded_answer.strip():
+                        full_answer = guarded_answer.strip()
+                        yield f"data: {json.dumps({'type': 'replace', 'content': full_answer, 'answer_guard': answer_guard_client_metadata}, ensure_ascii=False)}\n\n"
+                timing.finish("answer_guard")
             elapsed = round(time.time() - start_time, 2)
             citations = []
             if include_references:
@@ -2963,6 +2996,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "mode": query_mode,
                 "fallback": is_fallback,
                 "citations": citations,
+                **(
+                    {"answer_guard": answer_guard_metadata}
+                    if answer_guard_metadata is not None
+                    else {}
+                ),
                 "time": datetime.now(timezone.utc).isoformat(),
                 **scope_metadata,
                 **_assistant_message_media(agent_images, _display_similar_images, image_description),
@@ -2984,6 +3022,11 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 "user_id": current_user["id"],
                 "username": current_user["username"],
                 "fallback": is_fallback,
+                **(
+                    {"answer_guard": answer_guard_metadata}
+                    if answer_guard_metadata is not None
+                    else {}
+                ),
             }
             await record_query(record, max_history=100)
             timing.finish("persistence")
@@ -3001,6 +3044,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 'thread_id': thread_id, 'images': agent_images,
             }
             _done_data['citations'] = citations
+            if answer_guard_client_metadata is not None:
+                _done_data['answer_guard'] = answer_guard_client_metadata
             if is_fallback:
                 _done_data['fallback'] = True
             if image_description:

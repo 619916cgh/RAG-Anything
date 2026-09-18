@@ -448,6 +448,14 @@ export default function AgentChatPage({ onToast }) {
           m.id === msgId ? { ...m, content: m.content + content } : m
         ))
         break
+      case 'replace':
+        if (!isVisibleThread) break
+        setMessages(prev => prev.map(m =>
+          m.id === msgId
+            ? { ...m, content: content || '', answer_guard: event.answer_guard || null }
+            : m
+        ))
+        break
       case 'image_analysis':
         if (!isVisibleThread) break
         if (event.status === 'error') {

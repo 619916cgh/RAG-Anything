@@ -63,3 +63,38 @@ def test_query_nonce_is_opt_in(monkeypatch):
     args = runner.parse_args()
 
     assert args.query_nonce is False
+
+
+def test_query_stream_replaces_streamed_answer(monkeypatch):
+    runner = load_runner()
+    frames = [
+        b'data: {"type":"accepted"}\n\n',
+        b'data: {"type":"token","content":"first"}\n\n',
+        b'data: {"type":"replace","content":"revised","answer_guard":{"used_revision":true}}\n\n',
+        b'data: {"type":"done","id":"q1","citations":[]}\n\n',
+    ]
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return frames.pop(0) if frames else b""
+
+    monkeypatch.setattr(
+        runner.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(),
+    )
+    client = runner.CloudClient("http://local", "token")
+
+    result = client.query_stream("agent", "question", timeout=10)
+
+    assert result["status"] == "passed"
+    assert result["answer"] == "revised"
+    assert result["answer_guard"] == {"used_revision": True}

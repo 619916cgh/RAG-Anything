@@ -299,6 +299,7 @@ class CloudClient:
         thread_id = ""
         query_id = ""
         http_status = 0
+        answer_guard: dict[str, Any] | None = None
 
         try:
             for auth_attempt in range(2):
@@ -351,6 +352,13 @@ class CloudClient:
                                 3,
                             )
                         answer_parts.append(str(event.get("content") or ""))
+                    elif event_type == "replace":
+                        answer_parts[:] = [
+                            str(event.get("content") or "")
+                        ]
+                        guard_payload = event.get("answer_guard")
+                        if isinstance(guard_payload, dict):
+                            answer_guard = sanitize_value(guard_payload)
                     elif event_type == "warning":
                         warnings.append(str(event.get("content") or event))
                     elif event_type == "error":
@@ -383,6 +391,7 @@ class CloudClient:
                 "total_s": round(time.perf_counter() - started, 3),
                 "thread_id": thread_id,
                 "query_id": query_id,
+                "answer_guard": answer_guard,
             }
         except (TimeoutError, socket.timeout) as exc:
             return {
@@ -400,6 +409,7 @@ class CloudClient:
                 "total_s": round(time.perf_counter() - started, 3),
                 "thread_id": thread_id,
                 "query_id": query_id,
+                "answer_guard": answer_guard,
             }
         except Exception as exc:
             return {
@@ -417,6 +427,7 @@ class CloudClient:
                 "total_s": round(time.perf_counter() - started, 3),
                 "thread_id": thread_id,
                 "query_id": query_id,
+                "answer_guard": answer_guard,
             }
 
         answer = "".join(answer_parts).strip()
@@ -450,6 +461,7 @@ class CloudClient:
             "total_s": round(time.perf_counter() - started, 3),
             "thread_id": thread_id,
             "query_id": query_id,
+            "answer_guard": answer_guard,
         }
 
 
