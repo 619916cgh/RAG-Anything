@@ -91,3 +91,40 @@ def test_chinese_adjacent_units_are_normalized():
     assert judge.extract_atoms("12V蓄电池") == {"V:12"}
     assert judge.extract_atoms("12伏蓄电池") == {"V:12"}
     assert judge.extract_atoms("0.012kV蓄电池") == {"V:12"}
+
+
+def test_resume_does_not_skip_previous_judge_errors(tmp_path):
+    judge = load_judge()
+    path = tmp_path / "judgments.jsonl"
+    path.write_text(
+        '{"score_key":"k1","verdict":"judge_error"}\n'
+        '{"score_key":"k2","verdict":"correct"}\n',
+        encoding="utf-8",
+    )
+
+    records, completed = judge.load_existing_judgments(path)
+
+    assert [record["score_key"] for record in records] == ["k2"]
+    assert completed == {"k2"}
+
+
+def test_ambiguous_judgment_can_have_no_keypoints():
+    judge = load_judge()
+    payload = {
+        **judge_payload(),
+        "core_correct": False,
+        "ambiguous_question": True,
+        "evidence_sufficient_for_scoring": False,
+        "keypoint_verdicts": [],
+    }
+
+    validated = judge.validate_judge_payload(payload)
+    verdict, signals = judge.deterministic_verdict(
+        validated,
+        "BCM功能有哪些？",
+        "比亚迪秦EV的BCM功能包括……",
+        "BCM功能包括……",
+    )
+
+    assert verdict == "unscorable_data"
+    assert signals["manual_review_required"] is True

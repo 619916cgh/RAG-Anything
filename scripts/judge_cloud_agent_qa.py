@@ -230,8 +230,16 @@ def validate_judge_payload(payload: Any) -> dict[str, Any]:
         raise ValueError("confidence must be between 0 and 1")
 
     keypoints = payload["keypoint_verdicts"]
-    if not isinstance(keypoints, list) or not 1 <= len(keypoints) <= 8:
-        raise ValueError("keypoint_verdicts must contain 1 to 8 items")
+    if not isinstance(keypoints, list) or len(keypoints) > 8:
+        raise ValueError("keypoint_verdicts must contain at most 8 items")
+    if (
+        not keypoints
+        and not payload["ambiguous_question"]
+        and payload["evidence_sufficient_for_scoring"]
+    ):
+        raise ValueError(
+            "keypoint_verdicts cannot be empty for a scorable answer"
+        )
     seen_ids: set[str] = set()
     for item in keypoints:
         if not isinstance(item, dict):
@@ -452,7 +460,7 @@ def make_score_key(
 def load_existing_judgments(path: Path) -> tuple[list[dict[str, Any]], set[str]]:
     if not path.exists():
         return [], set()
-    records: list[dict[str, Any]] = []
+    records_by_key: dict[str, dict[str, Any]] = {}
     keys: set[str] = set()
     with path.open("r", encoding="utf-8") as source:
         for line in source:
@@ -460,9 +468,12 @@ def load_existing_judgments(path: Path) -> tuple[list[dict[str, Any]], set[str]]
             if not stripped:
                 continue
             record = json.loads(stripped)
-            records.append(record)
-            keys.add(str(record.get("score_key") or ""))
-    return records, keys
+            key = str(record.get("score_key") or "")
+            if record.get("verdict") == "judge_error":
+                continue
+            records_by_key[key] = record
+            keys.add(key)
+    return list(records_by_key.values()), keys
 
 
 def append_json_line(path: Path, record: dict[str, Any]) -> None:
@@ -479,21 +490,8 @@ def deterministic_verdict(
     generated_answer: str,
 ) -> tuple[str, dict[str, Any]]:
     keypoints = judge["keypoint_verdicts"]
-    hits = sum(1 for item in keypoints if item["verdict"] == "hit")
-    misses = sum(1 for item in keypoints if item["verdict"] == "miss")
-    contradictions = sum(
-        1 for item in keypoints if item["verdict"] == "contradict"
-    )
-    keypoint_recall = hits / len(keypoints)
     expected_atoms = extract_atoms(expected_answer)
     generated_atoms = extract_atoms(generated_answer)
-    matched_atoms = expected_atoms & generated_atoms
-    atomic_consistency = (
-        len(matched_atoms) / len(expected_atoms)
-        if expected_atoms
-        else 1.0
-    )
-
     expected_polarity = None
     generated_polarity = None
     polarity_question = bool(POLARITY_QUESTION_PATTERN.search(question))
@@ -507,6 +505,38 @@ def deterministic_verdict(
         and expected_polarity != generated_polarity
     )
 
+    if (
+        judge["ambiguous_question"]
+        or not judge["evidence_sufficient_for_scoring"]
+    ):
+        return "unscorable_data", {
+            "keypoint_hits": None,
+            "keypoint_misses": None,
+            "keypoint_contradictions": None,
+            "keypoint_recall": None,
+            "expected_atoms": sorted(expected_atoms),
+            "matched_atoms": [],
+            "atomic_consistency": None,
+            "expected_polarity": expected_polarity,
+            "generated_polarity": generated_polarity,
+            "polarity_mismatch": polarity_mismatch,
+            "manual_review_required": True,
+            "quality_score": None,
+        }
+
+    hits = sum(1 for item in keypoints if item["verdict"] == "hit")
+    misses = sum(1 for item in keypoints if item["verdict"] == "miss")
+    contradictions = sum(
+        1 for item in keypoints if item["verdict"] == "contradict"
+    )
+    keypoint_recall = hits / len(keypoints)
+    matched_atoms = expected_atoms & generated_atoms
+    atomic_consistency = (
+        len(matched_atoms) / len(expected_atoms)
+        if expected_atoms
+        else 1.0
+    )
+
     hard_conflict = (
         contradictions > 0
         or bool(judge["critical_conflicts"])
@@ -514,12 +544,7 @@ def deterministic_verdict(
         or polarity_mismatch
     )
 
-    if (
-        judge["ambiguous_question"]
-        or not judge["evidence_sufficient_for_scoring"]
-    ):
-        verdict = "unscorable_data"
-    elif hard_conflict or not judge["core_correct"]:
+    if hard_conflict or not judge["core_correct"]:
         verdict = "incorrect"
     elif misses == 0 and atomic_consistency >= 1.0:
         verdict = "correct"
@@ -927,6 +952,103 @@ def write_reports(
                     ),
                 }
             )
+
+    report_lines = [
+        "# 云端六智能体问答评测报告",
+        "",
+        f"- Run ID: `{manifest.get('run_id')}`",
+        f"- Judge 模型: `{manifest.get('judge_model')}`",
+        f"- Prompt 版本: `{manifest.get('prompt_version')}`",
+        "- 评分方式: 确定性门禁 + 独立 OpenAI-compatible Judge；未调用被测智能体。",
+        "",
+        "## 评分口径",
+        "",
+        "- `correct`：核心事实完整，无关键遗漏、极性、数值、单位或编码冲突。",
+        "- `partial`：方向正确且无冲突，但缺少部分关键点。",
+        "- `incorrect`：核心事实错误、关键冲突或答非所问。",
+        "- `unscorable_data`：题面缺少案例上下文、存在多个不同标准答案，无法唯一裁定。",
+        "- `unscorable_system`：请求失败、fallback、空答案或流不完整。",
+        "- 严格准确率只把 `correct` 计入分子；`partial=0.5` 仅用于加权准确率。",
+        "",
+    ]
+
+    def add_scope_table(title: str, scope: dict[str, Any]) -> None:
+        report_lines.extend(
+            [
+                f"## {title}",
+                "",
+                "| 总题数 | 可评分 | Correct | Partial | Incorrect | "
+                "数据不可判定 | 系统失败 | 全量严格准确率 | 可评分严格准确率 | "
+                "加权准确率 | 引用覆盖率 |",
+                "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+                "| {total} | {scorable} | {correct} | {partial} | "
+                "{incorrect} | {unscorable_data} | {unscorable_system} | "
+                "{all_acc} | {strict_acc} | {weighted_acc} | {citation} |".format(
+                    total=scope["total"],
+                    scorable=scope["scorable"],
+                    correct=scope["correct"],
+                    partial=scope["partial"],
+                    incorrect=scope["incorrect"],
+                    unscorable_data=scope["unscorable_data"],
+                    unscorable_system=scope["unscorable_system"],
+                    all_acc=scope["strict_accuracy_all"],
+                    strict_acc=scope["strict_accuracy"],
+                    weighted_acc=scope["weighted_accuracy"],
+                    citation=scope["citation_presence_rate"],
+                ),
+                "",
+            ]
+        )
+
+    add_scope_table("总体结果", summary["overall"])
+    add_scope_table("排除数据歧义题", summary["context_519"])
+    report_lines.extend(
+        [
+            "## 各智能体",
+            "",
+            "| 智能体 | 总题数 | Correct | Partial | Incorrect | "
+            "数据不可判定 | 系统失败 | 全量严格准确率 | 可评分严格准确率 | "
+            "加权准确率 | 平均质量分 | 人工复核 |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for agent_name, values in summary["agents"].items():
+        report_lines.append(
+            "| {agent} | {total} | {correct} | {partial} | {incorrect} | "
+            "{unscorable_data} | {unscorable_system} | {all_acc} | "
+            "{strict_acc} | {weighted_acc} | {quality} | {review} |".format(
+                agent=agent_name,
+                total=values["total"],
+                correct=values["correct"],
+                partial=values["partial"],
+                incorrect=values["incorrect"],
+                unscorable_data=values["unscorable_data"],
+                unscorable_system=values["unscorable_system"],
+                all_acc=values["strict_accuracy_all"],
+                strict_acc=values["strict_accuracy"],
+                weighted_acc=values["weighted_accuracy"],
+                quality=values["mean_quality_score"],
+                review=values["manual_review_count"],
+            )
+        )
+    report_lines.extend(
+        [
+            "",
+            "## 证据边界",
+            "",
+            "- 这是固定课程测试集内的评分，不是对全部课程问答能力的随机抽样估计。",
+            "- Judge 与被测 Agent 使用同一 Provider 模型能力，但采用独立请求、独立 Prompt，"
+            "没有调用 `测试1` 到 `测试6` 的会话。",
+            "- 引用存在率单独报告，不把引用缺失混入答案正确率。",
+            "- 数字、单位、极性和关键编码冲突优先由确定性规则检查。",
+            "- `partial`、歧义题和高风险冲突题仍应由课程专家抽检。",
+            "",
+        ]
+    )
+    (output_dir / "scoring_report.md").write_text(
+        "\n".join(report_lines),
+        encoding="utf-8",
+    )
 
 
 def parse_args() -> argparse.Namespace:
