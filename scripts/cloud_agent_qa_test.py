@@ -631,6 +631,7 @@ async def run_tests(
     qa_records: list[dict[str, Any]],
     agents: dict[str, dict[str, Any]],
     *,
+    agent_names_by_project: dict[int, str],
     output_dir: Path,
     concurrency: int,
     timeout: float,
@@ -659,7 +660,7 @@ async def run_tests(
         ):
             continue
         per_agent_counts[project_number] += 1
-        agent_name = f"测试{project_number}"
+        agent_name = agent_names_by_project[project_number]
         if agent_name not in agents:
             raise ValueError(f"Missing mapped agent: {agent_name}")
         task = {
@@ -778,6 +779,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-per-agent", type=int)
     parser.add_argument("--agents", default="测试1,测试2,测试3,测试4,测试5,测试6")
     parser.add_argument(
+        "--project-number",
+        type=int,
+        choices=range(1, 7),
+        help="Run only one project when combined with --agent-name.",
+    )
+    parser.add_argument(
+        "--agent-name",
+        help="Agent to use for the selected project.",
+    )
+    parser.add_argument(
         "--max-consecutive-failures",
         type=int,
         default=5,
@@ -810,11 +821,29 @@ def main() -> int:
     requested_agents = [
         item.strip() for item in args.agents.split(",") if item.strip()
     ]
-    expected_agents = [f"测试{number}" for number in range(1, 7)]
-    if requested_agents != expected_agents:
+    if (args.project_number is None) != (args.agent_name is None):
         raise SystemExit(
-            "--agents must contain 测试1 through 测试6 in order"
+            "--project-number and --agent-name must be provided together"
         )
+    if args.project_number is not None:
+        requested_agents = [args.agent_name]
+        qa_records = [
+            record
+            for record in qa_records
+            if int(record["project_number"]) == args.project_number
+        ]
+        agent_names_by_project = {
+            int(args.project_number): str(args.agent_name)
+        }
+    else:
+        expected_agents = [f"测试{number}" for number in range(1, 7)]
+        if requested_agents != expected_agents:
+            raise SystemExit(
+                "--agents must contain 测试1 through 测试6 in order"
+            )
+        agent_names_by_project = {
+            number: f"测试{number}" for number in range(1, 7)
+        }
 
     file_manifest = {
         path.name: {
@@ -928,6 +957,7 @@ def main() -> int:
             client,
             qa_records,
             agents,
+            agent_names_by_project=agent_names_by_project,
             output_dir=output_dir,
             concurrency=args.concurrency,
             timeout=args.timeout,
