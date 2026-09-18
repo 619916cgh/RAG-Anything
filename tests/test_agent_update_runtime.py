@@ -134,6 +134,7 @@ def _make_agent(**overrides):
         "chunk_top_k": 20,
         "enable_rerank": False,
         "include_references": True,
+        "answer_completeness_guard_enabled": False,
         "system_prompt": "custom instructions",
         "use_default_prompt": True,
         "owner_id": 7,
@@ -188,6 +189,7 @@ async def test_update_agent_preserves_empty_string_clears_and_omits_unsent_field
             description="",
             welcome_message="",
             llm_model="qwen-max",
+            answer_completeness_guard_enabled=True,
         ),
         current_user=current_user,
         _perm=None,
@@ -198,6 +200,7 @@ async def test_update_agent_preserves_empty_string_clears_and_omits_unsent_field
         "description": "",
         "welcome_message": "",
         "llm_model": "qwen-max",
+        "answer_completeness_guard_enabled": True,
     }
     assert response["agent"]["description"] == ""
     assert response["agent"]["welcome_message"] == ""
@@ -262,6 +265,48 @@ async def test_pg_update_agent_does_not_resurrect_legacy_json_agent(monkeypatch)
 
     assert updated is None
     assert len(pool.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_pg_create_agent_persists_answer_completeness_guard_flag(monkeypatch):
+    captured = {}
+
+    class Connection:
+        async def execute(self, sql, *values):
+            captured["sql"] = sql
+            captured["values"] = values
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_agent(agent_id):
+        return _make_agent(
+            id=agent_id,
+            answer_completeness_guard_enabled=True,
+        )
+
+    monkeypatch.setattr(pg_agent_repo, "_get_pool", lambda: Pool())
+    monkeypatch.setattr(pg_agent_repo, "pg_get_agent", get_agent)
+
+    created = await pg_agent_repo.pg_create_agent(
+        {
+            "id": "agent-guard",
+            "name": "Guard Agent",
+            "answer_completeness_guard_enabled": True,
+        }
+    )
+
+    assert "answer_completeness_guard_enabled" in captured["sql"]
+    assert captured["values"][15] is True
+    assert created["answer_completeness_guard_enabled"] is True
 
 
 @pytest.mark.asyncio
@@ -553,6 +598,42 @@ def test_agent_api_rejects_invalid_modes_and_model_names():
         agent_router.AgentCreateRequest(llm_model="bad\nmodel")
     with pytest.raises(ValidationError):
         agent_router.AgentQueryRequest(query="question", mode="unknown")
+    with pytest.raises(ValidationError):
+        agent_router.AgentQueryRequest(
+            query="question",
+            run_cache_scope="bad scope",
+        )
+
+
+def test_agent_runtime_config_reads_persistent_completeness_guard_flag():
+    runtime = agent_router._agent_runtime_config(
+        {"answer_completeness_guard_enabled": True}
+    )
+
+    assert runtime["answer_completeness_guard_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_llm_honors_explicit_guard_temperature():
+    captured = {}
+
+    async def selected_llm(prompt, **kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    llm = agent_router._build_agent_llm(
+        {
+            "max_response_tokens": 512,
+            "temperature": 0.8,
+            "system_prompt": "system",
+            "llm_model": "qwen-plus",
+        },
+        selected_llm=selected_llm,
+    )
+
+    await llm("prompt", temperature=0)
+
+    assert captured["temperature"] == 0
 
 
 @pytest.mark.asyncio

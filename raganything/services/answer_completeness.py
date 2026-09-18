@@ -48,22 +48,13 @@ class AnswerCompletenessResult:
         }
 
 
-def answer_completeness_guard_enabled(agent_id: str) -> bool:
-    enabled = os.getenv(
-        "AGENT_ANSWER_COMPLETENESS_GUARD_ENABLED",
+def answer_completeness_guard_enabled(agent_enabled: bool) -> bool:
+    """Honor per-Agent enablement unless operators force a global shutdown."""
+    force_disabled = os.getenv(
+        "AGENT_ANSWER_COMPLETENESS_GUARD_FORCE_DISABLED",
         "false",
     ).strip().lower() in {"1", "true", "yes", "on"}
-    if not enabled:
-        return False
-    allowlist = {
-        item.strip()
-        for item in os.getenv(
-            "AGENT_ANSWER_COMPLETENESS_GUARD_AGENT_IDS",
-            "",
-        ).split(",")
-        if item.strip()
-    }
-    return bool(allowlist) and str(agent_id) in allowlist
+    return bool(agent_enabled) and not force_disabled
 
 
 def _strict_json_object(value: str) -> dict[str, Any]:

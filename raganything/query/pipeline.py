@@ -84,6 +84,55 @@ def _scope_provenance_sink(
     return sink if isinstance(sink, list) else None
 
 
+def _scope_trace_id(scope: object | None) -> str | None:
+    if isinstance(scope, dict):
+        value = scope.get("trace_id")
+    else:
+        value = getattr(scope, "trace_id", None)
+    return str(value) if value else None
+
+
+def _log_rrf_context_trace(
+    scope: object | None,
+    selected_chunks: list[Any],
+    context: str,
+    *,
+    stage: str,
+) -> None:
+    """Log selected chunk and final context hashes without content."""
+    if os.getenv("AGENT_RETRIEVAL_TRACE_ENABLED", "false").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+    try:
+        payload = {
+            "event": "agent_rrf_context_trace",
+            "trace_id": _scope_trace_id(scope),
+            "stage": stage,
+            "selected_chunks": [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "rank": rank,
+                    "sources": list(chunk.sources),
+                    "content_sha256": hashlib.sha256(
+                        str(chunk.content or "").encode("utf-8")
+                    ).hexdigest(),
+                }
+                for rank, chunk in enumerate(selected_chunks, start=1)
+            ],
+            "context_sha256": hashlib.sha256(
+                str(context or "").encode("utf-8")
+            ).hexdigest(),
+            "context_chars": len(str(context or "")),
+        }
+        logger.info(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+    except Exception:
+        pass
+
+
 def _bounded_rrf_context_chunks(
     chunks: list[Any],
     *,
@@ -968,6 +1017,12 @@ class QueryMixin:
                         f"document_id={segment['document_id']} chunk_id={video_chunk_id}]"
                     )
                 context = "\n\n".join(part for part in context_parts if part)
+                _log_rrf_context_trace(
+                    query_execution_scope,
+                    list(context_chunks),
+                    context,
+                    stage="context_only",
+                )
                 self.logger.info("RRF query completed (context-only mode)")
                 if callback_manager is not None:
                     callback_manager.dispatch(
@@ -1101,6 +1156,12 @@ class QueryMixin:
                         f"{', '.join(display_entities)}]"
                     )
             context = "\n\n".join(context_parts)
+            _log_rrf_context_trace(
+                query_execution_scope,
+                list(context_chunks),
+                context,
+                stage="generation",
+            )
 
             # Debug: show entity names related to query keywords
             deadline_reached = False
@@ -1119,14 +1180,6 @@ class QueryMixin:
                                    if any(kw in e for kw in query_keywords if len(kw) >= 2)]
             self.logger.info(f"RRF related-entities ({len(related_entities)}): {related_entities[:15]}")
 
-            # Debug: log top-3 retrieved chunks for context traceability
-            for i, chunk in enumerate(chunks[:3]):
-                preview = chunk.content[:100].replace("\n", " ")
-                self.logger.info(
-                    f"RRF top-{i+1}: [{','.join(chunk.sources)}] "
-                    f"id={chunk.chunk_id[:24]}... score={chunk.score:.4f} "
-                    f"preview={preview}..."
-                )
             # Debug: show entity annotations in top-5 context
             for i in range(min(5, len(context_parts))):
                 part = context_parts[i]

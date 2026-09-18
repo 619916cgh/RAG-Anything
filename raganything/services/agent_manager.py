@@ -41,6 +41,7 @@ class AgentConfig(BaseModel):
     chunk_top_k: int = 20
     enable_rerank: bool = False
     include_references: bool = True
+    answer_completeness_guard_enabled: bool = False
 
     system_prompt: str = ""
     use_default_prompt: bool = True

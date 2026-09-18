@@ -128,37 +128,29 @@ async def test_guard_keeps_draft_when_revision_fails():
     assert result.revision_error == "RuntimeError"
 
 
-def test_guard_is_disabled_by_default(monkeypatch):
+def test_guard_is_disabled_by_agent_default(monkeypatch):
     monkeypatch.delenv(
-        "AGENT_ANSWER_COMPLETENESS_GUARD_ENABLED",
+        "AGENT_ANSWER_COMPLETENESS_GUARD_FORCE_DISABLED",
         raising=False,
     )
 
-    assert answer_completeness_guard_enabled("agent-1") is False
+    assert answer_completeness_guard_enabled(False) is False
 
 
-def test_guard_respects_agent_allowlist(monkeypatch):
-    monkeypatch.setenv(
-        "AGENT_ANSWER_COMPLETENESS_GUARD_ENABLED",
-        "true",
-    )
-    monkeypatch.setenv(
-        "AGENT_ANSWER_COMPLETENESS_GUARD_AGENT_IDS",
-        "agent-1,agent-2",
-    )
-
-    assert answer_completeness_guard_enabled("agent-1") is True
-    assert answer_completeness_guard_enabled("agent-3") is False
-
-
-def test_guard_requires_nonempty_agent_allowlist(monkeypatch):
-    monkeypatch.setenv(
-        "AGENT_ANSWER_COMPLETENESS_GUARD_ENABLED",
-        "true",
-    )
+def test_guard_respects_persistent_agent_configuration(monkeypatch):
     monkeypatch.delenv(
-        "AGENT_ANSWER_COMPLETENESS_GUARD_AGENT_IDS",
+        "AGENT_ANSWER_COMPLETENESS_GUARD_FORCE_DISABLED",
         raising=False,
     )
 
-    assert answer_completeness_guard_enabled("agent-1") is False
+    assert answer_completeness_guard_enabled(True) is True
+    assert answer_completeness_guard_enabled(False) is False
+
+
+def test_guard_force_disable_overrides_agent_configuration(monkeypatch):
+    monkeypatch.setenv(
+        "AGENT_ANSWER_COMPLETENESS_GUARD_FORCE_DISABLED",
+        "true",
+    )
+
+    assert answer_completeness_guard_enabled(True) is False

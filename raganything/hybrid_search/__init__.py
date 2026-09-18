@@ -92,6 +92,7 @@ class ScoredChunk:
     content: str
     score: float
     sources: List[str] = field(default_factory=list)
+    score_source: str = "provider_score"
     # Per-channel ranks for diagnostics
     bm25_rank: Optional[int] = None
     vector_rank: Optional[int] = None
@@ -711,26 +712,120 @@ class HybridSearchEngine:
                 top_k=top_k,
                 chunk_top_k=top_k,
             )
-            result = await self._lightrag.aquery(query, param=param)
+            structured_query = getattr(self._lightrag, "aquery_data", None)
+            chunks = []
+            if callable(structured_query):
+                try:
+                    raw_data = await structured_query(query, param=param)
+                    chunks = self._extract_vector_data_chunks(raw_data)
+                except Exception:
+                    chunks = []
 
-            if not result or not isinstance(result, str):
-                return []
-
-            # LightRAG returns context as a formatted string; extract chunk references
-            chunks = self._parse_lightrag_context(result)
+            # Compatibility fallback for older LightRAG versions. The current
+            # structured API is preferred because its chunk rows retain IDs.
+            if not chunks:
+                result = await self._lightrag.aquery(query, param=param)
+                if not result or not isinstance(result, str):
+                    return []
+                chunks = self._parse_lightrag_context(result)
+            chunks = await self._hydrate_vector_chunks(chunks)
             return [
                 ScoredChunk(
-                    chunk_id=c.get("chunk_id", str(i)),
+                    chunk_id=c.get("chunk_id") or str(i),
                     content=c.get("content", ""),
                     score=1.0,  # Will be replaced by RRF rank
                     sources=["vector"],
+                    score_source="rank_only",
                     vector_rank=i + 1,
+                    file_path=c.get("file_path"),
+                    document_name=c.get("document_name"),
                 )
                 for i, c in enumerate(chunks[:top_k])
             ]
         except Exception as exc:
             self._logger.warning(f"Vector search failed: {exc}")
             return []
+
+    @staticmethod
+    def _extract_vector_data_chunks(raw_data: Any) -> List[Dict[str, Any]]:
+        """Extract full chunks from LightRAG's structured aquery_data shape."""
+        if not isinstance(raw_data, dict):
+            return []
+        data = raw_data.get("data")
+        if not isinstance(data, dict):
+            data = raw_data
+        candidates = data.get("chunks")
+        if not isinstance(candidates, list):
+            return []
+
+        chunks = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = str(candidate.get("content") or "").strip()
+            if not content:
+                continue
+            chunk_id = str(candidate.get("chunk_id") or "").strip()
+            if not chunk_id:
+                chunk_id = (
+                    "vector-"
+                    + hashlib.sha256(content.encode("utf-8")).hexdigest()[:24]
+                )
+            chunks.append(
+                {
+                    "chunk_id": chunk_id,
+                    "content": content,
+                    "file_path": candidate.get("file_path"),
+                }
+            )
+        return chunks
+
+    async def _hydrate_vector_chunks(
+        self,
+        chunks: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Replace parsed vector snippets with full chunks when IDs are known."""
+        if not chunks or self._lightrag is None:
+            return chunks
+        storage = getattr(self._lightrag, "text_chunks", None)
+        if storage is None or not hasattr(storage, "get_by_ids"):
+            return chunks
+
+        chunk_ids = list(
+            dict.fromkeys(
+                str(chunk.get("chunk_id") or "")
+                for chunk in chunks
+                if chunk.get("chunk_id")
+            )
+        )
+        if not chunk_ids:
+            return chunks
+        try:
+            records = await storage.get_by_ids(chunk_ids)
+        except Exception as exc:
+            self._logger.warning("Vector chunk hydration failed: %s", exc)
+            return chunks
+
+        by_id = {}
+        for record in records or []:
+            if not isinstance(record, dict):
+                continue
+            record_id = record.get("id") or record.get("__id__")
+            if record_id:
+                by_id[str(record_id)] = record
+
+        hydrated = []
+        for chunk in chunks:
+            chunk_id = str(chunk.get("chunk_id") or "")
+            record = by_id.get(chunk_id)
+            content = record.get("content") if record else None
+            hydrated.append(
+                {
+                    **chunk,
+                    "content": str(content) if content else chunk.get("content", ""),
+                }
+            )
+        return hydrated
 
     async def _graph_search(
         self, query: str, top_k: int, graph_depth: int | None = None
@@ -744,7 +839,9 @@ class HybridSearchEngine:
 
     @staticmethod
     def _rrf_fuse(
-        channel_results: List[List[ScoredChunk]], k: int = 60
+        channel_results: List[List[ScoredChunk]],
+        k: int = 60,
+        channel_labels: List[str] | None = None,
     ) -> List[ScoredChunk]:
         """RRF fusion: Σ 1/(k + rank_i) for each chunk across channels.
 
@@ -777,7 +874,14 @@ class HybridSearchEngine:
 
                 entry = fused[cid]
                 entry["score"] += rrf_contrib
-                ch_name = channel_names[ch_idx] if ch_idx < len(channel_names) else f"ch{ch_idx}"
+                if channel_labels is not None and ch_idx < len(channel_labels):
+                    ch_name = channel_labels[ch_idx]
+                else:
+                    ch_name = (
+                        channel_names[ch_idx]
+                        if ch_idx < len(channel_names)
+                        else f"ch{ch_idx}"
+                    )
                 if ch_name not in entry["sources"]:
                     entry["sources"].append(ch_name)
                 # Preserve best per-channel rank
@@ -923,25 +1027,133 @@ class HybridSearchEngine:
         gathered = await asyncio.gather(*tasks, return_exceptions=True)
 
         channel_results: List[List[ScoredChunk]] = []
+        channel_status: dict[str, dict[str, str]] = {}
         for label, result in zip(task_labels, gathered):
             if isinstance(result, Exception):
+                channel_status[label] = {
+                    "status": "error",
+                    "error_type": type(result).__name__,
+                }
                 self._logger.warning(
                     f"Channel '{label}' failed or timed out: {result}"
                 )
                 channel_results.append([])
             elif isinstance(result, list):
                 channel_results.append(result)
+                channel_status[label] = {
+                    "status": "ok" if result else "empty",
+                }
             else:
                 channel_results.append([])
+                channel_status[label] = {"status": "invalid"}
 
         # Check if ALL channels failed
         if all(len(r) == 0 for r in channel_results):
             self._logger.error("All RRF channels failed — returning empty results")
+            self._log_retrieval_trace(
+                options,
+                task_labels,
+                channel_results,
+                [],
+                channel_status,
+            )
             return []
 
         # RRF fusion
-        fused = self._rrf_fuse(channel_results, k=rrf_k)
-        return fused[:top_k]
+        fused = self._rrf_fuse(
+            channel_results,
+            k=rrf_k,
+            channel_labels=task_labels,
+        )
+        selected = fused[:top_k]
+        self._log_retrieval_trace(
+            options,
+            task_labels,
+            channel_results,
+            selected,
+            channel_status,
+        )
+        return selected
+
+    def _log_retrieval_trace(
+        self,
+        options: RetrievalOptions | None,
+        channel_labels: List[str],
+        channel_results: List[List[ScoredChunk]],
+        selected: List[ScoredChunk],
+        channel_status: dict[str, dict[str, str]],
+    ) -> None:
+        """Emit content-free retrieval diagnostics only when explicitly enabled."""
+        if os.getenv("AGENT_RETRIEVAL_TRACE_ENABLED", "false").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return
+
+        try:
+            trace_limit = max(
+                1,
+                min(
+                    500,
+                    int(os.getenv("AGENT_RETRIEVAL_TRACE_LIMIT", "100")),
+                ),
+            )
+        except ValueError:
+            trace_limit = 100
+
+        channels: dict[str, list[dict[str, Any]]] = {}
+        for index, results in enumerate(channel_results):
+            label = (
+                channel_labels[index]
+                if index < len(channel_labels)
+                else f"channel_{index}"
+            )
+            channels[label] = [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "rank": rank,
+                    "score": (
+                        None
+                        if chunk.score_source == "rank_only"
+                        else round(float(chunk.score), 8)
+                    ),
+                    "score_source": chunk.score_source,
+                    "content_sha256": hashlib.sha256(
+                        str(chunk.content or "").encode("utf-8")
+                    ).hexdigest(),
+                }
+                for rank, chunk in enumerate(results[:trace_limit], start=1)
+            ]
+
+        payload = {
+            "event": "agent_retrieval_trace",
+            "trace_id": options.trace_id if options else None,
+            "channels": channels,
+            "channel_status": channel_status,
+            "rrf": [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "rank": rank,
+                    "score": round(float(chunk.score), 8),
+                    "sources": list(chunk.sources),
+                    "bm25_rank": chunk.bm25_rank,
+                    "vector_rank": chunk.vector_rank,
+                    "graph_rank": chunk.graph_rank,
+                    "content_sha256": hashlib.sha256(
+                        str(chunk.content or "").encode("utf-8")
+                    ).hexdigest(),
+                }
+                for rank, chunk in enumerate(selected[:trace_limit], start=1)
+            ],
+        }
+        try:
+            self._logger.info(
+                json.dumps(payload, ensure_ascii=True, sort_keys=True)
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Context Parsing Helper

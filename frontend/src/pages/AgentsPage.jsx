@@ -76,6 +76,7 @@ const normalizeAgentPayload = (formData) => ({
   chunk_top_k: clampAgentNumber('chunk_top_k', formData.chunk_top_k),
   enable_rerank: Boolean(formData.enable_rerank),
   include_references: Boolean(formData.include_references),
+  answer_completeness_guard_enabled: Boolean(formData.answer_completeness_guard_enabled),
 })
 
 const upsertAgent = (agents, nextAgent) => [
@@ -203,6 +204,7 @@ export default function AgentsPage({ onToast }) {
       name: '', icon: '', description: '', kb_name: 'default', llm_model: 'qwen-plus',
       temperature: 0.0, max_response_tokens: 4096, query_mode: 'hybrid', agent_mode: 'none',
       retrieval_top_k: 40, chunk_top_k: 20, enable_rerank: false, include_references: true,
+      answer_completeness_guard_enabled: false,
       system_prompt: '', use_default_prompt: true, welcome_message: '', template_id: '',
     }
   }
@@ -240,6 +242,7 @@ export default function AgentsPage({ onToast }) {
       retrieval_top_k: clampAgentNumber('retrieval_top_k', agent.retrieval_top_k),
       chunk_top_k: clampAgentNumber('chunk_top_k', agent.chunk_top_k),
       enable_rerank: Boolean(agent.enable_rerank), include_references: agent.include_references !== false,
+      answer_completeness_guard_enabled: Boolean(agent.answer_completeness_guard_enabled),
       system_prompt: agent.system_prompt || '', use_default_prompt: agent.use_default_prompt !== false,
       welcome_message: agent.welcome_message || '', template_id: agent.template_id || '',
     })
@@ -261,6 +264,7 @@ export default function AgentsPage({ onToast }) {
       chunk_top_k: clampAgentNumber('chunk_top_k', tpl.chunk_top_k),
       enable_rerank: Boolean(tpl.enable_rerank),
       include_references: tpl.include_references !== false,
+      answer_completeness_guard_enabled: Boolean(tpl.answer_completeness_guard_enabled),
       system_prompt: tpl.system_prompt || '',
       use_default_prompt: tpl.use_default_prompt !== false,
       welcome_message: tpl.welcome_message || '',
@@ -759,6 +763,12 @@ export default function AgentsPage({ onToast }) {
                       className={`rounded-xl border px-3 py-2 text-left transition-all ${form.include_references ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-cloud-300 bg-white text-ink-body hover:bg-cloud-100'}`}>
                       <span className="block text-xs font-semibold">包含引用来源</span>
                       <span className="mt-1 block text-2xs text-ink-muted">控制回答提示词和参考来源回填</span>
+                    </button>
+                    <button type="button" disabled={form.agent_mode !== 'none'}
+                      onClick={() => setForm({ ...form, answer_completeness_guard_enabled: !form.answer_completeness_guard_enabled })}
+                      className={`rounded-xl border px-3 py-2 text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed ${form.answer_completeness_guard_enabled ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-cloud-300 bg-white text-ink-body hover:bg-cloud-100'}`}>
+                      <span className="block text-xs font-semibold">回答完整性校验</span>
+                      <span className="mt-1 block text-2xs text-ink-muted">仅普通模式：首轮回答后用同一检索上下文复核并补全，可能增加一次模型调用</span>
                     </button>
                   </div>
                 </div>

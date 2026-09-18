@@ -32,6 +32,7 @@ class QueryCacheScope:
     corpus_revision: str
     settings_fingerprint: str
     llm_profile_fingerprint: str = ""
+    run_cache_scope: str = ""
 
 
 class QueryCache:

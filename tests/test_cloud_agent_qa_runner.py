@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -67,6 +68,7 @@ def test_query_nonce_is_opt_in(monkeypatch):
 
 def test_query_stream_replaces_streamed_answer(monkeypatch):
     runner = load_runner()
+    requests = []
     frames = [
         b'data: {"type":"accepted"}\n\n',
         b'data: {"type":"token","content":"first"}\n\n',
@@ -86,15 +88,23 @@ def test_query_stream_replaces_streamed_answer(monkeypatch):
         def readline(self):
             return frames.pop(0) if frames else b""
 
-    monkeypatch.setattr(
-        runner.request,
-        "urlopen",
-        lambda *_args, **_kwargs: Response(),
-    )
+    def urlopen(req, **_kwargs):
+        requests.append(req)
+        return Response()
+
+    monkeypatch.setattr(runner.request, "urlopen", urlopen)
     client = runner.CloudClient("http://local", "token")
 
-    result = client.query_stream("agent", "question", timeout=10)
+    result = client.query_stream(
+        "agent",
+        "question",
+        timeout=10,
+        run_cache_scope="run-a",
+    )
 
     assert result["status"] == "passed"
     assert result["answer"] == "revised"
     assert result["answer_guard"] == {"used_revision": True}
+    payload = json.loads(requests[0].data.decode("utf-8"))
+    assert payload["query"] == "question"
+    assert payload["run_cache_scope"] == "run-a"

@@ -21,6 +21,7 @@ class QueryExecutionScope(Mapping[str, object]):
     settings_fingerprint: str
     llm_profile_fingerprint: str
     deadline_monotonic: float
+    run_cache_scope: str = ""
     # Mutable request-local output channel.  It is deliberately excluded from
     # the Mapping view below so retrieval content never enters cache keys,
     # telemetry fields, or other content-free execution metadata.
@@ -29,7 +30,7 @@ class QueryExecutionScope(Mapping[str, object]):
     )
 
     def _values(self) -> dict[str, object]:
-        return {
+        values = {
             "trace_id": self.trace_id,
             "workspace": self.workspace,
             "corpus_revision": self.corpus_revision,
@@ -38,6 +39,9 @@ class QueryExecutionScope(Mapping[str, object]):
             "llm_profile_fingerprint": self.llm_profile_fingerprint,
             "deadline_monotonic": self.deadline_monotonic,
         }
+        if self.run_cache_scope:
+            values["run_cache_scope"] = self.run_cache_scope
+        return values
 
     def __getitem__(self, key: str) -> object:
         return self._values()[key]
@@ -46,7 +50,7 @@ class QueryExecutionScope(Mapping[str, object]):
         return iter(self._values())
 
     def __len__(self) -> int:
-        return 7
+        return 8 if self.run_cache_scope else 7
 
 
 async def await_before_deadline(

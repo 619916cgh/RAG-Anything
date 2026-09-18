@@ -198,6 +198,7 @@ async def _promote_legacy_json_agent(
                 kb_name, llm_model, temperature, max_response_tokens,
                 query_mode, agent_mode, retrieval_top_k, chunk_top_k,
                 enable_rerank, include_references,
+                answer_completeness_guard_enabled,
                 system_prompt, use_default_prompt,
                 owner_id, owner_username, template_id,
                 created_at, updated_at
@@ -208,7 +209,7 @@ async def _promote_legacy_json_agent(
                 $14, $15,
                 $16, $17,
                 $18, $19, $20,
-                $21, $22
+                $21, $22, $23
             )
             ON CONFLICT (id) DO NOTHING
             """,
@@ -227,6 +228,10 @@ async def _promote_legacy_json_agent(
             legacy_agent.get("chunk_top_k", 20) or 20,
             _coerce_bool(legacy_agent.get("enable_rerank"), False),
             _coerce_bool(legacy_agent.get("include_references"), True),
+            _coerce_bool(
+                legacy_agent.get("answer_completeness_guard_enabled"),
+                False,
+            ),
             legacy_agent.get("system_prompt") or "",
             _coerce_bool(legacy_agent.get("use_default_prompt"), True),
             owner_id,
@@ -362,6 +367,7 @@ async def pg_create_agent(
                 kb_name, llm_model, temperature, max_response_tokens,
                 query_mode, agent_mode, retrieval_top_k, chunk_top_k,
                 enable_rerank, include_references,
+                answer_completeness_guard_enabled,
                 system_prompt, use_default_prompt,
                 owner_id, owner_username, template_id,
                 created_at, updated_at
@@ -372,7 +378,7 @@ async def pg_create_agent(
                 $14, $15,
                 $16, $17,
                 $18, $19, $20,
-                $21, $21
+                $21, $22, $22
             )
             """,
             agent_id,
@@ -390,6 +396,7 @@ async def pg_create_agent(
             config.get("chunk_top_k", 20),
             config.get("enable_rerank", False),
             config.get("include_references", True),
+            config.get("answer_completeness_guard_enabled", False),
             config.get("system_prompt", ""),
             config.get("use_default_prompt", True),
             owner_id,
@@ -422,6 +429,7 @@ async def pg_update_agent(
         "kb_name", "llm_model", "temperature", "max_response_tokens",
         "query_mode", "agent_mode", "retrieval_top_k", "chunk_top_k",
         "enable_rerank", "include_references",
+        "answer_completeness_guard_enabled",
         "system_prompt", "use_default_prompt",
         "owner_id", "owner_username", "template_id",
     }
@@ -794,7 +802,12 @@ def _agent_row_to_dict(row: Any) -> dict[str, Any]:
         if isinstance(d.get(ts_field), datetime):
             d[ts_field] = d[ts_field].isoformat()
     # Map boolean fields
-    for bool_field in ("enable_rerank", "include_references", "use_default_prompt"):
+    for bool_field in (
+        "enable_rerank",
+        "include_references",
+        "answer_completeness_guard_enabled",
+        "use_default_prompt",
+    ):
         if d.get(bool_field) is not None:
             d[bool_field] = bool(d[bool_field])
     return d

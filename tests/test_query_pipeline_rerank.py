@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from raganything.hybrid_search import ScoredChunk
-from raganything.query.pipeline import QueryMixin
+from raganything.query.pipeline import QueryMixin, _log_rrf_context_trace
 
 
 class FakeEngine:
@@ -44,6 +44,28 @@ def _make_pipeline(chunks, **overrides):
     }
     attrs.update(overrides)
     return SimpleNamespace(**attrs)
+
+
+def test_rrf_context_trace_records_hashes_without_content(monkeypatch, caplog):
+    monkeypatch.setenv("AGENT_RETRIEVAL_TRACE_ENABLED", "true")
+    chunk = ScoredChunk(
+        chunk_id="chunk-1",
+        content="secret context",
+        score=1.0,
+        sources=["bm25"],
+    )
+
+    with caplog.at_level(logging.INFO, logger="raganything.query.pipeline"):
+        _log_rrf_context_trace(
+            {"trace_id": "trace-1"},
+            [chunk],
+            "[来源 1]\nsecret context",
+            stage="context_only",
+        )
+
+    assert "secret context" not in caplog.text
+    assert '"context_sha256"' in caplog.text
+    assert '"chunk_id": "chunk-1"' in caplog.text
 
 
 def _chunks():

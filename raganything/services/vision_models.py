@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import uuid
+from collections import OrderedDict
 from copy import copy
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
@@ -324,7 +325,17 @@ _ACTIVE_LLM_SNAPSHOT: ContextVar[
 ] = ContextVar(
     "active_text_llm_snapshot", default=None
 )
-_LLM_CALLABLES: dict[tuple[str, str, str, float | None, int], Any] = {}
+try:
+    _LLM_CALLABLE_CACHE_MAX = max(
+        1,
+        int(os.getenv("LLM_CALLABLE_CACHE_MAX", "128")),
+    )
+except ValueError:
+    _LLM_CALLABLE_CACHE_MAX = 128
+_LLM_CALLABLES: OrderedDict[
+    tuple[str, str, str, float | None, int],
+    Any,
+] = OrderedDict()
 
 
 class _NamespacedCache:
@@ -859,6 +870,10 @@ def build_contextual_llm_callable(default_profile_id: str, *, completion_func=No
                 model_override=model_override,
             )
             _LLM_CALLABLES[key] = provider
+            while len(_LLM_CALLABLES) > _LLM_CALLABLE_CACHE_MAX:
+                _LLM_CALLABLES.popitem(last=False)
+        else:
+            _LLM_CALLABLES.move_to_end(key)
         return await provider(*args, **kwargs)
 
     contextual_llm.model_profile_id = default_profile_id

@@ -268,13 +268,17 @@ class CloudClient:
         question: str,
         *,
         timeout: float,
+        run_cache_scope: str = "",
     ) -> dict[str, Any]:
+        query_payload = {
+            "query": question,
+            "thread_id": "",
+            "vlm_enhanced": False,
+        }
+        if run_cache_scope:
+            query_payload["run_cache_scope"] = run_cache_scope
         payload = json.dumps(
-            {
-                "query": question,
-                "thread_id": "",
-                "vlm_enhanced": False,
-            },
+            query_payload,
             ensure_ascii=False,
         ).encode("utf-8")
         req = request.Request(
@@ -716,6 +720,7 @@ async def run_tests(
                 str(agent["id"]),
                 query,
                 timeout=timeout,
+                run_cache_scope=output_dir.name,
             )
             record = {
                 "run_id": output_dir.name,
@@ -944,6 +949,7 @@ def main() -> int:
         "must_change_password": must_change,
         "must_change_override": args.allow_must_change,
         "query_nonce_enabled": bool(args.query_nonce),
+        "cache_scope_mode": "run_id_requested",
         "max_consecutive_failures": args.max_consecutive_failures,
         "llm_profile": {
             "id": selected_profile.get("id"),

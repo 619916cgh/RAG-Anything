@@ -5,6 +5,7 @@ Covers: BM25IndexManager, GraphRetriever, HybridSearchEngine, RRF fusion.
 """
 
 import os
+import json
 import pytest
 import asyncio
 import raganything.hybrid_search as hybrid_module
@@ -360,6 +361,70 @@ async def test_vector_search_passes_candidate_limit_to_chunk_top_k(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_vector_search_hydrates_full_chunk_content(monkeypatch):
+    full_content = "完整段落" * 200
+
+    class QueryParam:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class Chunks:
+        async def get_by_ids(self, chunk_ids):
+            assert chunk_ids == ["chunk-1"]
+            return [{"id": "chunk-1", "content": full_content}]
+
+    class LightRAG:
+        text_chunks = Chunks()
+
+        async def aquery(self, _query, *, param):
+            return "[chunk-1] 截断内容"
+
+    monkeypatch.setattr("lightrag.QueryParam", QueryParam)
+    engine = HybridSearchEngine(lightrag_instance=LightRAG())
+
+    results = await engine._vector_search("test", 1)
+
+    assert len(results) == 1
+    assert results[0].chunk_id == "chunk-1"
+    assert results[0].content == full_content
+
+
+@pytest.mark.asyncio
+async def test_vector_search_uses_structured_lightrag_chunk_rows(monkeypatch):
+    full_content = "结构化完整内容" * 120
+
+    class QueryParam:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class LightRAG:
+        async def aquery_data(self, _query, *, param):
+            assert param.chunk_top_k == 73
+            return {
+                "status": "success",
+                "data": {
+                    "chunks": [
+                        {
+                            "chunk_id": "chunk-real",
+                            "content": full_content,
+                            "file_path": "source.md",
+                        }
+                    ]
+                },
+            }
+
+    monkeypatch.setattr("lightrag.QueryParam", QueryParam)
+    engine = HybridSearchEngine(lightrag_instance=LightRAG())
+
+    results = await engine._vector_search("test", 73)
+
+    assert len(results) == 1
+    assert results[0].chunk_id == "chunk-real"
+    assert results[0].content == full_content
+    assert results[0].score_source == "rank_only"
+
+
+@pytest.mark.asyncio
 async def test_vector_candidate_limit_is_independent_from_fused_top_k():
     captured = []
 
@@ -389,6 +454,84 @@ async def test_vector_candidate_limit_is_independent_from_fused_top_k():
 
     assert captured == [37]
     assert len(results) == 3
+
+
+@pytest.mark.asyncio
+async def test_retrieval_trace_is_env_gated_and_content_free(monkeypatch):
+    messages = []
+
+    async def vector_search(_query, _top_k):
+        return [
+            ScoredChunk(
+                chunk_id="chunk-1",
+                content="secret retrieval content",
+                score=1.0,
+                sources=["vector"],
+                vector_rank=1,
+            )
+        ]
+
+    engine = HybridSearchEngine()
+    engine._logger = SimpleNamespace(info=messages.append)
+    engine._vector_search = vector_search
+
+    await engine.search(
+        "private query text",
+        options=RetrievalOptions(channels=("vector",), trace_id="trace-1"),
+    )
+    assert messages == []
+
+    monkeypatch.setenv("AGENT_RETRIEVAL_TRACE_ENABLED", "true")
+    await engine.search(
+        "private query text",
+        options=RetrievalOptions(channels=("vector",), trace_id="trace-1"),
+    )
+
+    assert len(messages) == 1
+    trace = json.loads(messages[0])
+    assert trace["trace_id"] == "trace-1"
+    assert trace["channels"]["vector"][0]["chunk_id"] == "chunk-1"
+    assert trace["channel_status"]["vector"]["status"] == "ok"
+    assert trace["rrf"][0]["rank"] == 1
+    assert len(trace["rrf"][0]["content_sha256"]) == 64
+    assert "secret retrieval content" not in messages[0]
+    assert "private query text" not in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_retrieval_trace_records_all_channel_failure(monkeypatch):
+    messages = []
+
+    async def vector_search(_query, _top_k):
+        raise TimeoutError("vector timed out")
+
+    async def graph_search(_query, _top_k, _depth):
+        return []
+
+    engine = HybridSearchEngine()
+    engine._logger = SimpleNamespace(
+        info=messages.append,
+        error=lambda _message: None,
+        warning=lambda *_args, **_kwargs: None,
+    )
+    engine._vector_search = vector_search
+    engine._graph_search = graph_search
+    monkeypatch.setenv("AGENT_RETRIEVAL_TRACE_ENABLED", "true")
+
+    results = await engine.search(
+        "private query text",
+        options=RetrievalOptions(
+            channels=("vector", "graph"),
+            trace_id="trace-empty",
+        ),
+    )
+
+    assert results == []
+    assert len(messages) == 1
+    trace = json.loads(messages[0])
+    assert trace["channel_status"]["vector"]["status"] == "error"
+    assert trace["channel_status"]["graph"]["status"] == "empty"
+    assert trace["rrf"] == []
 
 
 @pytest.mark.asyncio
@@ -553,6 +696,18 @@ class TestRRFFusion:
 
         fused = HybridSearchEngine._rrf_fuse([bm25, vector, graph], k=60)
         assert set(fused[0].sources) == {"bm25", "vector"}
+
+    def test_rrf_uses_request_channel_labels_for_subset(self):
+        vector = [self.make_chunk("V", "vector-only", "vector", 0)]
+
+        fused = HybridSearchEngine._rrf_fuse(
+            [vector],
+            channel_labels=["vector"],
+        )
+
+        assert fused[0].sources == ["vector"]
+        assert fused[0].vector_rank == 1
+        assert fused[0].bm25_rank is None
 
 
 # ═══════════════════════════════════════════════════════════

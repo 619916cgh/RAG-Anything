@@ -1,6 +1,7 @@
 """Agent Router — /api/agents/* and agent query streaming"""
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -949,6 +950,7 @@ class AgentCreateRequest(BaseModel):
     chunk_top_k: int = 20
     enable_rerank: bool = False
     include_references: bool = True
+    answer_completeness_guard_enabled: bool = False
     system_prompt: str = ""
     use_default_prompt: bool = True
     welcome_message: Optional[str] = None
@@ -979,6 +981,7 @@ class AgentUpdateRequest(BaseModel):
     chunk_top_k: Optional[int] = None
     enable_rerank: Optional[bool] = None
     include_references: Optional[bool] = None
+    answer_completeness_guard_enabled: Optional[bool] = None
     system_prompt: Optional[str] = None
     use_default_prompt: Optional[bool] = None
     welcome_message: Optional[str] = None
@@ -1006,6 +1009,15 @@ class AgentQueryRequest(BaseModel):
     image: Optional[str] = None  # base64 data URI of user-uploaded query image (e.g. data:image/jpeg;base64,...)
     tag_id: Optional[int] = None
     retrieval_only: bool = False  # 受权限保护的评测诊断：不暴露上下文正文，也不触发生成
+    run_cache_scope: str = Field(default="", max_length=128)
+
+    @field_validator("run_cache_scope")
+    @classmethod
+    def _validate_run_cache_scope(cls, value: str) -> str:
+        value = str(value or "").strip()
+        if value and not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", value):
+            raise ValueError("run_cache_scope must be a bounded ASCII identifier")
+        return value
 
 
 class MessageUpdateRequest(BaseModel):
@@ -1023,6 +1035,7 @@ _AGENT_INT_BOUNDS = {
 _AGENT_BOOL_DEFAULTS = {
     "enable_rerank": False,
     "include_references": True,
+    "answer_completeness_guard_enabled": False,
     "use_default_prompt": True,
 }
 _AGENT_QUERY_MODES = {"rrf", "hybrid", "graph", "local", "global", "naive"}
@@ -1072,6 +1085,10 @@ def _agent_runtime_config(agent: dict) -> dict:
         "chunk_top_k": agent.get("chunk_top_k", 20),
         "enable_rerank": agent.get("enable_rerank", False),
         "include_references": agent.get("include_references", True),
+        "answer_completeness_guard_enabled": agent.get(
+            "answer_completeness_guard_enabled",
+            False,
+        ),
     })
 
 
@@ -1138,6 +1155,7 @@ async def _query_cache_scope(
     user_id: int,
     settings_fingerprint: str,
     llm_profile_fingerprint: str,
+    run_cache_scope: str = "",
 ) -> dict[str, str]:
     updates = await pg_get_latest_content_updates_batch([kb])
     corpus_revision = updates.get(kb)
@@ -1152,13 +1170,22 @@ async def _query_cache_scope(
             )
         except Exception:
             corpus_revision = "unknown"
-    return {
+    scope = {
         "workspace": kb,
         "permission_scope": f"user:{user_id}",
         "corpus_revision": str(corpus_revision),
         "settings_fingerprint": settings_fingerprint,
         "llm_profile_fingerprint": llm_profile_fingerprint,
     }
+    run_scope_enabled = os.getenv(
+        "AGENT_RUN_CACHE_SCOPE_ENABLED",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if run_scope_enabled and run_cache_scope:
+        scope["run_cache_scope"] = hashlib.sha256(
+            run_cache_scope.encode("utf-8")
+        ).hexdigest()[:32]
+    return scope
 
 
 def _build_agent_llm(runtime_config: dict, selected_llm=None):
@@ -1170,7 +1197,10 @@ def _build_agent_llm(runtime_config: dict, selected_llm=None):
     ):
         call_kwargs = dict(kwargs)
         max_tokens = call_kwargs.pop("max_tokens", runtime_config["max_response_tokens"])
-        call_kwargs.pop("temperature", None)
+        call_temperature = call_kwargs.pop(
+            "temperature",
+            runtime_config["temperature"],
+        )
         stream = call_kwargs.pop("stream", False)
         if selected_llm is not None:
             return await selected_llm(
@@ -1178,7 +1208,7 @@ def _build_agent_llm(runtime_config: dict, selected_llm=None):
                 system_prompt=runtime_config["system_prompt"] if system_prompt is None else system_prompt,
                 history_messages=history_messages or [],
                 max_tokens=max_tokens,
-                temperature=runtime_config["temperature"],
+                temperature=call_temperature,
                 stream=stream,
                 **call_kwargs,
             )
@@ -1193,7 +1223,7 @@ def _build_agent_llm(runtime_config: dict, selected_llm=None):
                 api_key=API_KEY,
                 base_url=BASE_URL,
                 max_tokens=max_tokens,
-                temperature=runtime_config["temperature"],
+                temperature=call_temperature,
                 stream=stream,
                 **call_kwargs,
             ),
@@ -1348,6 +1378,10 @@ async def create_agent(
         chunk_top_k=_bounded_agent_int("chunk_top_k", req.chunk_top_k),
         enable_rerank=_agent_bool("enable_rerank", req.enable_rerank),
         include_references=_agent_bool("include_references", req.include_references),
+        answer_completeness_guard_enabled=_agent_bool(
+            "answer_completeness_guard_enabled",
+            req.answer_completeness_guard_enabled,
+        ),
         system_prompt=req.system_prompt,
         use_default_prompt=req.use_default_prompt,
         template_id=req.template_id,
@@ -1655,6 +1689,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             int(current_user["id"]),
             resolved_settings.fingerprint,
             llm_entry.fingerprint,
+            req.run_cache_scope,
         )
         llm_cache_scope = json.dumps(
             query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
@@ -1737,6 +1772,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             int(current_user["id"]),
             resolved_settings.fingerprint,
             llm_entry.fingerprint,
+            req.run_cache_scope,
         )
         llm_cache_scope = json.dumps(
             query_scope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
@@ -1929,6 +1965,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 settings_fingerprint=query_scope.get("settings_fingerprint", "unknown"),
                 llm_profile_fingerprint=query_scope.get("llm_profile_fingerprint", "unknown"),
                 deadline_monotonic=retrieval_deadline,
+                run_cache_scope=query_scope.get("run_cache_scope", ""),
                 provenance_sink=[],
             )
             scope_payload = ({"id": tag_scope.tag_id, "name": tag_scope.tag_name} if tag_scope else None)
@@ -2138,6 +2175,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         settings_fingerprint=execution_scope.settings_fingerprint,
                         llm_profile_fingerprint=execution_scope.llm_profile_fingerprint,
                         deadline_monotonic=retrieval_deadline,
+                        run_cache_scope=execution_scope.run_cache_scope,
                         provenance_sink=[],
                     )
             _display_similar_images = (
@@ -2947,7 +2985,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             answer_guard_metadata = None
             answer_guard_client_metadata = None
             if (
-                answer_completeness_guard_enabled(agent_id)
+                answer_completeness_guard_enabled(
+                    runtime_config["answer_completeness_guard_enabled"]
+                )
                 and full_answer
                 and ctx
             ):
