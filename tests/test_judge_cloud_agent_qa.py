@@ -83,3 +83,11 @@ def test_wilson_interval_is_bounded():
 
     low, high = judge.wilson_interval(50, 100)
     assert 0 <= low < 0.5 < high <= 1
+
+
+def test_chinese_adjacent_units_are_normalized():
+    judge = load_judge()
+
+    assert judge.extract_atoms("12V蓄电池") == {"V:12"}
+    assert judge.extract_atoms("12伏蓄电池") == {"V:12"}
+    assert judge.extract_atoms("0.012kV蓄电池") == {"V:12"}

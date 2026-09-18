@@ -53,7 +53,9 @@ UNSAFE_REMOTE_KEYS = {
 NUMBER_UNIT_PATTERN = re.compile(
     r"(?P<number>\d+(?:\.\d+)?)\s*"
     r"(?P<unit>kV|V|mA|A|kW|W|kbit/s|Mbit/s|kHz|MHz|Hz|"
-    r"℃|°C|%|mm|cm|km|kg|ms|s)\b",
+    r"℃|°C|%|mm|cm|km|kg|ms|s|"
+    r"伏特|伏|毫安|安培|安|千瓦|瓦特|瓦|千赫|兆赫|赫兹|赫|"
+    r"摄氏度|毫米|厘米|千米|千克|毫秒|秒)",
     re.IGNORECASE,
 )
 CODE_PATTERN = re.compile(
@@ -112,6 +114,25 @@ def canonical_number_unit(number: str, unit: str) -> str:
         "KG": ("KG", 1.0),
         "MS": ("S", 0.001),
         "S": ("S", 1.0),
+        "伏特": ("V", 1.0),
+        "伏": ("V", 1.0),
+        "毫安": ("A", 0.001),
+        "安培": ("A", 1.0),
+        "安": ("A", 1.0),
+        "千瓦": ("W", 1000.0),
+        "瓦特": ("W", 1.0),
+        "瓦": ("W", 1.0),
+        "千赫": ("HZ", 1000.0),
+        "兆赫": ("HZ", 1000000.0),
+        "赫兹": ("HZ", 1.0),
+        "赫": ("HZ", 1.0),
+        "摄氏度": ("℃", 1.0),
+        "毫米": ("MM", 1.0),
+        "厘米": ("MM", 10.0),
+        "千米": ("M", 1000.0),
+        "千克": ("KG", 1.0),
+        "毫秒": ("S", 0.001),
+        "秒": ("S", 1.0),
     }
     base_unit, multiplier = conversions[canonical]
     converted = value * multiplier
