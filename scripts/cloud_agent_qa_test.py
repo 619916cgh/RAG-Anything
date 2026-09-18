@@ -794,9 +794,12 @@ def parse_args() -> argparse.Namespace:
         default=5,
     )
     parser.add_argument(
-        "--no-query-nonce",
+        "--query-nonce",
         action="store_true",
-        help="Disable the per-question cache-busting suffix.",
+        help=(
+            "Opt in to the legacy cache-busting suffix. It changes the "
+            "retrieval query and must not be used for accuracy baselines."
+        ),
     )
     parser.add_argument(
         "--allow-must-change",
@@ -928,7 +931,7 @@ def main() -> int:
         "limit_per_agent": args.limit_per_agent,
         "must_change_password": must_change,
         "must_change_override": args.allow_must_change,
-        "query_nonce_enabled": not args.no_query_nonce,
+        "query_nonce_enabled": bool(args.query_nonce),
         "max_consecutive_failures": args.max_consecutive_failures,
         "llm_profile": {
             "id": selected_profile.get("id"),
@@ -946,6 +949,12 @@ def main() -> int:
                 "llm_model": agent.get("llm_model"),
                 "query_mode": agent.get("query_mode"),
                 "agent_mode": agent.get("agent_mode"),
+                "system_prompt_sha256": hashlib.sha256(
+                    str(agent.get("system_prompt") or "").encode("utf-8")
+                ).hexdigest(),
+                "system_prompt_len": len(
+                    str(agent.get("system_prompt") or "")
+                ),
             }
             for name, agent in agents.items()
         },
@@ -963,7 +972,7 @@ def main() -> int:
             timeout=args.timeout,
             limit_per_agent=args.limit_per_agent,
             resume=args.resume,
-            query_nonce=not args.no_query_nonce,
+            query_nonce=bool(args.query_nonce),
             max_consecutive_failures=args.max_consecutive_failures,
         )
     )

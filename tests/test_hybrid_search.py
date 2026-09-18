@@ -339,6 +339,59 @@ async def test_hybrid_search_passes_graph_depth_as_a_local_option():
 
 
 @pytest.mark.asyncio
+async def test_vector_search_passes_candidate_limit_to_chunk_top_k(monkeypatch):
+    captured = {}
+
+    class QueryParam:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class LightRAG:
+        async def aquery(self, _query, *, param):
+            captured["param"] = param
+            return ""
+
+    monkeypatch.setattr("lightrag.QueryParam", QueryParam)
+    engine = HybridSearchEngine(lightrag_instance=LightRAG())
+
+    assert await engine._vector_search("test", 73) == []
+    assert captured["param"].top_k == 73
+    assert captured["param"].chunk_top_k == 73
+
+
+@pytest.mark.asyncio
+async def test_vector_candidate_limit_is_independent_from_fused_top_k():
+    captured = []
+
+    async def vector_search(_query, top_k):
+        captured.append(top_k)
+        return [
+            ScoredChunk(
+                chunk_id=f"c{index}",
+                content=f"content {index}",
+                score=1.0,
+                sources=["vector"],
+            )
+            for index in range(5)
+        ]
+
+    engine = HybridSearchEngine()
+    engine._vector_search = vector_search
+
+    results = await engine.search(
+        "test",
+        top_k=3,
+        options=RetrievalOptions(
+            channels=("vector",),
+            vector_top_k=37,
+        ),
+    )
+
+    assert captured == [37]
+    assert len(results) == 3
+
+
+@pytest.mark.asyncio
 async def test_hybrid_search_does_not_wait_for_cancellation_resistant_channel(
     sample_chunks,
 ):

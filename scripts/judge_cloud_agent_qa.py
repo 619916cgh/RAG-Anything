@@ -29,7 +29,7 @@ from typing import Any
 from urllib import error, request
 
 
-PROMPT_VERSION = "cloud-agent-qa-rubric-v1"
+PROMPT_VERSION = "cloud-agent-qa-rubric-v2-required-atoms"
 VERDICTS = {"correct", "partial", "incorrect"}
 KEYPOINT_VERDICTS = {"hit", "miss", "contradict"}
 JUDGE_FIELDS = {
@@ -39,6 +39,7 @@ JUDGE_FIELDS = {
     "ambiguous_question",
     "evidence_sufficient_for_scoring",
     "keypoint_verdicts",
+    "required_atoms",
     "reason_codes",
     "rationale",
     "confidence",
@@ -53,7 +54,7 @@ UNSAFE_REMOTE_KEYS = {
 NUMBER_UNIT_PATTERN = re.compile(
     r"(?P<number>\d+(?:\.\d+)?)\s*"
     r"(?P<unit>kV|V|mA|A|kW|W|kbit/s|Mbit/s|kHz|MHz|Hz|"
-    r"℃|°C|%|mm|cm|km|kg|ms|s|"
+    r"℃|°C|%|Ω|欧姆|mm|cm|km|kg|ms|s|"
     r"伏特|伏|毫安|安培|安|千瓦|瓦特|瓦|千赫|兆赫|赫兹|赫|"
     r"摄氏度|毫米|厘米|千米|千克|毫秒|秒)",
     re.IGNORECASE,
@@ -114,6 +115,8 @@ def canonical_number_unit(number: str, unit: str) -> str:
         "KG": ("KG", 1.0),
         "MS": ("S", 0.001),
         "S": ("S", 1.0),
+        "Ω": ("Ω", 1.0),
+        "欧姆": ("Ω", 1.0),
         "伏特": ("V", 1.0),
         "伏": ("V", 1.0),
         "毫安": ("A", 0.001),
@@ -221,6 +224,17 @@ def validate_judge_payload(payload: Any) -> dict[str, Any]:
             isinstance(item, str) for item in payload[field]
         ):
             raise ValueError(f"{field} must be a string list")
+    required_atoms = payload["required_atoms"]
+    if not isinstance(required_atoms, list) or not all(
+        isinstance(item, str) and item.strip()
+        for item in required_atoms
+    ):
+        raise ValueError("required_atoms must be a non-empty string list")
+    if len(required_atoms) > 12:
+        raise ValueError("required_atoms contains too many items")
+    normalized_atoms = [normalize_text(item) for item in required_atoms]
+    if len(set(normalized_atoms)) != len(normalized_atoms):
+        raise ValueError("required_atoms contains duplicates")
     if not isinstance(payload["rationale"], str):
         raise ValueError("rationale must be a string")
     confidence = payload["confidence"]
@@ -259,6 +273,27 @@ def validate_judge_payload(payload: Any) -> dict[str, Any]:
     return payload
 
 
+def validate_required_atoms(
+    payload: dict[str, Any],
+    expected_answer: str,
+) -> None:
+    expected_atoms = extract_atoms(expected_answer)
+    required_atoms: set[str] = set()
+    for value in payload["required_atoms"]:
+        extracted = extract_atoms(value)
+        if not extracted:
+            raise ValueError(
+                f"required_atoms entry is not an atom: {value}"
+            )
+        required_atoms.update(extracted)
+    unknown = required_atoms - expected_atoms
+    if unknown:
+        raise ValueError(
+            "required_atoms are not present in the expected answer: "
+            f"{sorted(unknown)}"
+        )
+
+
 def make_prompt(
     question: str,
     expected_answer: str,
@@ -280,6 +315,11 @@ def make_prompt(
 6. 如果问题本身缺少案例上下文、存在多个不同标准答案，或无法唯一判断，设置
    ambiguous_question=true。
 7. 只有标准答案足以完成评分时才设置 evidence_sufficient_for_scoring=true。
+8. `required_atoms` 只列离开它本题答案就不完整或会改变结论的数值、单位、
+   端子号、故障码或零件编号。背景参数、计算输入、其他车型数值和解释性补充
+   不得放入；没有必答原子时输出空数组。
+9. 未提及某个关键点只能记 miss，不能记 contradict。只有回答说出了相反数值、
+   单位、端子号、故障码或极性时才能记 contradict。
 
 严格输出一个 JSON 对象，字段必须恰好为：
 {{
@@ -291,6 +331,7 @@ def make_prompt(
   "keypoint_verdicts": [
     {{"id": "k1", "verdict": "hit"|"miss"|"contradict", "evidence": "候选回答原短语"}}
   ],
+  "required_atoms": ["仅限本题必答的数值、单位、端子号或故障码"],
   "reason_codes": ["字符串"],
   "rationale": "简短中文理由",
   "confidence": 0.0到1.0
@@ -381,6 +422,7 @@ class JudgeClient:
         if not content:
             raise ValueError("Judge response content is empty")
         parsed = validate_judge_payload(strict_json_loads(content))
+        validate_required_atoms(parsed, expected_answer)
         metadata = {
             "provider_request_id": request_id or str(body.get("id") or ""),
             "model": str(body.get("model") or self.model),
@@ -492,6 +534,15 @@ def deterministic_verdict(
     keypoints = judge["keypoint_verdicts"]
     expected_atoms = extract_atoms(expected_answer)
     generated_atoms = extract_atoms(generated_answer)
+    required_expected_atoms = set()
+    for value in judge["required_atoms"]:
+        required_expected_atoms.update(extract_atoms(value))
+    required_matched_atoms = required_expected_atoms & generated_atoms
+    required_atomic_consistency = (
+        len(required_matched_atoms) / len(required_expected_atoms)
+        if required_expected_atoms
+        else 1.0
+    )
     expected_polarity = None
     generated_polarity = None
     polarity_question = bool(POLARITY_QUESTION_PATTERN.search(question))
@@ -517,6 +568,9 @@ def deterministic_verdict(
             "expected_atoms": sorted(expected_atoms),
             "matched_atoms": [],
             "atomic_consistency": None,
+            "required_expected_atoms": sorted(required_expected_atoms),
+            "required_matched_atoms": [],
+            "required_atomic_consistency": None,
             "expected_polarity": expected_polarity,
             "generated_polarity": generated_polarity,
             "polarity_mismatch": polarity_mismatch,
@@ -546,9 +600,9 @@ def deterministic_verdict(
 
     if hard_conflict or not judge["core_correct"]:
         verdict = "incorrect"
-    elif misses == 0 and atomic_consistency >= 1.0:
+    elif misses == 0 and required_atomic_consistency >= 1.0:
         verdict = "correct"
-    elif keypoint_recall >= 0.5 and atomic_consistency >= 0.5:
+    elif keypoint_recall >= 0.5 and required_atomic_consistency >= 0.5:
         verdict = "partial"
     else:
         verdict = "incorrect"
@@ -556,7 +610,11 @@ def deterministic_verdict(
     manual_review = (
         verdict == "unscorable_data"
         or hard_conflict
-        or abs(keypoint_recall - atomic_consistency) >= 0.5
+        or (
+            misses == 0
+            and required_atomic_consistency < 1.0
+        )
+        or abs(keypoint_recall - required_atomic_consistency) >= 0.5
         or float(judge["confidence"]) < 0.7
     )
     correctness_level = {
@@ -571,7 +629,7 @@ def deterministic_verdict(
         else round(
             0.55 * correctness_level
             + 0.30 * keypoint_recall
-            + 0.15 * atomic_consistency,
+            + 0.15 * required_atomic_consistency,
             6,
         )
     )
@@ -583,6 +641,12 @@ def deterministic_verdict(
         "expected_atoms": sorted(expected_atoms),
         "matched_atoms": sorted(matched_atoms),
         "atomic_consistency": round(atomic_consistency, 6),
+        "required_expected_atoms": sorted(required_expected_atoms),
+        "required_matched_atoms": sorted(required_matched_atoms),
+        "required_atomic_consistency": round(
+            required_atomic_consistency,
+            6,
+        ),
         "expected_polarity": expected_polarity,
         "generated_polarity": generated_polarity,
         "polarity_mismatch": polarity_mismatch,

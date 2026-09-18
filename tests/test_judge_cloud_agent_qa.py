@@ -20,7 +20,12 @@ def load_judge():
     return module
 
 
-def judge_payload(*, verdicts=("hit",), core_correct=True):
+def judge_payload(
+    *,
+    verdicts=("hit",),
+    core_correct=True,
+    required_atoms=(),
+):
     return {
         "core_correct": core_correct,
         "polarity": "not_applicable",
@@ -35,6 +40,7 @@ def judge_payload(*, verdicts=("hit",), core_correct=True):
             }
             for index, verdict in enumerate(verdicts, 1)
         ],
+        "required_atoms": list(required_atoms),
         "reason_codes": [],
         "rationale": "测试理由",
         "confidence": 0.9,
@@ -76,6 +82,57 @@ def test_deterministic_verdict_marks_atomic_conflict_manual_review():
 
     assert verdict == "incorrect"
     assert signals["manual_review_required"] is True
+
+
+def test_supplementary_number_does_not_downgrade_complete_answer():
+    judge = load_judge()
+    verdict, signals = judge.deterministic_verdict(
+        judge_payload(),
+        "搭铁线的作用是什么？",
+        "搭铁线用于连接电路和车身，长度规格为300mm。",
+        "搭铁线用于连接电路和车身，使电流回路闭合。",
+    )
+
+    assert verdict == "correct"
+    assert signals["atomic_consistency"] < 1.0
+    assert signals["required_atomic_consistency"] == 1.0
+    assert signals["manual_review_required"] is False
+
+
+def test_required_atom_accepts_equivalent_unit():
+    judge = load_judge()
+    verdict, signals = judge.deterministic_verdict(
+        judge_payload(required_atoms=("12V",)),
+        "低压电源通常是多少伏？",
+        "低压电源通常为12V蓄电池。",
+        "低压电源通常为12伏蓄电池。",
+    )
+
+    assert verdict == "correct"
+    assert signals["required_atomic_consistency"] == 1.0
+
+
+def test_required_atom_mismatch_prevents_correct():
+    judge = load_judge()
+    verdict, signals = judge.deterministic_verdict(
+        judge_payload(required_atoms=("12V",)),
+        "低压电源通常是多少伏？",
+        "低压电源通常为12V蓄电池。",
+        "低压电源通常为24V蓄电池。",
+    )
+
+    assert verdict == "incorrect"
+    assert signals["required_atomic_consistency"] == 0.0
+
+
+def test_required_atoms_must_exist_in_expected_answer():
+    judge = load_judge()
+
+    with pytest.raises(ValueError, match="not present"):
+        judge.validate_required_atoms(
+            judge_payload(required_atoms=("24V",)),
+            "低压电源通常为12V蓄电池。",
+        )
 
 
 def test_wilson_interval_is_bounded():

@@ -705,7 +705,12 @@ class HybridSearchEngine:
             # Use LightRAG's query with only_need_context to get raw chunks
             from lightrag import QueryParam
 
-            param = QueryParam(mode="naive", only_need_context=True, top_k=top_k)
+            param = QueryParam(
+                mode="naive",
+                only_need_context=True,
+                top_k=top_k,
+                chunk_top_k=top_k,
+            )
             result = await self._lightrag.aquery(query, param=param)
 
             if not result or not isinstance(result, str):

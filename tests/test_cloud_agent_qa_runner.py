@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -53,3 +54,12 @@ def test_percentile_is_bounded():
 
     assert runner.percentile([], 0.95) is None
     assert runner.percentile([1.0, 2.0, 3.0], 0.95) == 3.0
+
+
+def test_query_nonce_is_opt_in(monkeypatch):
+    runner = load_runner()
+    monkeypatch.setattr(sys, "argv", ["cloud_agent_qa_test.py", "--dry-run"])
+
+    args = runner.parse_args()
+
+    assert args.query_nonce is False
