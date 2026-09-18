@@ -1076,6 +1076,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--project-number",
+        type=int,
+        choices=range(1, 7),
+        help="Score one project only.",
+    )
     parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
@@ -1111,15 +1117,43 @@ def main() -> int:
     records = load_results(args.input)
     if not records:
         raise SystemExit("No results to score")
-    expected_counts = {1: 90, 2: 90, 3: 97, 4: 80, 5: 80, 6: 100}
+    all_expected_counts = {1: 90, 2: 90, 3: 97, 4: 80, 5: 80, 6: 100}
+    if args.project_number is None:
+        expected_counts = all_expected_counts
+    else:
+        records = [
+            record
+            for record in records
+            if int(record.get("project_number") or 0) == args.project_number
+        ]
+        expected_counts = {
+            args.project_number: all_expected_counts[args.project_number]
+        }
     actual_counts = Counter(int(record.get("project_number") or 0) for record in records)
     if dict(actual_counts) != expected_counts:
         raise SystemExit(
             f"Unexpected project counts: {dict(actual_counts)}"
         )
     question_numbers = [int(record.get("question_number") or 0) for record in records]
-    if sorted(question_numbers) != list(range(1, 538)):
-        raise SystemExit("Question numbers are not a unique 1..537 sequence")
+    expected_question_numbers = sorted(
+        number
+        for project_number, count in expected_counts.items()
+        for number in range(
+            sum(
+                all_expected_counts[item]
+                for item in range(1, project_number)
+            )
+            + 1,
+            sum(
+                all_expected_counts[item]
+                for item in range(1, project_number)
+            )
+            + count
+            + 1,
+        )
+    )
+    if sorted(question_numbers) != expected_question_numbers:
+        raise SystemExit("Unexpected question-number sequence")
 
     base_url, api_key, model = resolve_provider(args)
     output_dir = args.output_dir
