@@ -619,7 +619,23 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
             "unscorable_system": counts["unscorable_system"],
             "judge_error": counts["judge_error"],
             "scorable": scorable,
+            "scorable_rate": round(scorable / len(group), 6) if group else None,
             "accuracy_denominator": run_denominator,
+            "strict_accuracy_all": (
+                round(counts["correct"] / len(group), 6) if group else None
+            ),
+            "weighted_accuracy_all": (
+                round(
+                    (
+                        counts["correct"]
+                        + 0.5 * counts["partial"]
+                    )
+                    / len(group),
+                    6,
+                )
+                if group
+                else None
+            ),
             "strict_accuracy": (
                 round(strict, 6) if strict is not None else None
             ),
