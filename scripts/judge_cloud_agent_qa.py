@@ -71,11 +71,11 @@ NUMBER_UNIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 CODE_PATTERN = re.compile(
-    r"\b(?:"
+    r"(?<![A-Z0-9])(?:"
     r"[A-Z]{1,4}\d{2,}[A-Z0-9]*|"
     r"[A-Z]+\d*\([A-Z]\)/\d+|"
     r"[A-Z]+\d+/[0-9A-Z]+"
-    r")\b"
+    r")(?![A-Z0-9])"
 )
 NEGATIVE_PATTERN = re.compile(
     r"不能|不可以|不属于|不正确|无需|不需要|禁止|不是|不会|无法|没有|不可"

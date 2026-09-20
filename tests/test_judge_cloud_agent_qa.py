@@ -267,6 +267,26 @@ def test_chinese_adjacent_units_are_normalized():
     assert judge.extract_atoms("0.012kV蓄电池") == {"V:12"}
 
 
+def test_code_atoms_are_extracted_adjacent_to_chinese_text():
+    judge = load_judge()
+
+    assert judge.extract_atoms("F2/46表示仪表板配电盒的46号熔丝。") == {
+        "CODE:F2/46"
+    }
+
+
+def test_exact_code_answer_is_not_rejected_by_atom_reconciliation():
+    judge = load_judge()
+    payload = judge_payload(required_atoms=("F2/46",))
+    audit = judge.reconcile_required_atoms(
+        payload,
+        "F2/46表示仪表板配电盒的46号熔丝。",
+    )
+
+    assert audit["rejected"] == []
+    assert payload["required_atoms"] == ["F2/46"]
+
+
 def test_numeric_ranges_expand_both_bounds_with_shared_unit():
     judge = load_judge()
 
