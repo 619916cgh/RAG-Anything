@@ -291,7 +291,12 @@ async def run(args: argparse.Namespace) -> int:
                         str(context_record.get("context") or ""),
                     )
                     break
-                except (error.HTTPError, TimeoutError, ValueError) as exc:
+                except (
+                    error.HTTPError,
+                    TimeoutError,
+                    ValueError,
+                    OSError,
+                ) as exc:
                     last_error = exc
                     if isinstance(exc, error.HTTPError) and exc.code in {
                         401,

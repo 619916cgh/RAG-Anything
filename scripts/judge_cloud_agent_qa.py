@@ -184,6 +184,8 @@ def strict_json_loads(value: str) -> Any:
         return result
 
     text = value.strip()
+    if not text.startswith("{") and "{" in text and "}" in text:
+        text = text[text.find("{"):text.rfind("}") + 1].strip()
     if text.startswith("```"):
         lines = text.splitlines()
         if len(lines) < 3 or lines[-1].strip() != "```":
@@ -197,6 +199,76 @@ def strict_json_loads(value: str) -> Any:
         object_pairs_hook=no_duplicates,
         parse_constant=reject_constant,
     )
+
+
+def normalize_judge_payload(payload: Any) -> dict[str, Any]:
+    """Normalize unambiguous transport variants before strict validation."""
+    if (
+        isinstance(payload, dict)
+        and len(payload) == 1
+        and next(iter(payload)) in {"judgment", "result"}
+        and isinstance(next(iter(payload.values())), dict)
+    ):
+        payload = next(iter(payload.values()))
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized = dict(payload)
+    for field in (
+        "core_correct",
+        "ambiguous_question",
+        "evidence_sufficient_for_scoring",
+    ):
+        value = normalized.get(field)
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "yes", "1"}:
+                normalized[field] = True
+            elif lowered in {"false", "no", "0"}:
+                normalized[field] = False
+
+    for field in ("critical_conflicts", "reason_codes", "required_atoms"):
+        value = normalized.get(field)
+        if value is None:
+            normalized[field] = []
+        elif isinstance(value, str):
+            normalized[field] = [value]
+
+    polarity = normalized.get("polarity")
+    if isinstance(polarity, str):
+        alias = polarity.strip().lower().replace(" ", "_")
+        if alias in {"n/a", "na", "not_applicable"}:
+            normalized["polarity"] = "not_applicable"
+
+    confidence = normalized.get("confidence")
+    if isinstance(confidence, str):
+        value = confidence.strip()
+        try:
+            normalized["confidence"] = (
+                float(value.rstrip("%")) / 100
+                if value.endswith("%")
+                else float(value)
+            )
+        except ValueError:
+            pass
+
+    keypoints = normalized.get("keypoint_verdicts")
+    if isinstance(keypoints, list):
+        normalized_keypoints = []
+        for item in keypoints:
+            if not isinstance(item, dict):
+                normalized_keypoints.append(item)
+                continue
+            keypoint = dict(item)
+            if keypoint.get("id") is not None and not isinstance(
+                keypoint.get("id"), str
+            ):
+                keypoint["id"] = str(keypoint["id"])
+            if keypoint.get("evidence") is None:
+                keypoint["evidence"] = ""
+            normalized_keypoints.append(keypoint)
+        normalized["keypoint_verdicts"] = normalized_keypoints
+    return normalized
 
 
 def validate_judge_payload(payload: Any) -> dict[str, Any]:
@@ -273,25 +345,32 @@ def validate_judge_payload(payload: Any) -> dict[str, Any]:
     return payload
 
 
-def validate_required_atoms(
+def reconcile_required_atoms(
     payload: dict[str, Any],
     expected_answer: str,
-) -> None:
+) -> dict[str, Any]:
     expected_atoms = extract_atoms(expected_answer)
-    required_atoms: set[str] = set()
+    reconciled: list[str] = []
+    rejected: list[str] = []
+    rejected_atoms: set[str] = set()
     for value in payload["required_atoms"]:
         extracted = extract_atoms(value)
         if not extracted:
-            raise ValueError(
-                f"required_atoms entry is not an atom: {value}"
-            )
-        required_atoms.update(extracted)
-    unknown = required_atoms - expected_atoms
-    if unknown:
-        raise ValueError(
-            "required_atoms are not present in the expected answer: "
-            f"{sorted(unknown)}"
-        )
+            rejected.append(value)
+            continue
+        if not extracted.issubset(expected_atoms):
+            rejected.append(value)
+            rejected_atoms.update(extracted - expected_atoms)
+            continue
+        reconciled.append(value)
+    payload["required_atoms"] = reconciled
+    audit = {
+        "accepted": reconciled,
+        "rejected": rejected,
+        "rejected_atoms": sorted(rejected_atoms),
+    }
+    payload["_required_atom_filter"] = audit
+    return audit
 
 
 def make_prompt(
@@ -421,8 +500,10 @@ class JudgeClient:
         content = ((choice.get("message") or {}).get("content") or "").strip()
         if not content:
             raise ValueError("Judge response content is empty")
-        parsed = validate_judge_payload(strict_json_loads(content))
-        validate_required_atoms(parsed, expected_answer)
+        parsed = validate_judge_payload(
+            normalize_judge_payload(strict_json_loads(content))
+        )
+        reconcile_required_atoms(parsed, expected_answer)
         metadata = {
             "provider_request_id": request_id or str(body.get("id") or ""),
             "model": str(body.get("model") or self.model),
@@ -538,6 +619,13 @@ def deterministic_verdict(
     for value in judge["required_atoms"]:
         required_expected_atoms.update(extract_atoms(value))
     required_matched_atoms = required_expected_atoms & generated_atoms
+    required_atom_filter = judge.get("_required_atom_filter") or {}
+    rejected_atoms = {
+        str(atom)
+        for atom in required_atom_filter.get("rejected_atoms") or []
+    }
+    rejected_atom_conflict = bool(rejected_atoms & generated_atoms)
+    required_atoms_filtered = bool(required_atom_filter.get("rejected"))
     required_atomic_consistency = (
         len(required_matched_atoms) / len(required_expected_atoms)
         if required_expected_atoms
@@ -596,6 +684,7 @@ def deterministic_verdict(
         or bool(judge["critical_conflicts"])
         or judge["polarity"] == "mismatch"
         or polarity_mismatch
+        or rejected_atom_conflict
     )
 
     if hard_conflict or not judge["core_correct"]:
@@ -610,6 +699,7 @@ def deterministic_verdict(
     manual_review = (
         verdict == "unscorable_data"
         or hard_conflict
+        or required_atoms_filtered
         or (
             misses == 0
             and required_atomic_consistency < 1.0
@@ -647,6 +737,9 @@ def deterministic_verdict(
             required_atomic_consistency,
             6,
         ),
+        "required_atoms_filtered": required_atoms_filtered,
+        "rejected_required_atoms": sorted(rejected_atoms),
+        "rejected_atom_conflict": rejected_atom_conflict,
         "expected_polarity": expected_polarity,
         "generated_polarity": generated_polarity,
         "polarity_mismatch": polarity_mismatch,
@@ -909,7 +1002,12 @@ async def score_records(
                             ) from exc
                         if exc.code not in {408, 409, 429, 500, 502, 503, 504}:
                             break
-                    except (TimeoutError, socket.timeout, ValueError) as exc:
+                    except (
+                        TimeoutError,
+                        socket.timeout,
+                        ValueError,
+                        OSError,
+                    ) as exc:
                         last_error = exc
                     if attempt < retries:
                         await asyncio.sleep(2 ** (attempt + 1))

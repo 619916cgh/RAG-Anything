@@ -77,6 +77,7 @@ const normalizeAgentPayload = (formData) => ({
   enable_rerank: Boolean(formData.enable_rerank),
   include_references: Boolean(formData.include_references),
   answer_completeness_guard_enabled: Boolean(formData.answer_completeness_guard_enabled),
+  default_tag_id: formData.default_tag_id ? Number.parseInt(formData.default_tag_id, 10) : null,
 })
 
 const upsertAgent = (agents, nextAgent) => [
@@ -91,6 +92,7 @@ export default function AgentsPage({ onToast }) {
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [templates, setTemplates] = useState([])
   const [kbs, setKBs] = useState([])
+  const [knowledgeTags, setKnowledgeTags] = useState([])
   const [showModal, setShowModal] = useState(false)
   const [editingAgent, setEditingAgent] = useState(null)
   const [form, setForm] = useState(getDefaultForm())
@@ -146,6 +148,19 @@ export default function AgentsPage({ onToast }) {
     loadAgentOptions().catch(() => {})
   }, [loadAgentOptions, loadAgents, onToast])
   useEffect(() => { setPage(1) }, [search])
+  useEffect(() => {
+    if (!showModal) return undefined
+    let cancelled = false
+    setKnowledgeTags([])
+    api.listAllKnowledgeTags({ kb: form.kb_name })
+      .then(result => {
+        if (!cancelled) setKnowledgeTags(Array.isArray(result.tags) ? result.tags : [])
+      })
+      .catch(() => {
+        if (!cancelled) setKnowledgeTags([])
+      })
+    return () => { cancelled = true }
+  }, [form.kb_name, showModal])
   useLayoutEffect(() => {
     const grid = gridRef.current
     if (!grid) return undefined
@@ -205,6 +220,7 @@ export default function AgentsPage({ onToast }) {
       temperature: 0.0, max_response_tokens: 4096, query_mode: 'hybrid', agent_mode: 'none',
       retrieval_top_k: 40, chunk_top_k: 20, enable_rerank: false, include_references: true,
       answer_completeness_guard_enabled: false,
+      default_tag_id: null,
       system_prompt: '', use_default_prompt: true, welcome_message: '', template_id: '',
     }
   }
@@ -243,6 +259,7 @@ export default function AgentsPage({ onToast }) {
       chunk_top_k: clampAgentNumber('chunk_top_k', agent.chunk_top_k),
       enable_rerank: Boolean(agent.enable_rerank), include_references: agent.include_references !== false,
       answer_completeness_guard_enabled: Boolean(agent.answer_completeness_guard_enabled),
+      default_tag_id: agent.default_tag_id || null,
       system_prompt: agent.system_prompt || '', use_default_prompt: agent.use_default_prompt !== false,
       welcome_message: agent.welcome_message || '', template_id: agent.template_id || '',
     })
@@ -673,7 +690,7 @@ export default function AgentsPage({ onToast }) {
                   <div>
                     <label className="text-xs text-ink-muted mb-1 block">关联知识库</label>
                     <select className="input-field" value={form.kb_name}
-                      onChange={e => setForm({ ...form, kb_name: e.target.value })}>
+      onChange={e => setForm({ ...form, kb_name: e.target.value, default_tag_id: null })}>
                       {kbs.map(kb => <option key={kb.name} value={kb.name}>{getKnowledgeBaseDisplayName(kb)}</option>)}
                     </select>
                   </div>
@@ -687,6 +704,18 @@ export default function AgentsPage({ onToast }) {
                       <option value="qwen3-32b">qwen3-32b</option>
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-ink-muted mb-1 block">默认检索范围</label>
+                  <select className="input-field" value={form.default_tag_id || ''}
+                    onChange={e => setForm({ ...form, default_tag_id: e.target.value ? Number.parseInt(e.target.value, 10) : null })}>
+                    <option value="">整个知识库</option>
+                    {knowledgeTags.map(tag => (
+                      <option key={tag.id} value={tag.id}>{tag.name}（{tag.chunk_count || 0} 个切块）</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-2xs text-ink-muted">保存后默认只检索该标签范围；对话页选择其他标签时可临时覆盖。</p>
                 </div>
 
                 {/* 查询模式 */}

@@ -148,7 +148,7 @@ def test_repository_manifest_covers_every_sql_file_and_keeps_duplicate_prefixes(
         "010_manufacturing_to_autorepair_permissions.sql",
         "010_uploaded_files_task_queue.sql",
     }
-    assert migrations[-1].migration_id == "039_agent_answer_completeness_guard.sql"
+    assert migrations[-1].migration_id == "040_agent_default_tag_scope.sql"
 
 
 def test_provider_governance_migration_is_atomic_and_registered():

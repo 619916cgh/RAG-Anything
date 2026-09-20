@@ -307,6 +307,7 @@ class TestAgenticRAGReasoning:
             "enable_rerank": True,
             "include_references": False,
             "answer_completeness_guard_enabled": False,
+            "default_tag_id": None,
         }
 
     def test_assistant_message_media_persists_images_for_conversation_reload(self):

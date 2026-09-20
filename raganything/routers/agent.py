@@ -951,6 +951,7 @@ class AgentCreateRequest(BaseModel):
     enable_rerank: bool = False
     include_references: bool = True
     answer_completeness_guard_enabled: bool = False
+    default_tag_id: Optional[int] = Field(default=None, ge=1)
     system_prompt: str = ""
     use_default_prompt: bool = True
     welcome_message: Optional[str] = None
@@ -982,6 +983,7 @@ class AgentUpdateRequest(BaseModel):
     enable_rerank: Optional[bool] = None
     include_references: Optional[bool] = None
     answer_completeness_guard_enabled: Optional[bool] = None
+    default_tag_id: Optional[int] = Field(default=None, ge=1)
     system_prompt: Optional[str] = None
     use_default_prompt: Optional[bool] = None
     welcome_message: Optional[str] = None
@@ -1007,7 +1009,7 @@ class AgentQueryRequest(BaseModel):
     agent_mode: Optional[AgentMode] = None
     vlm_enhanced: bool = False
     image: Optional[str] = None  # base64 data URI of user-uploaded query image (e.g. data:image/jpeg;base64,...)
-    tag_id: Optional[int] = None
+    tag_id: Optional[int] = Field(default=None, ge=0)
     retrieval_only: bool = False  # 受权限保护的评测诊断：不暴露上下文正文，也不触发生成
     run_cache_scope: str = Field(default="", max_length=128)
 
@@ -1075,6 +1077,12 @@ def _normalise_agent_config_values(values: dict) -> dict:
     for field in _AGENT_BOOL_DEFAULTS:
         if field in normalised:
             normalised[field] = _agent_bool(field, normalised[field])
+    if "default_tag_id" in normalised:
+        try:
+            tag_id = int(normalised["default_tag_id"])
+        except (TypeError, ValueError):
+            tag_id = 0
+        normalised["default_tag_id"] = tag_id if tag_id > 0 else None
     return normalised
 
 
@@ -1089,6 +1097,7 @@ def _agent_runtime_config(agent: dict) -> dict:
             "answer_completeness_guard_enabled",
             False,
         ),
+        "default_tag_id": agent.get("default_tag_id"),
     })
 
 
@@ -1100,6 +1109,47 @@ def _normalise_query_mode(value: object, *, default: str = "hybrid") -> str:
 def _normalise_agent_mode(value: object, *, default: str = "none") -> str:
     mode = str(value or "").strip().lower()
     return mode if mode in _AGENT_REASONING_MODES else default
+
+
+def _effective_agent_tag_id(
+    requested_tag_id: int | None,
+    default_tag_id: object,
+) -> int | None:
+    """Resolve request override, including 0 as an explicit whole-KB scope."""
+    if requested_tag_id is not None:
+        return None if requested_tag_id == 0 else requested_tag_id
+    if default_tag_id is None or default_tag_id == "":
+        return None
+    try:
+        parsed = int(default_tag_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            503,
+            detail={
+                "code": "agent_tag_scope_invalid",
+                "message": "Agent default tag scope is invalid",
+            },
+        )
+    if parsed <= 0:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "agent_tag_scope_invalid",
+                "message": "Agent default tag scope is invalid",
+            },
+        )
+    return parsed
+
+
+async def _validate_agent_default_tag_scope(
+    kb_name: str,
+    tag_id: int | None,
+) -> None:
+    if tag_id is None:
+        return
+    scope = await resolve_tag_scope(kb_name, int(tag_id))
+    if scope is None:
+        raise HTTPException(422, "Selected tag scope is no longer available")
 
 
 def _build_agent_system_prompt(
@@ -1363,6 +1413,7 @@ async def create_agent(
     """创建新智能体"""
     # 验证 KB 访问权限
     await verify_kb_access(kb=req.kb_name, current_user=current_user)
+    await _validate_agent_default_tag_scope(req.kb_name, req.default_tag_id)
     config = AgentConfig(
         name=req.name,
         icon=req.icon,
@@ -1382,6 +1433,7 @@ async def create_agent(
             "answer_completeness_guard_enabled",
             req.answer_completeness_guard_enabled,
         ),
+        default_tag_id=req.default_tag_id,
         system_prompt=req.system_prompt,
         use_default_prompt=req.use_default_prompt,
         template_id=req.template_id,
@@ -1407,8 +1459,19 @@ async def update_agent(
     raw_updates = req.model_dump(exclude_unset=True)
     if "kb_name" in raw_updates:
         await verify_kb_access(kb=raw_updates["kb_name"], current_user=current_user)
+    target_kb = raw_updates.get("kb_name", agent.get("kb_name"))
+    target_tag_id = (
+        raw_updates["default_tag_id"]
+        if "default_tag_id" in raw_updates
+        else agent.get("default_tag_id")
+    )
+    await _validate_agent_default_tag_scope(target_kb, target_tag_id)
     updates = _normalise_agent_config_values(
-        {k: v for k, v in raw_updates.items() if v is not None}
+        {
+            k: v
+            for k, v in raw_updates.items()
+            if v is not None or k == "default_tag_id"
+        }
     )
     agent = await pg_update_agent(agent_id, updates)
     if not agent:
@@ -1698,8 +1761,12 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         timing.total(outcome="error")
         raise HTTPException(503, detail={"code": "profile_unavailable", "message": "selected model or personal settings are unavailable"}) from exc
     tag_scope = None
-    if req.tag_id is not None:
-        tag_scope = await resolve_tag_scope(actual_kb, req.tag_id)
+    effective_tag_id = _effective_agent_tag_id(
+        req.tag_id,
+        agent.get("default_tag_id"),
+    )
+    if effective_tag_id is not None:
+        tag_scope = await resolve_tag_scope(actual_kb, int(effective_tag_id))
         if tag_scope is None:
             # Do not reveal whether a tag exists in a different knowledge base.
             timing.total(outcome="error")

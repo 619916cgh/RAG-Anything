@@ -42,6 +42,7 @@
     {"sequence": 39, "id": "036_provider_governance.sql"},
     {"sequence": 40, "id": "037_remove_dag_workflow.sql"},
     {"sequence": 41, "id": "038_citation_provenance.sql"},
-    {"sequence": 42, "id": "039_agent_answer_completeness_guard.sql"}
+    {"sequence": 42, "id": "039_agent_answer_completeness_guard.sql"},
+    {"sequence": 43, "id": "040_agent_default_tag_scope.sql"}
   ]
 }

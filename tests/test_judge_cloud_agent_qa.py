@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,38 @@ def test_strict_json_rejects_duplicate_keys():
 
     with pytest.raises(ValueError, match="Duplicate JSON key"):
         judge.strict_json_loads('{"verdict":"correct","verdict":"partial"}')
+
+
+def test_judge_payload_normalizes_common_transport_variants():
+    judge = load_judge()
+    payload = judge_payload()
+    payload.update(
+        {
+            "core_correct": "true",
+            "ambiguous_question": "false",
+            "evidence_sufficient_for_scoring": "true",
+            "polarity": "N/A",
+            "critical_conflicts": None,
+            "required_atoms": None,
+            "reason_codes": "normal",
+            "confidence": "90%",
+        }
+    )
+    payload["keypoint_verdicts"][0]["id"] = 1
+    payload["keypoint_verdicts"][0]["evidence"] = None
+
+    normalized = judge.normalize_judge_payload(
+        judge.strict_json_loads(json.dumps({"judgment": payload}))
+    )
+    validated = judge.validate_judge_payload(normalized)
+
+    assert validated["core_correct"] is True
+    assert validated["polarity"] == "not_applicable"
+    assert validated["required_atoms"] == []
+    assert validated["reason_codes"] == ["normal"]
+    assert validated["confidence"] == 0.9
+    assert validated["keypoint_verdicts"][0]["id"] == "1"
+    assert validated["keypoint_verdicts"][0]["evidence"] == ""
 
 
 def test_deterministic_verdict_requires_all_keypoints_for_correct():
@@ -125,14 +158,86 @@ def test_required_atom_mismatch_prevents_correct():
     assert signals["required_atomic_consistency"] == 0.0
 
 
-def test_required_atoms_must_exist_in_expected_answer():
+def test_required_atoms_not_in_expected_answer_are_ignored():
     judge = load_judge()
+    payload = judge_payload(required_atoms=("24V",))
 
-    with pytest.raises(ValueError, match="not present"):
-        judge.validate_required_atoms(
-            judge_payload(required_atoms=("24V",)),
-            "低压电源通常为12V蓄电池。",
-        )
+    audit = judge.reconcile_required_atoms(
+        payload,
+        "低压电源通常为12V蓄电池。",
+    )
+
+    assert payload["required_atoms"] == []
+    assert audit["rejected"] == ["24V"]
+    assert audit["rejected_atoms"] == ["V:24"]
+
+
+def test_non_atomic_required_entries_are_ignored():
+    judge = load_judge()
+    payload = judge_payload(required_atoms=("QVR型", "12V"))
+
+    audit = judge.reconcile_required_atoms(
+        payload,
+        "普通低压导线绝缘层分为QVR型和QFR型，低压电源为12V。",
+    )
+
+    assert payload["required_atoms"] == ["12V"]
+    assert audit["rejected"] == ["QVR型"]
+    assert audit["rejected_atoms"] == []
+
+
+def test_mixed_required_atom_entry_is_rejected_as_a_whole():
+    judge = load_judge()
+    payload = judge_payload(required_atoms=("12V和24V",))
+
+    audit = judge.reconcile_required_atoms(
+        payload,
+        "低压电源通常为12V蓄电池。",
+    )
+
+    assert payload["required_atoms"] == []
+    assert audit["rejected"] == ["12V和24V"]
+    assert audit["rejected_atoms"] == ["V:24"]
+
+
+def test_filtered_required_atom_conflict_cannot_be_correct():
+    judge = load_judge()
+    payload = judge_payload(required_atoms=("24V",))
+    judge.reconcile_required_atoms(
+        payload,
+        "低压电源通常为12V蓄电池。",
+    )
+
+    verdict, signals = judge.deterministic_verdict(
+        payload,
+        "低压电源通常是多少伏？",
+        "低压电源通常为12V蓄电池。",
+        "低压电源通常为24V蓄电池。",
+    )
+
+    assert verdict == "incorrect"
+    assert signals["rejected_atom_conflict"] is True
+    assert signals["manual_review_required"] is True
+
+
+def test_filtered_required_atoms_force_manual_review_without_conflict():
+    judge = load_judge()
+    payload = judge_payload(required_atoms=("QVR型",))
+    judge.reconcile_required_atoms(
+        payload,
+        "普通低压导线绝缘层分为QVR型和QFR型。",
+    )
+
+    verdict, signals = judge.deterministic_verdict(
+        payload,
+        "普通低压导线绝缘层分哪两种？",
+        "普通低压导线绝缘层分为QVR型和QFR型。",
+        "普通低压导线绝缘层分为QVR型和QFR型。",
+    )
+
+    assert verdict == "correct"
+    assert signals["required_atoms_filtered"] is True
+    assert signals["manual_review_required"] is True
 
 
 def test_wilson_interval_is_bounded():

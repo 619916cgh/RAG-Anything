@@ -199,6 +199,7 @@ async def _promote_legacy_json_agent(
                 query_mode, agent_mode, retrieval_top_k, chunk_top_k,
                 enable_rerank, include_references,
                 answer_completeness_guard_enabled,
+                default_tag_id,
                 system_prompt, use_default_prompt,
                 owner_id, owner_username, template_id,
                 created_at, updated_at
@@ -209,7 +210,7 @@ async def _promote_legacy_json_agent(
                 $14, $15,
                 $16, $17,
                 $18, $19, $20,
-                $21, $22, $23
+                $21, $22, $23, $24
             )
             ON CONFLICT (id) DO NOTHING
             """,
@@ -232,6 +233,7 @@ async def _promote_legacy_json_agent(
                 legacy_agent.get("answer_completeness_guard_enabled"),
                 False,
             ),
+            legacy_agent.get("default_tag_id"),
             legacy_agent.get("system_prompt") or "",
             _coerce_bool(legacy_agent.get("use_default_prompt"), True),
             owner_id,
@@ -368,6 +370,7 @@ async def pg_create_agent(
                 query_mode, agent_mode, retrieval_top_k, chunk_top_k,
                 enable_rerank, include_references,
                 answer_completeness_guard_enabled,
+                default_tag_id,
                 system_prompt, use_default_prompt,
                 owner_id, owner_username, template_id,
                 created_at, updated_at
@@ -378,7 +381,7 @@ async def pg_create_agent(
                 $14, $15,
                 $16, $17,
                 $18, $19, $20,
-                $21, $22, $22
+                $21, $22, $23, $23
             )
             """,
             agent_id,
@@ -397,6 +400,7 @@ async def pg_create_agent(
             config.get("enable_rerank", False),
             config.get("include_references", True),
             config.get("answer_completeness_guard_enabled", False),
+            config.get("default_tag_id"),
             config.get("system_prompt", ""),
             config.get("use_default_prompt", True),
             owner_id,
@@ -430,6 +434,7 @@ async def pg_update_agent(
         "query_mode", "agent_mode", "retrieval_top_k", "chunk_top_k",
         "enable_rerank", "include_references",
         "answer_completeness_guard_enabled",
+        "default_tag_id",
         "system_prompt", "use_default_prompt",
         "owner_id", "owner_username", "template_id",
     }
@@ -438,7 +443,9 @@ async def pg_update_agent(
     values = []
     idx = 1
     for key, value in updates.items():
-        if key in allowed_fields and value is not None:
+        if key in allowed_fields and (
+            value is not None or key == "default_tag_id"
+        ):
             set_parts.append(f"{key} = ${idx}")
             values.append(value)
             idx += 1

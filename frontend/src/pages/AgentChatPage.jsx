@@ -1368,7 +1368,7 @@ export default function AgentChatPage({ onToast }) {
               }}
               className="input-field min-w-0 max-w-64 py-1 text-xs"
             >
-              <option value="">全部资料</option>
+              <option value="">智能体默认范围</option>
               {tagOptions.map(tag => <option key={tag.id} value={tag.id}>标签：{tag.name}（{tag.chunk_count || 0} 个切块）</option>)}
             </select>
             {selectedTag ? <span className="text-2xs text-sky-600 dark:text-sky-400">仅检索该标签切块；固定使用受限混合排序，检索模式切换不适用</span> : null}

@@ -135,6 +135,7 @@ def _make_agent(**overrides):
         "enable_rerank": False,
         "include_references": True,
         "answer_completeness_guard_enabled": False,
+        "default_tag_id": None,
         "system_prompt": "custom instructions",
         "use_default_prompt": True,
         "owner_id": 7,
@@ -179,9 +180,15 @@ async def test_update_agent_preserves_empty_string_clears_and_omits_unsent_field
     async def unexpected_verify_kb_access(**_kwargs):
         raise AssertionError("verify_kb_access should not run when kb_name is omitted")
 
+    async def fake_resolve_tag_scope(kb_name, tag_id):
+        assert kb_name == "kb-alpha"
+        assert tag_id == 5
+        return SimpleNamespace(tag_id=5, tag_name="default scope")
+
     monkeypatch.setattr(agent_router, "pg_get_agent", fake_get_agent)
     monkeypatch.setattr(agent_router, "pg_update_agent", fake_update_agent)
     monkeypatch.setattr(agent_router, "verify_kb_access", unexpected_verify_kb_access)
+    monkeypatch.setattr(agent_router, "resolve_tag_scope", fake_resolve_tag_scope)
 
     response = await agent_router.update_agent(
         "agent-1",
@@ -190,6 +197,7 @@ async def test_update_agent_preserves_empty_string_clears_and_omits_unsent_field
             welcome_message="",
             llm_model="qwen-max",
             answer_completeness_guard_enabled=True,
+            default_tag_id=5,
         ),
         current_user=current_user,
         _perm=None,
@@ -201,6 +209,7 @@ async def test_update_agent_preserves_empty_string_clears_and_omits_unsent_field
         "welcome_message": "",
         "llm_model": "qwen-max",
         "answer_completeness_guard_enabled": True,
+        "default_tag_id": 5,
     }
     assert response["agent"]["description"] == ""
     assert response["agent"]["welcome_message"] == ""
@@ -236,6 +245,35 @@ async def test_update_agent_persists_explicit_guard_disable(monkeypatch):
 
     assert captured == {"answer_completeness_guard_enabled": False}
     assert response["agent"]["answer_completeness_guard_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_agent_clears_default_tag_scope(monkeypatch):
+    current_user = {"id": 7, "username": "alice", "is_admin": False}
+    existing_agent = _make_agent(default_tag_id=5)
+    captured = {}
+
+    async def fake_get_agent(_agent_id):
+        return dict(existing_agent)
+
+    async def fake_update_agent(_agent_id, updates):
+        captured.update(updates)
+        merged = dict(existing_agent)
+        merged.update(updates)
+        return merged
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", fake_get_agent)
+    monkeypatch.setattr(agent_router, "pg_update_agent", fake_update_agent)
+
+    response = await agent_router.update_agent(
+        "agent-1",
+        agent_router.AgentUpdateRequest(default_tag_id=None),
+        current_user=current_user,
+        _perm=None,
+    )
+
+    assert captured == {"default_tag_id": None}
+    assert response["agent"]["default_tag_id"] is None
 
 
 @pytest.mark.asyncio
@@ -322,6 +360,7 @@ async def test_pg_create_agent_persists_answer_completeness_guard_flag(monkeypat
         return _make_agent(
             id=agent_id,
             answer_completeness_guard_enabled=True,
+            default_tag_id=9,
         )
 
     monkeypatch.setattr(pg_agent_repo, "_get_pool", lambda: Pool())
@@ -332,12 +371,15 @@ async def test_pg_create_agent_persists_answer_completeness_guard_flag(monkeypat
             "id": "agent-guard",
             "name": "Guard Agent",
             "answer_completeness_guard_enabled": True,
+            "default_tag_id": 9,
         }
     )
 
     assert "answer_completeness_guard_enabled" in captured["sql"]
     assert captured["values"][15] is True
+    assert captured["values"][16] == 9
     assert created["answer_completeness_guard_enabled"] is True
+    assert created["default_tag_id"] == 9
 
 
 @pytest.mark.asyncio
@@ -644,6 +686,18 @@ def test_agent_runtime_config_reads_persistent_completeness_guard_flag():
     assert runtime["answer_completeness_guard_enabled"] is True
 
 
+def test_effective_agent_tag_scope_supports_default_and_whole_kb_override():
+    resolve = agent_router._effective_agent_tag_id
+
+    assert resolve(None, 7) == 7
+    assert resolve(9, 7) == 9
+    assert resolve(0, 7) is None
+    assert resolve(None, None) is None
+    with pytest.raises(HTTPException) as exc_info:
+        resolve(None, "invalid")
+    assert exc_info.value.status_code == 503
+
+
 @pytest.mark.asyncio
 async def test_agent_llm_honors_explicit_guard_temperature():
     captured = {}
@@ -732,7 +786,7 @@ async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypa
     from PIL import Image
 
     current_user = {"id": 7, "username": "alice", "is_admin": False}
-    agent = _make_agent(agent_mode="none")
+    agent = _make_agent(agent_mode="none", default_tag_id=3)
     saved_messages = []
     vlm_calls = []
     tag_queries = []
@@ -787,6 +841,7 @@ async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypa
         return True
 
     async def fake_resolve_tag_scope(_kb_name, _tag_id):
+        assert _tag_id == 3
         return SimpleNamespace(tag_id=3, tag_name="测试标签")
 
     async def fake_retrieve_tag_scoped_context(_instance, _tag_scope, _query, **_kwargs):
@@ -829,7 +884,6 @@ async def test_image_query_uses_vlm_and_persists_preview_with_tag_scope(monkeypa
         agent_router.AgentQueryRequest(
             query="请描述这张图片",
             thread_id="thread-1",
-            tag_id=3,
             image=image_data_uri,
         ),
         _DummyRequest(),
