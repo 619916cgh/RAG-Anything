@@ -162,6 +162,36 @@ def test_odl_table_row_content_is_kept_when_cells_are_empty(tmp_path):
     assert "有效文本" in block["table_body"]
 
 
+def test_odl_table_list_items_are_preserved_as_cell_text(tmp_path):
+    block = _build_table_block(
+        {
+            "type": "table",
+            "rows": [
+                {
+                    "cells": [
+                        {"content": "万用表电阻档"},
+                        {
+                            "list items": [
+                                {
+                                    "content": (
+                                        "识别控制线圈引脚（阻值 50~120Ω）"
+                                    )
+                                }
+                            ]
+                        },
+                    ]
+                }
+            ],
+        },
+        tmp_path,
+        0,
+        "",
+    )
+
+    assert block is not None
+    assert "50~120Ω" in block["table_body"]
+
+
 def test_caption_only_odl_table_is_text_not_table(tmp_path):
     content, provenance, pages = OpenDataLoaderParser._flatten_elements(
         [

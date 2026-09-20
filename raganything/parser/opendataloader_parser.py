@@ -2463,7 +2463,7 @@ def _table_text_content(value: Any) -> str:
         if direct_parts:
             return " ".join(direct_parts)
         nested_parts = []
-        for key in ("kids", "children"):
+        for key in ("kids", "children", "list items"):
             nested = value.get(key)
             if isinstance(nested, (list, tuple)):
                 nested_text = _table_text_content(nested)
@@ -2574,7 +2574,14 @@ def _collect_nested_table_images(
                     seen_refs.add(ref)
                     images.append(value)
 
-            for key in ("labels", "cells", "rows", "kids", "children"):
+            for key in (
+                "labels",
+                "cells",
+                "rows",
+                "kids",
+                "children",
+                "list items",
+            ):
                 nested = value.get(key)
                 if isinstance(nested, (list, tuple, dict)):
                     _walk(nested)
@@ -2585,7 +2592,14 @@ def _collect_nested_table_images(
     _walk(
         {
             key: el.get(key)
-            for key in ("labels", "cells", "rows", "kids", "children")
+            for key in (
+                "labels",
+                "cells",
+                "rows",
+                "kids",
+                "children",
+                "list items",
+            )
             if key in el
         }
     )
