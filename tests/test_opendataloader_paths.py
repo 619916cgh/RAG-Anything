@@ -33,6 +33,22 @@ def test_relative_output_directory_resolves_before_artifact_paths(tmp_path, monk
     )
 
 
+def test_odl_accepts_four_component_java_version(monkeypatch):
+    monkeypatch.setattr(
+        "raganything.parser.opendataloader_parser.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stderr='openjdk version "17.0.20.1" 2026-08-18',
+            stdout="",
+        ),
+    )
+
+    assert OpenDataLoaderParser._java_version(Path("/fake/java")) == (
+        17,
+        0,
+        20,
+    )
+
+
 def test_default_output_directory_is_absolute(tmp_path):
     pdf_path = (tmp_path / "uploads" / "document.pdf").resolve()
 

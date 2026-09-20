@@ -432,7 +432,10 @@ class OpenDataLoaderParser(Parser):
         import re
 
         # Match lines like: openjdk version "17.0.19" 2026-04-21
-        m = re.search(r'version\s+"(\d+)\.(\d+)\.(\d+)"', output)
+        m = re.search(
+            r'version\s+"(\d+)\.(\d+)\.(\d+)(?:\.\d+)?"',
+            output,
+        )
         if m:
             return int(m.group(1)), int(m.group(2)), int(m.group(3))
         # Alternate: openjdk version "1.8.0_402"
