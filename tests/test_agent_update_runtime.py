@@ -208,6 +208,37 @@ async def test_update_agent_preserves_empty_string_clears_and_omits_unsent_field
 
 
 @pytest.mark.asyncio
+async def test_update_agent_persists_explicit_guard_disable(monkeypatch):
+    current_user = {"id": 7, "username": "alice", "is_admin": False}
+    existing_agent = _make_agent(answer_completeness_guard_enabled=True)
+    captured = {}
+
+    async def fake_get_agent(_agent_id):
+        return dict(existing_agent)
+
+    async def fake_update_agent(_agent_id, updates):
+        captured.update(updates)
+        merged = dict(existing_agent)
+        merged.update(updates)
+        return merged
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", fake_get_agent)
+    monkeypatch.setattr(agent_router, "pg_update_agent", fake_update_agent)
+
+    response = await agent_router.update_agent(
+        "agent-1",
+        agent_router.AgentUpdateRequest(
+            answer_completeness_guard_enabled=False,
+        ),
+        current_user=current_user,
+        _perm=None,
+    )
+
+    assert captured == {"answer_completeness_guard_enabled": False}
+    assert response["agent"]["answer_completeness_guard_enabled"] is False
+
+
+@pytest.mark.asyncio
 async def test_update_agent_rejects_forbidden_kb_change_before_persisting(monkeypatch):
     current_user = {"id": 7, "username": "alice", "is_admin": False}
     update_called = {"value": False}

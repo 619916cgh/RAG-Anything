@@ -535,6 +535,36 @@ async def test_retrieval_trace_records_all_channel_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_retrieval_trace_failure_does_not_break_search(monkeypatch):
+    def raising_info(_message):
+        raise RuntimeError("log sink failed")
+
+    async def vector_search(_query, _top_k):
+        return [
+            ScoredChunk(
+                chunk_id="chunk-1",
+                content="usable content",
+                score=None,
+                sources=["vector"],
+                score_source="rank_only",
+            )
+        ]
+
+    engine = HybridSearchEngine()
+    engine._logger = SimpleNamespace(info=raising_info)
+    engine._vector_search = vector_search
+    monkeypatch.setenv("AGENT_RETRIEVAL_TRACE_ENABLED", "true")
+
+    results = await engine.search(
+        "private query text",
+        options=RetrievalOptions(channels=("vector",), trace_id="trace-bad"),
+    )
+
+    assert [result.chunk_id for result in results] == ["chunk-1"]
+    assert results[0].content == "usable content"
+
+
+@pytest.mark.asyncio
 async def test_hybrid_search_does_not_wait_for_cancellation_resistant_channel(
     sample_chunks,
 ):
@@ -708,6 +738,31 @@ class TestRRFFusion:
         assert fused[0].sources == ["vector"]
         assert fused[0].vector_rank == 1
         assert fused[0].bm25_rank is None
+
+    def test_rrf_keeps_longest_content_for_shared_chunk_id(self):
+        vector = [
+            ScoredChunk(
+                chunk_id="shared",
+                content="short",
+                score=1.0,
+                sources=["vector"],
+            )
+        ]
+        bm25 = [
+            ScoredChunk(
+                chunk_id="shared",
+                content="complete chunk content",
+                score=0.5,
+                sources=["bm25"],
+            )
+        ]
+
+        fused = HybridSearchEngine._rrf_fuse(
+            [vector, bm25],
+            channel_labels=["vector", "bm25"],
+        )
+
+        assert fused[0].content == "complete chunk content"
 
 
 # ═══════════════════════════════════════════════════════════

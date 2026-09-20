@@ -874,6 +874,10 @@ class HybridSearchEngine:
 
                 entry = fused[cid]
                 entry["score"] += rrf_contrib
+                if len(str(chunk.content or "")) > len(
+                    str(entry.get("content") or "")
+                ):
+                    entry["content"] = chunk.content
                 if channel_labels is not None and ch_idx < len(channel_labels):
                     ch_name = channel_labels[ch_idx]
                 else:
@@ -1093,62 +1097,62 @@ class HybridSearchEngine:
             return
 
         try:
-            trace_limit = max(
-                1,
-                min(
-                    500,
-                    int(os.getenv("AGENT_RETRIEVAL_TRACE_LIMIT", "100")),
-                ),
-            )
-        except ValueError:
-            trace_limit = 100
-
-        channels: dict[str, list[dict[str, Any]]] = {}
-        for index, results in enumerate(channel_results):
-            label = (
-                channel_labels[index]
-                if index < len(channel_labels)
-                else f"channel_{index}"
-            )
-            channels[label] = [
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "rank": rank,
-                    "score": (
-                        None
-                        if chunk.score_source == "rank_only"
-                        else round(float(chunk.score), 8)
+            try:
+                trace_limit = max(
+                    1,
+                    min(
+                        500,
+                        int(os.getenv("AGENT_RETRIEVAL_TRACE_LIMIT", "100")),
                     ),
-                    "score_source": chunk.score_source,
-                    "content_sha256": hashlib.sha256(
-                        str(chunk.content or "").encode("utf-8")
-                    ).hexdigest(),
-                }
-                for rank, chunk in enumerate(results[:trace_limit], start=1)
-            ]
+                )
+            except ValueError:
+                trace_limit = 100
 
-        payload = {
-            "event": "agent_retrieval_trace",
-            "trace_id": options.trace_id if options else None,
-            "channels": channels,
-            "channel_status": channel_status,
-            "rrf": [
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "rank": rank,
-                    "score": round(float(chunk.score), 8),
-                    "sources": list(chunk.sources),
-                    "bm25_rank": chunk.bm25_rank,
-                    "vector_rank": chunk.vector_rank,
-                    "graph_rank": chunk.graph_rank,
-                    "content_sha256": hashlib.sha256(
-                        str(chunk.content or "").encode("utf-8")
-                    ).hexdigest(),
-                }
-                for rank, chunk in enumerate(selected[:trace_limit], start=1)
-            ],
-        }
-        try:
+            channels: dict[str, list[dict[str, Any]]] = {}
+            for index, results in enumerate(channel_results):
+                label = (
+                    channel_labels[index]
+                    if index < len(channel_labels)
+                    else f"channel_{index}"
+                )
+                channels[label] = [
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "rank": rank,
+                        "score": (
+                            None
+                            if chunk.score_source == "rank_only"
+                            else round(float(chunk.score), 8)
+                        ),
+                        "score_source": chunk.score_source,
+                        "content_sha256": hashlib.sha256(
+                            str(chunk.content or "").encode("utf-8")
+                        ).hexdigest(),
+                    }
+                    for rank, chunk in enumerate(results[:trace_limit], start=1)
+                ]
+
+            payload = {
+                "event": "agent_retrieval_trace",
+                "trace_id": options.trace_id if options else None,
+                "channels": channels,
+                "channel_status": channel_status,
+                "rrf": [
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "rank": rank,
+                        "score": round(float(chunk.score), 8),
+                        "sources": list(chunk.sources),
+                        "bm25_rank": chunk.bm25_rank,
+                        "vector_rank": chunk.vector_rank,
+                        "graph_rank": chunk.graph_rank,
+                        "content_sha256": hashlib.sha256(
+                            str(chunk.content or "").encode("utf-8")
+                        ).hexdigest(),
+                    }
+                    for rank, chunk in enumerate(selected[:trace_limit], start=1)
+                ],
+            }
             self._logger.info(
                 json.dumps(payload, ensure_ascii=True, sort_keys=True)
             )
