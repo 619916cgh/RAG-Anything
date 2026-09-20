@@ -255,6 +255,26 @@ def test_chinese_adjacent_units_are_normalized():
     assert judge.extract_atoms("0.012kV蓄电池") == {"V:12"}
 
 
+def test_numeric_ranges_expand_both_bounds_with_shared_unit():
+    judge = load_judge()
+
+    assert judge.extract_atoms("0.5～16mm²") == {"MM:0.5", "MM:16"}
+    assert judge.extract_atoms("-40～200℃") == {"℃:-40", "℃:200"}
+
+
+def test_range_bound_matches_answer_without_repeating_lower_unit():
+    judge = load_judge()
+    verdict, signals = judge.deterministic_verdict(
+        judge_payload(required_atoms=("0.5mm²", "16mm²")),
+        "低压导线截面积范围是多少？",
+        "低压导线截面积范围为0.5～16mm²。",
+        "低压导线截面积范围为0.5~16mm²。",
+    )
+
+    assert verdict == "correct"
+    assert signals["required_atomic_consistency"] == 1.0
+
+
 def test_resume_does_not_skip_previous_judge_errors(tmp_path):
     judge = load_judge()
     path = tmp_path / "judgments.jsonl"

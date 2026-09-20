@@ -51,12 +51,23 @@ UNSAFE_REMOTE_KEYS = {
     "token",
     "refresh_token",
 }
-NUMBER_UNIT_PATTERN = re.compile(
-    r"(?P<number>\d+(?:\.\d+)?)\s*"
-    r"(?P<unit>kV|V|mA|A|kW|W|kbit/s|Mbit/s|kHz|MHz|Hz|"
+_NUMBER_TOKEN = r"[+\-−]?\d+(?:\.\d+)?"
+_UNIT_TOKEN = (
+    r"kV|V|mA|A|kW|W|kbit/s|Mbit/s|kHz|MHz|Hz|"
     r"℃|°C|%|Ω|欧姆|mm|cm|km|kg|ms|s|"
     r"伏特|伏|毫安|安培|安|千瓦|瓦特|瓦|千赫|兆赫|赫兹|赫|"
-    r"摄氏度|毫米|厘米|千米|千克|毫秒|秒)",
+    r"摄氏度|毫米|厘米|千米|千克|毫秒|秒"
+)
+NUMBER_RANGE_PATTERN = re.compile(
+    rf"(?P<start>{_NUMBER_TOKEN})\s*"
+    rf"(?:~|～|至|到|—|–)\s*"
+    rf"(?P<end>{_NUMBER_TOKEN})\s*"
+    rf"(?P<unit>{_UNIT_TOKEN})",
+    re.IGNORECASE,
+)
+NUMBER_UNIT_PATTERN = re.compile(
+    rf"(?P<number>{_NUMBER_TOKEN})\s*"
+    rf"(?P<unit>{_UNIT_TOKEN})",
     re.IGNORECASE,
 )
 CODE_PATTERN = re.compile(
@@ -146,6 +157,14 @@ def canonical_number_unit(number: str, unit: str) -> str:
 def extract_atoms(value: str) -> set[str]:
     normalized = unicodedata.normalize("NFKC", str(value or ""))
     atoms: set[str] = set()
+    for match in NUMBER_RANGE_PATTERN.finditer(normalized):
+        for bound in ("start", "end"):
+            atoms.add(
+                canonical_number_unit(
+                    match.group(bound),
+                    match.group("unit"),
+                )
+            )
     for match in NUMBER_UNIT_PATTERN.finditer(normalized):
         atoms.add(
             canonical_number_unit(
