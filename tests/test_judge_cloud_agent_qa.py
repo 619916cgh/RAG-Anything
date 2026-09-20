@@ -292,6 +292,7 @@ def test_numeric_ranges_expand_both_bounds_with_shared_unit():
 
     assert judge.extract_atoms("0.5～16mm²") == {"MM:0.5", "MM:16"}
     assert judge.extract_atoms("-40～200℃") == {"℃:-40", "℃:200"}
+    assert judge.extract_atoms("−40～200℃") == {"℃:-40", "℃:200"}
 
 
 def test_range_bound_matches_answer_without_repeating_lower_unit():

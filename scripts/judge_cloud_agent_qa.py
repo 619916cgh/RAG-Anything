@@ -104,7 +104,11 @@ def normalize_text(value: str) -> str:
 
 
 def canonical_number_unit(number: str, unit: str) -> str:
-    value = float(number)
+    value = float(
+        str(number)
+        .replace("−", "-")
+        .replace("－", "-")
+    )
     canonical = unit.upper().replace("°C", "℃")
     conversions = {
         "KV": ("V", 1000.0),
