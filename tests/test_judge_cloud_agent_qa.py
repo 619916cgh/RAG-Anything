@@ -100,6 +100,18 @@ def test_deterministic_verdict_requires_all_keypoints_for_correct():
     assert signals["keypoint_recall"] == 0.5
 
 
+def test_judge_prompt_excludes_optional_supplement_as_keypoint():
+    judge = load_judge()
+    prompt = judge.make_prompt(
+        "熔丝作用是什么？",
+        "熔丝用于保护电路，限额电流标注在外壳上，核心元件为锌合金熔丝片。",
+        "熔丝用于电路保护并在过载时熔断。",
+    )
+
+    assert "标准答案中的材料、标注方式、背景参数、举例和补充说明" in prompt
+    assert "不得列为关键点" in prompt
+
+
 def test_deterministic_verdict_marks_atomic_conflict_manual_review():
     judge = load_judge()
     verdict, signals = judge.deterministic_verdict(
