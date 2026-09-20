@@ -1,0 +1,15 @@
+{
+  "commit_sha": "e2d362600c8c8facdda604de34edfe30a8389b70",
+  "payload_sha256": "b39a56c12cb9183c5bffc358036a8e39dc1665d892e7654b310017b97b25f2a5",
+  "app_runtime_image": "raganything-app-runtime:controlled-b8b185a",
+  "app_runtime_id": "sha256:50b63703005a53638a7107317ec11f9e26cd38f5f8a41d5d89df1692e2934853",
+  "nginx_runtime_image": "raganything-nginx:controlled-b8b185a",
+  "nginx_runtime_id": "sha256:c4491929b718bba11c437ef9740aeec00d4bb408dcb532616c3ade4586500364",
+  "app_image": "raganything-app:fast-e2d362600c8c",
+  "app_image_id": "sha256:960d63877b9750e4bd39a4da0d2a703731ea3b598a9bf88af403481e6ee84c91",
+  "nginx_image": "raganything-nginx:fast-e2d362600c8c",
+  "nginx_image_id": "sha256:6fea42a7c2b098a80be05e3c501435be715249ccaec5f030f8e08d7b819c1291",
+  "rollback_app_image": "raganything-app:fast-rollback-e2d362600c8c",
+  "rollback_nginx_image": "raganything-nginx:fast-rollback-e2d362600c8c",
+  "released_utc": "2026-09-20T12:52:03Z"
+}
