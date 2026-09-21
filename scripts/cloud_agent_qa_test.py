@@ -36,6 +36,14 @@ PROJECT_NUMBERS = {
     "五": 5,
     "六": 6,
 }
+FULL_PROJECT_QUESTION_COUNTS = {
+    1: 90,
+    2: 90,
+    3: 97,
+    4: 80,
+    5: 80,
+    6: 100,
+}
 FILE_PATTERN = re.compile(r"^项目([一二三四五六])\s+(.+)\.md$")
 QUESTION_PATTERN = re.compile(r"^\*\*(\d+)\.\s*问：(.*?)\*\*\s*$")
 TERMINAL_EVENTS = {"done", "error"}
@@ -114,25 +122,45 @@ def parse_markdown(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def load_qa_sets(input_dir: Path) -> list[dict[str, Any]]:
+def load_qa_sets(
+    input_dir: Path,
+    *,
+    allow_partial_project: bool = False,
+) -> list[dict[str, Any]]:
     files = sorted(
         (path for path in input_dir.iterdir() if FILE_PATTERN.match(path.name)),
         key=lambda path: PROJECT_NUMBERS[FILE_PATTERN.match(path.name).group(1)],
     )
-    if len(files) != 6:
+    if allow_partial_project:
+        if len(files) != 1:
+            raise ValueError(
+                "Partial-project input must contain exactly one project file"
+            )
+    elif len(files) != 6:
         raise ValueError(f"Expected 6 QA Markdown files, found {len(files)}")
 
     records: list[dict[str, Any]] = []
     for path in files:
         records.extend(parse_markdown(path))
 
-    expected = list(range(1, len(records) + 1))
-    actual = [item["question_number"] for item in records]
-    if actual != expected:
-        raise ValueError(
-            "Question numbering is not contiguous from 1 through "
-            f"{len(records)}"
+    records_by_project: dict[int, list[int]] = {}
+    for item in records:
+        records_by_project.setdefault(int(item["project_number"]), []).append(
+            int(item["question_number"])
         )
+    for project_number, numbers in records_by_project.items():
+        start = (
+            sum(
+                FULL_PROJECT_QUESTION_COUNTS[item]
+                for item in range(1, project_number)
+            )
+            + 1
+        )
+        expected = list(range(start, start + len(numbers)))
+        if numbers != expected:
+            raise ValueError(
+                f"Project {project_number} question numbering is not contiguous"
+            )
     return records
 
 
@@ -806,6 +834,11 @@ def parse_args() -> argparse.Namespace:
         help="Agent to use for the selected project.",
     )
     parser.add_argument(
+        "--allow-partial-project",
+        action="store_true",
+        help="Allow one project file containing a contiguous answerable subset.",
+    )
+    parser.add_argument(
         "--max-consecutive-failures",
         type=int,
         default=5,
@@ -837,7 +870,14 @@ def main() -> int:
     if args.max_consecutive_failures < 1:
         raise SystemExit("--max-consecutive-failures must be positive")
 
-    qa_records = load_qa_sets(args.input_dir)
+    if args.allow_partial_project and args.project_number is None:
+        raise SystemExit(
+            "--allow-partial-project requires --project-number and --agent-name"
+        )
+    qa_records = load_qa_sets(
+        args.input_dir,
+        allow_partial_project=bool(args.allow_partial_project),
+    )
     requested_agents = [
         item.strip() for item in args.agents.split(",") if item.strip()
     ]

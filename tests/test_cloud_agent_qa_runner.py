@@ -3,6 +3,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def load_runner():
     path = Path(__file__).parents[1] / "scripts" / "cloud_agent_qa_test.py"
@@ -15,9 +17,10 @@ def load_runner():
 
 def test_load_qa_sets_parses_project_order_and_counts(tmp_path):
     runner = load_runner()
+    question_numbers = (1, 91, 181, 278, 358, 438)
     for number, question_number in zip(
         ("一", "二", "三", "四", "五", "六"),
-        range(1, 7),
+        question_numbers,
     ):
         (tmp_path / f"项目{number} 测试项目.md").write_text(
             "前言\n\n"
@@ -29,11 +32,43 @@ def test_load_qa_sets_parses_project_order_and_counts(tmp_path):
 
     records = runner.load_qa_sets(tmp_path)
 
-    assert [item["question_number"] for item in records] == [1, 2, 3, 4, 5, 6]
+    assert [item["question_number"] for item in records] == list(question_numbers)
     assert [item["project_number"] for item in records] == [1, 2, 3, 4, 5, 6]
     assert [item["answer"] for item in records] == [
-        f"答案{number}。" for number in range(1, 7)
+        f"答案{number}。" for number in question_numbers
     ]
+
+
+def test_load_qa_sets_accepts_one_partial_project_file(tmp_path):
+    runner = load_runner()
+    (tmp_path / "项目二 测试项目.md").write_text(
+        "### 项目二 测试项目\n\n"
+        "**91. 问：问题91？**  \n"
+        "答：答案91。\n\n"
+        "**92. 问：问题92？**  \n"
+        "答：答案92。\n",
+        encoding="utf-8",
+    )
+
+    records = runner.load_qa_sets(
+        tmp_path,
+        allow_partial_project=True,
+    )
+
+    assert [item["question_number"] for item in records] == [91, 92]
+    assert [item["project_number"] for item in records] == [2, 2]
+
+
+def test_load_qa_sets_rejects_multiple_files_for_partial_project(tmp_path):
+    runner = load_runner()
+    for number in ("一", "二"):
+        (tmp_path / f"项目{number} 测试项目.md").write_text(
+            f"**1. 问：问题{number}？**  \n答：答案。\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="exactly one project file"):
+        runner.load_qa_sets(tmp_path, allow_partial_project=True)
 
 
 def test_sanitize_value_removes_path_like_citation_fields():

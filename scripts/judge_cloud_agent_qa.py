@@ -1269,6 +1269,11 @@ def parse_args() -> argparse.Namespace:
         choices=range(1, 7),
         help="Score one project only.",
     )
+    parser.add_argument(
+        "--expected-count",
+        type=int,
+        help="Expected question count for a selected project subset.",
+    )
     parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
@@ -1294,6 +1299,26 @@ def resolve_provider(args: argparse.Namespace) -> tuple[str, str, str]:
     return base_url, api_key, model
 
 
+def resolve_expected_counts(
+    project_number: int | None,
+    expected_count: int | None,
+) -> dict[int, int]:
+    all_expected_counts = {1: 90, 2: 90, 3: 97, 4: 80, 5: 80, 6: 100}
+    if project_number is None:
+        if expected_count is not None:
+            raise ValueError("--expected-count requires --project-number")
+        return all_expected_counts
+    if expected_count is None:
+        count = all_expected_counts[project_number]
+    else:
+        count = expected_count
+    if count < 1 or count > all_expected_counts[project_number]:
+        raise ValueError(
+            "--expected-count must be between 1 and the full project count"
+        )
+    return {project_number: count}
+
+
 def main() -> int:
     args = parse_args()
     if args.concurrency < 1 or args.concurrency > 8:
@@ -1305,17 +1330,19 @@ def main() -> int:
     if not records:
         raise SystemExit("No results to score")
     all_expected_counts = {1: 90, 2: 90, 3: 97, 4: 80, 5: 80, 6: 100}
-    if args.project_number is None:
-        expected_counts = all_expected_counts
-    else:
+    try:
+        expected_counts = resolve_expected_counts(
+            args.project_number,
+            args.expected_count,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if args.project_number is not None:
         records = [
             record
             for record in records
             if int(record.get("project_number") or 0) == args.project_number
         ]
-        expected_counts = {
-            args.project_number: all_expected_counts[args.project_number]
-        }
     actual_counts = Counter(int(record.get("project_number") or 0) for record in records)
     if dict(actual_counts) != expected_counts:
         raise SystemExit(

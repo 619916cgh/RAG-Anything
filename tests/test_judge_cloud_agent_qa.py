@@ -48,6 +48,30 @@ def judge_payload(
     }
 
 
+def test_expected_counts_allow_selected_project_subset():
+    judge = load_judge()
+
+    assert judge.resolve_expected_counts(1, 57) == {1: 57}
+    assert judge.resolve_expected_counts(2, 40) == {2: 40}
+    assert judge.resolve_expected_counts(None, None) == {
+        1: 90,
+        2: 90,
+        3: 97,
+        4: 80,
+        5: 80,
+        6: 100,
+    }
+
+
+def test_expected_counts_reject_invalid_subset_usage():
+    judge = load_judge()
+
+    with pytest.raises(ValueError, match="requires --project-number"):
+        judge.resolve_expected_counts(None, 57)
+    with pytest.raises(ValueError, match="between 1 and the full project count"):
+        judge.resolve_expected_counts(1, 91)
+
+
 def test_strict_json_rejects_duplicate_keys():
     judge = load_judge()
 
