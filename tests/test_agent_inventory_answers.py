@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import pytest
+from fastapi import HTTPException
 
 from raganything import dependencies
 from raganything.routers import agent as agent_router
@@ -140,6 +141,77 @@ async def test_inventory_stream_accepts_before_blocking_preparation(monkeypatch)
     release_inventory.set()
     assert json.loads((await next_event)[6:])["type"] == "agent_info"
     await iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_inventory_missing_agent_returns_http_404_before_stream(monkeypatch):
+    monkeypatch.setattr(agent_router, "pg_get_agent", lambda _agent_id: _async_value(None))
+    monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(HTTPException) as raised:
+        await agent_router.agent_query_stream(
+            "missing-agent",
+            agent_router.AgentQueryRequest(query="这个知识库包含多少个文件"),
+            _Request(),
+            current_user={"id": 7, "username": "tester"},
+            _perm=None,
+        )
+
+    assert raised.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_inventory_kb_denial_returns_http_403_before_stream(monkeypatch):
+    async def get_agent(_agent_id):
+        return {"id": "agent-1", "name": "演示智能体", "kb_name": "private"}
+
+    async def deny_kb(kb, current_user):
+        raise HTTPException(403, "无权访问知识库")
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", get_agent)
+    monkeypatch.setattr(agent_router, "verify_kb_access", deny_kb)
+    monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(HTTPException) as raised:
+        await agent_router.agent_query_stream(
+            "agent-1",
+            agent_router.AgentQueryRequest(query="这个知识库包含多少个文件"),
+            _Request(),
+            current_user={"id": 7, "username": "tester"},
+            _perm=None,
+        )
+
+    assert raised.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_inventory_invalid_thread_returns_http_404_before_stream(monkeypatch):
+    async def get_agent(_agent_id):
+        return {"id": "agent-1", "name": "演示智能体", "kb_name": "demo"}
+
+    async def missing_thread(_agent_id, _thread_id, _current_user):
+        raise HTTPException(404, "对话线程不存在")
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", get_agent)
+    monkeypatch.setattr(
+        agent_router, "verify_kb_access", lambda kb, current_user: _async_value(kb)
+    )
+    monkeypatch.setattr(agent_router, "_require_owned_conversation", missing_thread)
+    monkeypatch.setattr(agent_router, "validate_query_input", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(HTTPException) as raised:
+        await agent_router.agent_query_stream(
+            "agent-1",
+            agent_router.AgentQueryRequest(
+                query="这个知识库包含多少个文件",
+                thread_id="missing-thread",
+            ),
+            _Request(),
+            current_user={"id": 7, "username": "tester"},
+            _perm=None,
+        )
+
+    assert raised.value.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -383,3 +383,39 @@ async def test_query_stream_timeout_keeps_error_when_context_cleanup_fails(monke
     events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
     assert [event["type"] for event in events][-1] == "error"
     assert any(event["type"] == "accepted" for event in events)
+    error = next(event for event in reversed(events) if event["type"] == "error")
+    assert error["code"] == "query_timeout"
+    assert error["content"] == "查询超时，请稍后重试。"
+
+
+@pytest.mark.asyncio
+async def test_unclassified_stream_error_is_sanitized(monkeypatch):
+    async def fail_query(_kb, **_kwargs):
+        raise RuntimeError(
+            "dsn=postgresql://private-user:private-password@db/private "
+            r"path=C:\private\secret.txt token=private-token"
+        )
+
+    _wire_query_prerequisites(monkeypatch)
+    monkeypatch.setattr(agent_router, "acquire_query_kb", fail_query)
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(query="test", retrieval_only=True),
+        _Request(),
+        current_user={"id": 7, "username": "user", "is_admin": False},
+        _perm=None,
+    )
+    body = await _body(response)
+    events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+    error = next(event for event in events if event["type"] == "error")
+
+    assert error == {
+        "type": "error",
+        "code": "query_failed",
+        "content": "智能体查询暂时不可用，请重试。",
+    }
+    assert "private-user" not in body
+    assert "private-password" not in body
+    assert "private-token" not in body
+    assert r"C:\private" not in body

@@ -109,6 +109,33 @@ _VIDEO_SEGMENT_CONTEXT_PATTERN = re.compile(
 )
 
 
+def _agent_stream_error_payload(exc: Exception) -> dict[str, str]:
+    """Return a stable, non-sensitive SSE error payload."""
+    if isinstance(exc, ProviderBusyError):
+        return {
+            "type": "error",
+            "code": "provider_busy",
+            "content": "模型服务繁忙，请稍后重试。",
+        }
+    if isinstance(exc, ProviderUnavailableError):
+        return {
+            "type": "error",
+            "code": "provider_unavailable",
+            "content": "模型服务暂时不可用，请稍后重试。",
+        }
+    if isinstance(exc, TimeoutError):
+        return {
+            "type": "error",
+            "code": "query_timeout",
+            "content": "查询超时，请稍后重试。",
+        }
+    return {
+        "type": "error",
+        "code": "query_failed",
+        "content": "智能体查询暂时不可用，请重试。",
+    }
+
+
 async def _present_agents(agents: list[dict]) -> list[dict]:
     """Attach safe KB presentation names without changing internal identifiers."""
     try:
@@ -1631,20 +1658,30 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
         else detect_knowledge_inventory_intent(req.query)
     )
     if inventory_type is not None:
+        try:
+            agent = await pg_get_agent(agent_id)
+            if not agent:
+                raise HTTPException(404, "智能体不存在")
+            actual_kb = await verify_kb_access(
+                kb=agent.get("kb_name", ""), current_user=current_user
+            )
+            if req.thread_id:
+                await _require_owned_conversation(
+                    agent_id, req.thread_id, current_user
+                )
+        except asyncio.CancelledError:
+            timing.total(outcome="cancelled")
+            raise
+        except Exception:
+            timing.total(outcome="error")
+            raise
+
         async def inventory_event_stream():
             timing_outcome = "ok"
             try:
                 yield f"data: {json.dumps({'type': 'accepted'}, ensure_ascii=False)}\n\n"
-                agent = await pg_get_agent(agent_id)
-                if not agent:
-                    raise HTTPException(404, "智能体不存在")
-                actual_kb = await verify_kb_access(
-                    kb=agent.get("kb_name", ""), current_user=current_user
-                )
                 thread_id = req.thread_id
-                if thread_id:
-                    await _require_owned_conversation(agent_id, thread_id, current_user)
-                else:
+                if not thread_id:
                     thread = await pg_create_conversation(
                         agent_id, title="新对话", owner_id=current_user["id"]
                     )
@@ -3166,7 +3203,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             raise
         except TimeoutError as exc:
             timing_outcome = "timeout"
-            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+            payload = _agent_stream_error_payload(exc)
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         except Exception as exc:
             timing_outcome = "error"
             lightrag_logger.warning(
@@ -3174,12 +3212,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 query_id,
                 exc_info=True,
             )
-            if isinstance(exc, ProviderBusyError):
-                payload = {"type": "error", "code": "provider_busy", "content": "provider is busy"}
-            elif isinstance(exc, ProviderUnavailableError):
-                payload = {"type": "error", "code": "provider_unavailable", "content": "provider unavailable"}
-            else:
-                payload = {"type": "error", "content": str(exc)}
+            payload = _agent_stream_error_payload(exc)
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         finally:
             _cancel_and_observe_task(ctx_task)
