@@ -8,7 +8,7 @@
 |---|---|
 | 最后核验日期 | 2026-09-23（Asia/Shanghai） |
 | 核验分支 | `codex/paginate-large-kb-document-summaries` |
-| 基准提交 | 代码事实 HEAD `db5790e`；评测记录提交 `2557aa7`；云端运行提交 `2981ba0993ee`；Stage 3 离线资格 `f751e54f2e57` |
+| 基准提交 | 代码事实 HEAD `db5790e`；评测记录提交 `2557aa7`；云端运行提交 `3ac28c3c8bc6`；Stage 3 离线资格 `f751e54f2e57` |
 | 工作区状态 | 2026-09-14 文档交付收口提交后应为干净；以实时 `git status` 为准 |
 | 维护上限 | 不超过 350 行、30 KB；近期任务不超过 15 条 |
 
@@ -155,7 +155,7 @@ IMG-CLEAN
 
 | 日期 | 任务/change | 类型 | 结果 | 影响范围 | 验证 | 经验/风险 |
 |---|---|---|---|---|---|---|
-| 2026-09-23 | new-video-asr-normalization-recheck | 云端真实处理/检索/问答验收 | 最新重传3个视频共17段：17/17非空转写且进入chunk、17/17向量、3/3时间轴连续和Range 206、43个帧引用0越界、17/17 exact provenance；检索hit@1/@5/@10均为4/4，`NewVideo-Acceptance-20260922`真实SSE三题0 fallback、无超时 | ASR术语归一化与冲突提示的只读云端验证；无数据、代码或部署变更 | 片段21.56-30.00秒、平均25.00秒，14组固定3秒重叠；Agent关键点覆盖11/12，严格完整2/3；上一轮“软款/转相机/局声/屁膽”错误在本批为0，仍见“机油/汽油/基油”“举升/举身”“减震器/简阵器”等错误，`机油加注`出现1处未证实容器描述 | 索引和媒体链路稳定可用，检索Top-1提升至100%；综合约88.5/100，主要剩余风险已从结构问题收敛为ASR专业语义、冲突降权和浏览器非流式播放 |
+| 2026-09-23 | new-video-asr-correction-verification | 云端真实处理/检索/问答验收 | 最新重传3个视频共17段：17/17非空转写且进入chunk、17/17向量、3/3时间轴连续和Range 206、43个帧引用0越界、17/17 exact provenance；14/17片段带ASR纠错审计，修正汽油/基油→机油、自动→制动、简阵器→减震器、举身→举升、屁膽→P档等；真实SSE三题0 fallback、核心关键点覆盖100% | ASR术语归一化、纠错审计和查询期冲突治理的只读云端验证；无数据、代码或部署变更 | 片段21.56-30.00秒、平均25.00秒，14组固定3秒重叠；检索hit@1/@5/@10均为100%；综合约93.5/100，较上一轮88.5提升5分；仍见1处无明确文本依据的“安全帽”描述、1处代码类别冲突误报，视觉摘要与转写的对象冲突仍有漏判 | 当前批次已达到结构完整、检索稳定、术语基本可用的条件生产版本；`30、机油加注`早于当前`3ac28c3c`最终镜像入库，后两个视频使用最终镜像；路径/Range和局部帧逻辑未变，浏览器仍非流式播放 |
 | 2026-09-22 | cloud-new-video-upload-loss-fix-release | 云端故障诊断/刷新续传/片段补帧/Whisper 运行时/发布 | 源码 `44dad8cf` 持久化上传任务、IndexedDB 草稿与分片续传，无帧片段仅在自身时间窗补抽；新增 CPU-only `openai-whisper==20250625`、哈希锁和 `small.pt` 镜像缓存。新运行时 `controlled-whisper-0f79142c` 已用于 App 发布，App/Nginx `fast-44dad8cfa7f1` healthy/restart=0 | 视频 Worker/segment/media/citation、上传页面、任务预留/草稿/续传、终态一致性、补帧与受控运行时；无迁移或 Compose 变更；未回填历史知识库 | 运行时 `sha256:110d5dbc...5faff9`，Whisper 模型 `483,617,219` 字节，`torch.version.cuda=None`，无 NVIDIA/CUDA/Triton；8 秒真实中文转写 Smoke `language=zh`、1 segment；原视频回放 60 帧/16 场景/6 片段无缺帧；health/ready 200，迁移 pending=0 | 现有失败任务需重处理；真实 Provider、长视频 CPU 转写耗时和大文件场景仍需验证 |
 | 2026-09-21 | demo-video-chunk-audit | 云端只读质量审查 | `演示视频`KB 共7个v2视频、119个语义段/119个chunk：7/7时间轴连续、0缺口、112组固定3秒重叠、平均23.80秒/段，0空转写、0空视觉摘要、119/119 chunk与provenance存在；5个代表性hybrid检索探针均命中预期术语 | 只读云端API/PostgreSQL、容器文件哈希和检索探针；无数据、代码或部署变更 | 查得7/7媒体源文件仍在`uploads`且SHA-256匹配，但数据库存的是Windows路径，运行容器0/7可解析，视频Range接口7/7返回404；0/119 chunk包含完整转写正文；1/119片段帧引用跨出所属时间窗 | 结构切块约85-90分，视频RAG端到端约55-60分；文本检索有条件可用，但引用播放不可用且转写未直接索引，不能判为优秀或完整生产可用 |
 | 2026-09-21 | partial-project-cloud-evaluation | 云端真实评测/评测工具 | 在`测试2` KB 新上传前25页PDF（72 chunks、655 entities、1325 relations）上创建`测试2a-partial25`（`chunk_top_k=10`、rerank=false、Guard=false）；按可答边界选取项目一Q1-Q57，真实SSE 57/57通过、0 fallback、0 timeout，独立Judge 54/57（94.74%） | 新cloud Agent、评测输入证据、runner子集模式与Judge expected-count；无产品运行时、迁移或部署变更 | 评测工具30 passed、py_compile、diff check；云端真实SSE与独立Judge；Q54在新文档正确；失败题证据审计 | Q22为源文档内部规格冲突；Q35为同一切块已召回但生成漏点；Q56为表1-3解析残缺导致0Ω证据丢失；Q1-Q57子集工具`db5790e`已提交 |
