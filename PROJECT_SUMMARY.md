@@ -85,6 +85,7 @@ PostgreSQL 是认证、共享状态、迁移历史和业务仓库的权威后端
 - 普通任务事件只发给持久化 owner，payload 不含文件名、路径、KB 名或原始异常；监控通道要求 `monitor:read` 并只发聚合脱敏字段。
 - Agent/会话必须绑定调用者可访问的 KB；媒体只能通过受控端点访问。
 - 多轮 AgentChat 以 `thread_id` 关联 PostgreSQL `agent_conversations`/`agent_messages`；当前请求实际注入最近消息（默认 10 轮、约 2000 token），已持久化摘要会由 RAG/ReAct/CoT 读取并注入 Prompt，摘要默认消息数超过 20 条后触发；前端不提交历史数组，刷新后默认选首个会话。
+- 视频内音轨由 `ffprobe` 检测、`ffmpeg` 抽为16kHz单声道WAV并交给CPU Whisper，转写经术语归一化后进入片段chunk和向量；独立`mp3/wav/m4a/aac`文件当前没有可用音频处理管线。
 - `persist-kb-access-grants` 的运行时授权模型已被 `global-resource-visibility-retire-kb-membership` 替代：有 `kb:read` 的角色全局可见现有 KB，写入/管理/删除仍分别由全局能力与每 KB capability 投影控制；`allowed_kbs`、管理员 grant 控件和成员运行时已退役，历史表和迁移仅保留审计/回滚语义。
 - 隔离查询容量优化已确认 30 VU 的非成功阶段为测试镜像固定码
   `query_core_acquire`：独立 KB 并发初始化时，query core 可能在 lease 登记前被
