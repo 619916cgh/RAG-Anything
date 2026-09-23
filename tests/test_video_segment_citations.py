@@ -567,6 +567,71 @@ async def test_agent_sse_done_event_carries_video_segment_citations(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_answer_guard_emits_final_token_without_replace_event(monkeypatch):
+    from raganything.routers import agent as agent_router
+
+    class _KB:
+        config = SimpleNamespace(enforce_citation=False, vision_search_enabled=False)
+
+        async def aquery(self, *_args, **_kwargs):
+            return "[来源 1]\n" + ("reference context " * 20)
+
+        async def finalize_storages(self):
+            return None
+
+    _wire_agent_stream_prerequisites(
+        monkeypatch, agent_mode="none", kb_instance=_KB()
+    )
+
+    async def guarded_agent(_agent_id):
+        return {
+            "id": "agent-1", "name": "agent", "kb_name": "kb", "owner_id": 7,
+            "query_mode": "hybrid", "agent_mode": "none",
+            "retrieval_top_k": 20, "chunk_top_k": 5, "enable_rerank": False,
+            "include_references": True, "max_response_tokens": 512,
+            "temperature": 0.0, "system_prompt": "", "use_default_prompt": True,
+            "answer_completeness_guard_enabled": True,
+        }
+
+    async def revise_answer(**_kwargs):
+        return SimpleNamespace(
+            used_revision=True,
+            final_answer="修正后的最终答案。",
+            metadata=lambda: {"used_revision": True},
+            client_metadata=lambda: {"used_revision": True},
+        )
+
+    monkeypatch.setattr(agent_router, "pg_get_agent", guarded_agent)
+    monkeypatch.setattr(
+        agent_router, "apply_answer_completeness_guard", revise_answer
+    )
+
+    response = await agent_router.agent_query_stream(
+        "agent-1",
+        agent_router.AgentQueryRequest(query="检查电池", thread_id="thread-1"),
+        _Request(),
+        current_user={"id": 7, "username": "user", "is_admin": True},
+        _perm=None,
+    )
+    body = await _body(response)
+    events = [
+        json.loads(line[6:])
+        for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    tokens = "".join(
+        event.get("content", "")
+        for event in events
+        if event.get("type") == "token"
+    )
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert not any(event.get("type") == "replace" for event in events)
+    assert tokens == "修正后的最终答案。"
+    assert done["answer_guard"] == {"used_revision": True}
+
+
+@pytest.mark.asyncio
 async def test_agent_cot_done_event_carries_video_segment_citations(monkeypatch):
     import raganything.agentic_rag as agentic_rag_module
     from raganything.agentic_rag import AgentResult
@@ -772,6 +837,9 @@ async def test_document_chunk_dto_attaches_video_segment_metadata(monkeypatch):
         doc_status = None
 
     monkeypatch.setattr(knowledge, "get_kb", AsyncMock(return_value=SimpleNamespace(lightrag=LightRAG())))
+    monkeypatch.setattr(
+        knowledge, "get_chunk_record_direct", AsyncMock(return_value=record)
+    )
     monkeypatch.setattr(knowledge, "_load_doc_status_json", statuses)
     monkeypatch.setattr(
         knowledge, "_get_tags_for_chunks_best_effort",

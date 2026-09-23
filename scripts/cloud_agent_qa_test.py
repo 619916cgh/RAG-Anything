@@ -310,7 +310,7 @@ class CloudClient:
             ensure_ascii=False,
         ).encode("utf-8")
         req = request.Request(
-            self.base_url + f"/api/agents/{agent_id}/query/stream",
+            self.base_url + f"/api/agents/{agent_id}/query/stream/internal",
             data=payload,
             headers={
                 "Authorization": f"Bearer {self.token}",

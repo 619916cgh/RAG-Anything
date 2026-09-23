@@ -82,7 +82,7 @@ class QueryUser(HttpUser):
         first = None
         error = None
         try:
-            with requests.post(f"{self.host}/api/agents/{self.credential['agent_id']}/query/stream", json={"query": "性能测试查询", "retrieval_only": True}, headers={"Authorization": f"Bearer {self.token}", "Accept": "text/event-stream"}, stream=True, timeout=int(os.getenv("RAG_SSE_TIMEOUT", "120"))) as response:
+            with requests.post(f"{self.host}/api/agents/{self.credential['agent_id']}/query/stream/internal", json={"query": "性能测试查询", "retrieval_only": True}, headers={"Authorization": f"Bearer {self.token}", "Accept": "text/event-stream"}, stream=True, timeout=int(os.getenv("RAG_SSE_TIMEOUT", "120"))) as response:
                 status = response.status_code
                 if status == 200:
                     completed = False
@@ -103,7 +103,7 @@ class QueryUser(HttpUser):
         except requests.RequestException as exc:
             error = type(exc).__name__
         elapsed = time.perf_counter() - started
-        events.request.fire(request_type="SSE", name="/api/agents/{agent_id}/query/stream", response_time=elapsed * 1000, response_length=tokens, exception=Exception(error) if error else None, context={"ttft_ms": (first - started) * 1000 if first else None, "http_status": status})
+        events.request.fire(request_type="SSE", name="/api/agents/{agent_id}/query/stream/internal", response_time=elapsed * 1000, response_length=tokens, exception=Exception(error) if error else None, context={"ttft_ms": (first - started) * 1000 if first else None, "http_status": status})
 
 
 @events.test_stop.add_listener

@@ -440,7 +440,7 @@ class RAGQueryUser(HttpUser):
         query_text = self.query_selector.pick_query_text()
         category = self.query_selector.pick_category()
 
-        url = f"{self.host}/api/agents/{self.agent_id}/query/stream"
+        url = f"{self.host}/api/agents/{self.agent_id}/query/stream/internal"
         headers = {
             "Authorization": f"Bearer {self.auth_token}",
             "Content-Type": "application/json",
@@ -473,7 +473,7 @@ class RAGQueryUser(HttpUser):
                 headers=headers,
                 stream=True,
                 timeout=self.sse_timeout,
-                name=f"/api/agents/{{agent_id}}/query/stream ({category})",
+                name=f"/api/agents/{{agent_id}}/query/stream/internal ({category})",
                 catch_response=True,
             ) as response:
 

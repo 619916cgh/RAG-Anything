@@ -46,7 +46,7 @@ test('streams authenticated terminal SSE events without reading past done', asyn
       read: async () => {
         reads += 1
         return reads === 1
-          ? { done: false, value: encoder.encode('data: {"type":"done"}\r\n') }
+          ? { done: false, value: encoder.encode('data: {"type":"done"}\r\n\r\n') }
           : { done: true }
       },
       cancel: async () => { cancelled = true },
@@ -61,6 +61,50 @@ test('streams authenticated terminal SSE events without reading past done', asyn
   assert.equal(reads, 1)
   assert.equal(cancelled, true)
   assert.equal(requestHeaders.Authorization, 'Bearer token-1')
+})
+
+test('streams CRLF and multi-line data frames without truncating payloads', async t => {
+  const originalFetch = globalThis.fetch
+  const originalLocalStorage = globalThis.localStorage
+  const encoder = new TextEncoder()
+  let reads = 0
+  globalThis.localStorage = { getItem: () => null }
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: { getReader: () => ({
+      read: async () => {
+        reads += 1
+        if (reads === 1) {
+          return {
+            done: false,
+            value: encoder.encode('data: {"type":"token",\r\ndata: "content":"hello"}\r'),
+          }
+        }
+        if (reads === 2) {
+          return {
+            done: false,
+            value: encoder.encode('\n\r\ndata: {"type":"done"}\r\n\r\n'),
+          }
+        }
+        return { done: true }
+      },
+      cancel: async () => {},
+      releaseLock: () => {},
+    }) },
+  })
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage })
+
+  const events = []
+  await streamSSE('/api/agents/a/query/stream/internal', {
+    body: '{}',
+    onEvent: event => events.push(event),
+  })
+
+  assert.deepEqual(events, [
+    { type: 'token', content: 'hello' },
+    { type: 'done' },
+  ])
 })
 
 test('reports a distinct timeout when an SSE response has no first event', async t => {
@@ -99,7 +143,7 @@ test('resets the SSE idle deadline for lifecycle events', async t => {
       read: () => {
         reads += 1
         return reads === 1
-          ? Promise.resolve({ done: false, value: encoder.encode('data: {"type":"heartbeat"}\n') })
+          ? Promise.resolve({ done: false, value: encoder.encode('data: {"type":"heartbeat"}\n\n') })
           : new Promise(() => {})
       },
       cancel: async () => {},

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 import hashlib
+import hmac
+import threading
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -14,6 +17,9 @@ from raganything.utils.media import is_supported_video_file
 
 
 MEDIA_DELIVERY_VERSION = 2
+_MEDIA_HASH_CACHE_MAX = 256
+_MEDIA_HASH_CACHE: OrderedDict[tuple[str, int, int, int, str], bool] = OrderedDict()
+_MEDIA_HASH_CACHE_LOCK = threading.Lock()
 
 
 def _failure() -> CitationProvenanceError:
@@ -57,6 +63,43 @@ def media_file_sha256(path: Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def media_file_sha256_matches(path: Path, expected_sha256: str) -> bool:
+    """Verify a controlled media file while caching unchanged file identities."""
+    expected = str(expected_sha256 or "").lower()
+    if len(expected) != 64:
+        return False
+    try:
+        stat = path.stat()
+        key = (
+            str(path.resolve()),
+            int(stat.st_size),
+            int(stat.st_mtime_ns),
+            int(stat.st_ctime_ns),
+            expected,
+        )
+    except OSError:
+        return False
+
+    with _MEDIA_HASH_CACHE_LOCK:
+        cached = _MEDIA_HASH_CACHE.get(key)
+        if cached is not None:
+            _MEDIA_HASH_CACHE.move_to_end(key)
+            return cached
+
+    try:
+        matches = hmac.compare_digest(media_file_sha256(path), expected)
+    except OSError:
+        matches = False
+
+    if matches:
+        with _MEDIA_HASH_CACHE_LOCK:
+            _MEDIA_HASH_CACHE[key] = True
+            _MEDIA_HASH_CACHE.move_to_end(key)
+            while len(_MEDIA_HASH_CACHE) > _MEDIA_HASH_CACHE_MAX:
+                _MEDIA_HASH_CACHE.popitem(last=False)
+    return matches
 
 
 async def audit_media_delivery_v2(

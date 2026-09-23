@@ -1,7 +1,9 @@
 from pathlib import Path
+import hashlib
 
 import pytest
 
+from raganything.services import media_delivery_contract
 from raganything.services.media_delivery_contract import (
     audit_media_delivery_v2,
     mark_media_delivery_v2,
@@ -529,3 +531,26 @@ async def test_video_contract_rejects_replaced_file(tmp_path, monkeypatch):
             kb_name="kb-a", document_id="doc-1", source_sha256="b" * 64,
             chunk_ids=["chunk-1"], metadata={}, require_video=True, pool=pool,
         )
+
+
+def test_media_sha_verification_cache_avoids_rehashing_unchanged_file(
+    tmp_path, monkeypatch
+):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video-content")
+    expected = hashlib.sha256(video.read_bytes()).hexdigest()
+    calls = {"count": 0}
+    real_hash = media_delivery_contract.media_file_sha256
+
+    def counted_hash(path):
+        calls["count"] += 1
+        return real_hash(path)
+
+    monkeypatch.setattr(
+        media_delivery_contract, "media_file_sha256", counted_hash
+    )
+    media_delivery_contract._MEDIA_HASH_CACHE.clear()
+
+    assert media_delivery_contract.media_file_sha256_matches(video, expected)
+    assert media_delivery_contract.media_file_sha256_matches(video, expected)
+    assert calls["count"] == 1

@@ -46,3 +46,12 @@ test('agent chat filters citation data through the reference setting', () => {
   assert.match(page, /images=\{shouldShowAgentProvenance\(agent\) \? m\.images : \[\]\}/)
   assert.match(page, /similarImages=\{shouldShowAgentProvenance\(agent\) \? m\.similar_images : \[\]\}/)
 })
+
+test('agent chat uses the internal override endpoint and adopts done.thread_id', () => {
+  const page = readFileSync(new URL('../pages/AgentChatPage.jsx', import.meta.url), 'utf8')
+
+  assert.match(page, /query\/stream\/internal/)
+  assert.match(page, /const returnedThreadId = typeof event\.thread_id === 'string'/)
+  assert.match(page, /await streamQuery\(q, img, activeThreadId \|\| ''\)/)
+  assert.doesNotMatch(page, /if \(!activeThreadId\) \{\s*const newThreadId = await createThread/)
+})

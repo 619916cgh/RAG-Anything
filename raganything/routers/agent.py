@@ -16,7 +16,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lightrag.llm.openai import openai_complete_if_cache
 from lightrag.utils import logger as lightrag_logger
@@ -1029,9 +1029,14 @@ class AgentUpdateRequest(BaseModel):
         return value
 
 
-class AgentQueryRequest(BaseModel):
+class StandardAgentQueryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str
-    thread_id: str = ""  # 关联的对话线程 ID
+    thread_id: str = ""
+
+
+class AgentQueryRequest(StandardAgentQueryRequest):
     mode: AgentQueryModeOverride = ""  # 空则使用智能体默认模式
     agent_mode: Optional[AgentMode] = None
     vlm_enhanced: bool = False
@@ -1633,8 +1638,7 @@ async def update_message(
 
 # ── 🔍 智能查询（智能体增强）─────────────────────────────
 
-@router.post("/agents/{agent_id}/query/stream")
-async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Request, current_user: dict = Depends(get_current_user),
+async def _agent_query_stream_impl(agent_id: str, req: AgentQueryRequest, request: Request, current_user: dict = Depends(get_current_user),
     _perm: None = Depends(require_permission(Permission.AGENT_READ)),
 ):
     """智能体流式查询：使用智能体配置执行查询"""
@@ -3046,6 +3050,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             answer_filter = ReferenceOutputFilter(
                 enabled=not include_references
             )
+            guard_enabled = answer_completeness_guard_enabled(
+                runtime_config["answer_completeness_guard_enabled"]
+            )
 
             if llm_response is None:
                 timing.finish("llm", outcome="error")
@@ -3058,7 +3065,7 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                     + answer_filter.finish()
                 )
                 timing.record("llm_first_token", time.perf_counter() - llm_started)
-                if full_answer:
+                if full_answer and not guard_enabled:
                     yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
             else:
                 _stream_tokens = []
@@ -3070,7 +3077,8 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         if visible:
                             _stream_tokens.append(visible)
                             full_answer += visible
-                            yield f"data: {json.dumps({'type': 'token', 'content': visible}, ensure_ascii=False)}\n\n"
+                            if not guard_enabled:
+                                yield f"data: {json.dumps({'type': 'token', 'content': visible}, ensure_ascii=False)}\n\n"
                 except Exception as _stream_err:
                     lightrag_logger.warning(
                         f"LLM stream interrupted after {len(_stream_tokens)} tokens: {_stream_err}"
@@ -3082,19 +3090,14 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                 if visible_tail:
                     _stream_tokens.append(visible_tail)
                     full_answer += visible_tail
-                    yield f"data: {json.dumps({'type': 'token', 'content': visible_tail}, ensure_ascii=False)}\n\n"
+                    if not guard_enabled:
+                        yield f"data: {json.dumps({'type': 'token', 'content': visible_tail}, ensure_ascii=False)}\n\n"
 
             timing.finish("llm")
             timing.record("llm_last_token", time.perf_counter() - llm_started)
             answer_guard_metadata = None
             answer_guard_client_metadata = None
-            if (
-                answer_completeness_guard_enabled(
-                    runtime_config["answer_completeness_guard_enabled"]
-                )
-                and full_answer
-                and ctx
-            ):
+            if guard_enabled and full_answer and ctx:
                 timing.start("answer_guard")
                 guard_result = await apply_answer_completeness_guard(
                     question=req.query,
@@ -3115,8 +3118,9 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
                         guarded_answer = strip_reference_markers(guarded_answer)
                     if guarded_answer.strip():
                         full_answer = guarded_answer.strip()
-                        yield f"data: {json.dumps({'type': 'replace', 'content': full_answer, 'answer_guard': answer_guard_client_metadata}, ensure_ascii=False)}\n\n"
                 timing.finish("answer_guard")
+            if guard_enabled and full_answer:
+                yield f"data: {json.dumps({'type': 'token', 'content': full_answer}, ensure_ascii=False)}\n\n"
             elapsed = round(time.time() - start_time, 2)
             citations = []
             if include_references:
@@ -3261,4 +3265,41 @@ async def agent_query_stream(agent_id: str, req: AgentQueryRequest, request: Req
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@router.post("/agents/{agent_id}/query/stream")
+async def agent_query_stream(
+    agent_id: str,
+    req: StandardAgentQueryRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _perm: None = Depends(require_permission(Permission.AGENT_READ)),
+):
+    """Standard documented agent stream: query and thread_id only."""
+    internal_req = AgentQueryRequest(**req.model_dump())
+    return await _agent_query_stream_impl(
+        agent_id,
+        internal_req,
+        request,
+        current_user=current_user,
+        _perm=_perm,
+    )
+
+
+@router.post("/agents/{agent_id}/query/stream/internal")
+async def agent_query_stream_internal(
+    agent_id: str,
+    req: AgentQueryRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _perm: None = Depends(require_permission(Permission.AGENT_READ)),
+):
+    """Internal UI and evaluation stream with explicit override fields."""
+    return await _agent_query_stream_impl(
+        agent_id,
+        req,
+        request,
+        current_user=current_user,
+        _perm=_perm,
     )

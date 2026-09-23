@@ -293,7 +293,7 @@ def _stream_query(
         if thread_id:
             request_payload["thread_id"] = thread_id
         response = session.post(
-            f"{base_url}/api/agents/{record['agent_id']}/query/stream",
+            f"{base_url}/api/agents/{record['agent_id']}/query/stream/internal",
             json=request_payload,
             headers={"Authorization": f"Bearer {token}", "Accept": "text/event-stream"},
             stream=True,

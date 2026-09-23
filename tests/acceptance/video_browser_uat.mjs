@@ -973,7 +973,7 @@ function installPageDiagnostics(page) {
   const onRequest = request => {
     try {
       const url = new URL(request.url())
-      if (request.method() === 'POST' && url.pathname.endsWith('/query/stream')) {
+      if (request.method() === 'POST' && url.pathname.endsWith('/query/stream/internal')) {
         const payload = request.postDataJSON?.() || {}
         queryThreadIds.push(typeof payload.thread_id === 'string' ? payload.thread_id : '')
       }
@@ -2067,7 +2067,7 @@ async function verifyCitationOnlyPage(page, resource, probe) {
       setCitationProbeFailure(probe, 'target_query_identity_observed', 'active_thread_mismatch')
       return
     }
-    const queryPath = `/api/agents/${encodeURIComponent(resource.agentId)}/query/stream`
+    const queryPath = `/api/agents/${encodeURIComponent(resource.agentId)}/query/stream/internal`
     const responseStartedAt = Date.now()
     probe.response_wait_started = true
     recordCitationProbe(probe, 'response_wait_started', responseStartedAt, { observed: true })
@@ -2451,7 +2451,7 @@ async function queryAgentSse(page, agentId, threadId, retrievalOnly = false) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 90_000)
     try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(id)}/query/stream`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(id)}/query/stream/internal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Authorization: `Bearer ${saved?.token || ''}` },
         body: JSON.stringify({ query: '如何检查腐蚀漏液', ...(thread ? { thread_id: thread } : {}), ...(onlyRetrieval ? { retrieval_only: true } : {}) }),
@@ -2657,7 +2657,7 @@ async function verifyCitationRenderAndPlayback(page, agentId, threadId, threadTi
   stage(prefix, 'new-video-query-submit')
   const querySubmitStartedAt = Date.now()
   try {
-    if (recordPhaseAPath) await installCitationResponseObserver(page, `/api/agents/${encodeURIComponent(agentId)}/query/stream`, threadId)
+    if (recordPhaseAPath) await installCitationResponseObserver(page, `/api/agents/${encodeURIComponent(agentId)}/query/stream/internal`, threadId)
     await input.fill('如何检查腐蚀漏液')
     await input.press('Enter')
     if (recordPhaseAPath) recordPhaseA('query_submit', 'passed', querySubmitStartedAt, { count: 1 })

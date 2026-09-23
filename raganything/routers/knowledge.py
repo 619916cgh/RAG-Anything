@@ -6033,14 +6033,12 @@ async def serve_odl_media(
     path = _resolve_controlled_video_path(asset.get("server_path") if asset else None)
     if asset is None or path is None or asset.get("status") != "ready":
         raise HTTPException(404, "media unavailable")
-    from raganything.services.media_delivery_contract import media_file_sha256
-    try:
-        digest_matches = media_file_sha256(path) == str(
-            asset.get("source_sha256") or ""
-        )
-    except OSError:
-        digest_matches = False
-    if not digest_matches:
+    from raganything.services.media_delivery_contract import (
+        media_file_sha256_matches,
+    )
+    if not media_file_sha256_matches(
+        path, str(asset.get("source_sha256") or "")
+    ):
         raise HTTPException(404, "media unavailable")
     import mimetypes
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"

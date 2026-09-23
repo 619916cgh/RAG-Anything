@@ -443,10 +443,13 @@ export async function streamSSE(url, {
   const decoder = new TextDecoder()
   let buffer = ''
   let terminal = false
-  const consumeLine = line => {
-    const normalized = line.replace(/\r$/, '')
-    if (!normalized.startsWith('data:')) return
-    const raw = normalized.slice(5).trimStart()
+  const consumeFrame = frame => {
+    const payloadText = frame
+      .split('\n')
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+      .join('\n')
+    const raw = payloadText.trim()
     if (!raw) return
     let event
     try {
@@ -466,16 +469,16 @@ export async function streamSSE(url, {
       const { done, value } = await waitForAbortable(reader.read())
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        consumeLine(line)
+      const frames = buffer.replace(/\r\n?/g, '\n').split('\n\n')
+      buffer = frames.pop() || ''
+      for (const frame of frames) {
+        consumeFrame(frame)
         if (terminal) break
       }
     }
     if (!terminal) {
       buffer += decoder.decode()
-      if (buffer.trim()) consumeLine(buffer)
+      if (buffer.trim()) consumeFrame(buffer.replace(/\r\n?/g, '\n'))
     }
     if (!terminal) throw new Error('问答连接意外中断，请重试。')
   } catch (error) {

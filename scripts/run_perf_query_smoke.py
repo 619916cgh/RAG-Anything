@@ -86,7 +86,7 @@ def _record(base_url: str, credential: dict[str, str], token: str, timeout: floa
         # login is a separate authenticated operation, not stream latency.
         started = time.perf_counter()
         response = session.post(
-            f"{base_url}/api/agents/{credential['agent_id']}/query/stream",
+            f"{base_url}/api/agents/{credential['agent_id']}/query/stream/internal",
             json={"query": "Isolated performance fixture", "retrieval_only": False},
             headers={"Authorization": f"Bearer {token}", "Accept": "text/event-stream"},
             stream=True,

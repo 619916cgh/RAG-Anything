@@ -678,6 +678,26 @@ def test_agent_api_rejects_invalid_modes_and_model_names():
         )
 
 
+def test_standard_agent_query_schema_rejects_internal_override_fields():
+    standard = agent_router.StandardAgentQueryRequest(
+        query="question", thread_id="thread-1"
+    )
+
+    assert standard.model_dump() == {
+        "query": "question",
+        "thread_id": "thread-1",
+    }
+    with pytest.raises(ValidationError):
+        agent_router.StandardAgentQueryRequest(
+            query="question", retrieval_only=True
+        )
+    with pytest.raises(ValidationError):
+        agent_router.StandardAgentQueryRequest(query="question", mode="hybrid")
+    assert agent_router.AgentQueryRequest(
+        query="question", retrieval_only=True
+    ).retrieval_only is True
+
+
 def test_agent_runtime_config_reads_persistent_completeness_guard_flag():
     runtime = agent_router._agent_runtime_config(
         {"answer_completeness_guard_enabled": True}

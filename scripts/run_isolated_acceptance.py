@@ -104,7 +104,7 @@ _CITATION_ARRAY_SHAPES = {"absent", "non_array", "array"}
 _RETRIEVAL_CONTEXT_SHAPES = {"absent", "string", "array", "object", "unknown"}
 _RETRIEVAL_ANCHOR_DETECTIONS = {"matched", "not_matched", "unavailable"}
 _CITATION_VIDEO_SEGMENT_SHAPES = {"absent", "object", "array", "unknown"}
-_SAFE_FAILURE_PATH = re.compile(r"^/api/agents/:agent/query/stream$")
+_SAFE_FAILURE_PATH = re.compile(r"^/api/agents/:agent/query/stream(?:/internal)?$")
 _CITATION_FAILURE_CLASSES = {
     "response_wait_timeout",
     "sse_body_read_failure",

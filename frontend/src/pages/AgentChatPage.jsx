@@ -480,7 +480,13 @@ export default function AgentChatPage({ onToast }) {
           m.id === msgId ? { ...m, similar_images: event.images || [] } : m
         ))
         break
-      case 'done':
+      case 'done': {
+        const returnedThreadId = typeof event.thread_id === 'string' ? event.thread_id : ''
+        const resolvedThreadId = returnedThreadId || threadId
+        if (returnedThreadId && activeThreadIdRef.current === threadId) {
+          activeThreadIdRef.current = returnedThreadId
+          setActiveThreadId(returnedThreadId)
+        }
         if (isVisibleThread) {
           setMessages(prev => prev.map(m =>
             m.id === msgId ? {
@@ -499,10 +505,10 @@ export default function AgentChatPage({ onToast }) {
         abortRef.current = null
         loadThreads()
         // 重新加载会话消息，从后端获取真实 msg_id 以支持编辑
-        if (threadId && activeThreadIdRef.current === threadId) {
-          api.getConversation(agentId, threadId).then(r => {
+        if (resolvedThreadId && activeThreadIdRef.current === resolvedThreadId) {
+          api.getConversation(agentId, resolvedThreadId).then(r => {
             if (r.thread?.messages) {
-              const mapped = mapThreadMessages(threadId, r.thread.messages)
+              const mapped = mapThreadMessages(resolvedThreadId, r.thread.messages)
               setMessages(previous => {
                 const streamed = previous.find(message => message.id === msgId)
                 const lastAssistant = [...mapped].reverse().find(message => message.role === 'assistant')
@@ -526,6 +532,7 @@ export default function AgentChatPage({ onToast }) {
           }).catch(() => {})
         }
         break
+      }
       case 'error':
         if (isVisibleThread) {
           setMessages(prev => prev.map(m =>
@@ -579,7 +586,7 @@ export default function AgentChatPage({ onToast }) {
           reader.readAsDataURL(imageFile)
         })
       }
-      await streamSSE(`/api/agents/${agentId}/query/stream`, {
+      await streamSSE(`/api/agents/${agentId}/query/stream/internal`, {
         method: 'POST',
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -611,30 +618,6 @@ export default function AgentChatPage({ onToast }) {
   // ── 发送消息 ─────────────────────────────────────────────
   const send = async () => {
     if ((!input.trim() && !selectedImage) || loading || tagScopePending || tagScopeInvalid) return
-    // 如果没有活动会话线程，则先创建一个
-    if (!activeThreadId) {
-      const newThreadId = await createThread()
-      if (!newThreadId) return
-      setMessages([])
-      cleanupMessageBlobUrls([])
-      const q = input.trim()
-      const img = selectedImage
-      const preview = imagePreview
-      setInput('')
-      setSelectedImage(null)
-      setImagePreview('')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      if (preview) trackBlobUrl(preview)
-      setMessages(prev => {
-        const next = [...prev, { role: 'user', content: q, imageUrl: preview }]
-        cleanupMessageBlobUrls(next)
-        return next
-      })
-      setLoading(true)
-      await streamQuery(q, img, newThreadId)
-      return
-    }
-
     const q = input.trim()
     const img = selectedImage
     const preview = imagePreview
@@ -649,7 +632,7 @@ export default function AgentChatPage({ onToast }) {
       return next
     })
     setLoading(true)
-    await streamQuery(q, img, activeThreadId)
+    await streamQuery(q, img, activeThreadId || '')
   }
 
   const cancelQuery = () => {
